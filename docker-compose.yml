@@ -1,0 +1,137 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:15-alpine
+    container_name: ahvp-postgres
+    environment:
+      POSTGRES_DB: ahvp
+      POSTGRES_USER: ahvp
+      POSTGRES_PASSWORD: Ahvp@2026Secure
+    volumes:
+      - ./deploy/data/postgres:/var/lib/postgresql/data
+      - ./deploy/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ahvp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ahvp-network
+    restart: unless-stopped
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: ahvp-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - ./deploy/data/redis:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ahvp-network
+    restart: unless-stopped
+
+  # MinIO 对象存储
+  minio:
+    image: minio/minio:RELEASE.2024-01-01T16-36-33Z
+    container_name: ahvp-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ahvp-admin
+      MINIO_ROOT_PASSWORD: Ahvp@2026Secure
+    volumes:
+      - ./deploy/data/minio:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - ahvp-network
+    restart: unless-stopped
+
+  # 后端服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ahvp-backend
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ahvp
+      DB_USER: ahvp
+      DB_PASSWORD: Ahvp@2026Secure
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ahvp-admin
+      MINIO_SECRET_KEY: Ahvp@2026Secure
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    networks:
+      - ahvp-network
+    restart: unless-stopped
+
+  # Python 评测引擎
+  engine:
+    build:
+      context: ./engine
+      dockerfile: Dockerfile
+    container_name: ahvp-engine
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ahvp
+      DB_USER: ahvp
+      DB_PASSWORD: Ahvp@2026Secure
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ahvp-admin
+      MINIO_SECRET_KEY: Ahvp@2026Secure
+    depends_on:
+      - backend
+    networks:
+      - ahvp-network
+    restart: unless-stopped
+
+  # 前端服务
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ahvp-frontend
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - backend
+    networks:
+      - ahvp-network
+    restart: unless-stopped
+
+networks:
+  ahvp-network:
+    driver: bridge
