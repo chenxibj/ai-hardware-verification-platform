@@ -16,13 +16,13 @@ export default function Logs() {
     try {
       const params = { size:100 };
       if (taskFilter) params.taskId = taskFilter;
-      if (levelFilter) params.logLevel = levelFilter;
-      const r = await api.get("/logs", { params });
+      if (levelFilter) params.level = levelFilter;
+      const r = await api.get("/eval-logs", { params });
       if(r.data.code===0) setLogs(r.data.data||[]);
     } catch(e) { message.error("获取日志失败"); }
     finally { setLoading(false); }
   };
-  const fetchStats = async () => { try { const r = await api.get("/logs/stats"); if(r.data.code===0) setStats(r.data.data); } catch(e){} };
+  const fetchStats = async () => { try { const r = await api.get("/eval-logs/stats"); if(r.data.code===0) setStats(r.data.data); } catch(e){} };
   useEffect(() => { fetchLogs(); fetchStats(); }, []);
 
   const levelColors = { INFO:"blue", WARN:"orange", ERROR:"red", DEBUG:"default" };
@@ -40,8 +40,8 @@ export default function Logs() {
     <div>
       <Row gutter={16} style={{marginBottom:24}}>
         <Col span={8}><Card hoverable><Statistic title="日志总数" value={stats.total||0} prefix={<FileSearchOutlined/>}/></Card></Col>
-        <Col span={8}><Card hoverable><Statistic title="错误数" value={stats.errors||0} valueStyle={{color:"#ff4d4f"}} prefix={<CloseCircleOutlined/>}/></Card></Col>
-        <Col span={8}><Card hoverable><Statistic title="警告数" value={stats.warnings||0} valueStyle={{color:"#faad14"}} prefix={<WarningOutlined/>}/></Card></Col>
+        <Col span={8}><Card hoverable><Statistic title="错误数" value={stats.error||0} valueStyle={{color:"#ff4d4f"}} prefix={<CloseCircleOutlined/>}/></Card></Col>
+        <Col span={8}><Card hoverable><Statistic title="警告数" value={stats.warn||0} valueStyle={{color:"#faad14"}} prefix={<WarningOutlined/>}/></Card></Col>
       </Row>
       <Card title="评测日志" extra={<Space>
         <Input placeholder="任务ID" style={{width:100}} value={taskFilter} onChange={e=>setTaskFilter(e.target.value||null)} allowClear/>

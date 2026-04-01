@@ -15,6 +15,7 @@ public class EvaluationTask {
     @Column(nullable = false, length = 200) private String name;
     @Column(length = 500) private String description;
     @Column(name = "eval_type", length = 32) private String evalType;
+    @Column(name = "eval_object", length = 32) private String evalObject;
     @Column(name = "target_model", length = 100) private String targetModel;
     @Column(name = "dataset_ids", length = 500) private String datasetIds;
     @Column(nullable = false, length = 32) private String status = "PENDING";

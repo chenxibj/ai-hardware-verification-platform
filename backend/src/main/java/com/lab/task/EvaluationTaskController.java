@@ -8,12 +8,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import java.time.Instant;
+import com.lab.audit.AuditService;
 import java.util.*;
 import java.util.stream.Collectors;
 
 @RestController @RequestMapping("/tasks") @RequiredArgsConstructor
 public class EvaluationTaskController {
     private final EvaluationTaskRepository taskRepository;
+    private final AuditService auditService;
 
     @PostMapping
     public ResponseEntity<Map<String,Object>> create(@RequestBody CreateTaskRequest req, @AuthenticationPrincipal User user) {
@@ -21,10 +23,13 @@ public class EvaluationTaskController {
         t.setTaskNo("EVT-" + Instant.now().getEpochSecond() + "-" + String.format("%03d",(int)(Math.random()*1000)));
         t.setName(req.getName()); t.setDescription(req.getDescription());
         t.setEvalType(req.getEvalType()!=null?req.getEvalType():"GENERAL");
+        t.setEvalObject(req.getEvalObject());
         t.setTargetModel(req.getTargetModel()); t.setDatasetIds(req.getDatasetIds());
         t.setStatus("PENDING"); t.setCreatedBy(user.getId()); t.setPriority(req.getPriority()!=null?req.getPriority():"MEDIUM");
         t.setTags(req.getTags());
-        return ResponseEntity.ok(Map.of("code",0,"data",taskRepository.save(t)));
+        EvaluationTask saved = taskRepository.save(t);
+        auditService.log(user.getId(), user.getUsername(), "CREATE", "TASK", saved.getId(), "创建任务: " + saved.getName());
+        return ResponseEntity.ok(Map.of("code",0,"data",saved));
     }
 
     @GetMapping
@@ -61,7 +66,7 @@ public class EvaluationTaskController {
     @PostMapping("/{id}/cancel")
     public ResponseEntity<Map<String,Object>> cancel(@PathVariable Long id) {
         EvaluationTask t = taskRepository.findById(id).orElseThrow(()->new RuntimeException("Not found"));
-        t.setStatus("CANCELLED"); return ResponseEntity.ok(Map.of("code",0,"data",taskRepository.save(t)));
+        t.setStatus("CANCELLED"); taskRepository.save(t); auditService.log(null, null, "UPDATE", "TASK", t.getId(), "取消任务"); return ResponseEntity.ok(Map.of("code",0,"data",t));
     }
 
     @PostMapping("/{id}/retry")
@@ -76,7 +81,7 @@ public class EvaluationTaskController {
         EvaluationTask clone = new EvaluationTask();
         clone.setTaskNo("EVT-" + Instant.now().getEpochSecond() + "-" + String.format("%03d",(int)(Math.random()*1000)));
         clone.setName(orig.getName() + " (副本)"); clone.setDescription(orig.getDescription());
-        clone.setEvalType(orig.getEvalType()); clone.setTargetModel(orig.getTargetModel());
+        clone.setEvalType(orig.getEvalType()); clone.setEvalObject(orig.getEvalObject()); clone.setTargetModel(orig.getTargetModel());
         clone.setDatasetIds(orig.getDatasetIds()); clone.setStatus("PENDING");
         clone.setCreatedBy(user.getId()); clone.setPriority(orig.getPriority()); clone.setTags(orig.getTags());
         return ResponseEntity.ok(Map.of("code",0,"data",taskRepository.save(clone)));
@@ -102,7 +107,7 @@ public class EvaluationTaskController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Map<String,Object>> delete(@PathVariable Long id) {
-        taskRepository.deleteById(id); return ResponseEntity.ok(Map.of("code",0,"message","success"));
+        taskRepository.deleteById(id); auditService.log(null, null, "DELETE", "TASK", id, "删除任务"); return ResponseEntity.ok(Map.of("code",0,"message","success"));
     }
 
     @GetMapping("/stats")

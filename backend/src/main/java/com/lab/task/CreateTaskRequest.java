@@ -5,6 +5,7 @@ public class CreateTaskRequest {
     private String name;
     private String description;
     private String evalType;
+    private String evalObject;
     private String targetModel;
     private String datasetIds;
     private String priority;

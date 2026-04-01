@@ -49,6 +49,7 @@ export const reportApi = {
 
 export const userApi = {
   list: (params) => api.get("/users", { params }),
+  create: (data) => api.post("/users", data),
   get: (id) => api.get("/users/" + id),
   updateRole: (id, role) => api.put("/users/" + id + "/role", { role }),
   updateStatus: (id, status) => api.put("/users/" + id + "/status", { status }),

@@ -1,5 +1,6 @@
 package com.lab.auth;
 
+import com.lab.audit.AuditService;
 import com.lab.config.JwtTokenProvider;
 import com.lab.user.User;
 import com.lab.user.UserService;
@@ -24,6 +25,7 @@ import java.util.Map;
 public class AuthController {
     private final UserService userService;
     private final JwtTokenProvider tokenProvider;
+    private final AuditService auditService;
 
     @PostMapping("/register")
     public ResponseEntity<Map<String, Object>> register(@Valid @RequestBody RegisterRequest request) {
@@ -51,6 +53,7 @@ public class AuthController {
             response.put("code", 0);
             response.put("message", "Login successful");
             response.put("data", Map.of("token", token, "refreshToken", refreshToken, "expiresIn", 86400, "user", userToMap(user)));
+            auditService.log(user.getId(), user.getUsername(), "LOGIN", "USER", user.getId(), "用户登录");
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("code", 1002, "message", e.getMessage()));

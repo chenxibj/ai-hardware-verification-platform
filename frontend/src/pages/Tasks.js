@@ -54,10 +54,14 @@ export default function Tasks() {
   const [createMode, setCreateMode] = useState(null);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [form] = Form.useForm();
+  const [backendResources, setBackendResources] = useState([]);
+  const [backendDatasets, setBackendDatasets] = useState([]);
 
   const fetchTasks = async () => { setLoading(true); try { const params = {size:100}; if(statusFilter) params.status=statusFilter; if(searchText) params.keyword=searchText; const r = await api.get("/tasks",{params}); if(r.data.code===0) setTasks(r.data.data||[]); } catch(e){message.error("获取失败");} finally{setLoading(false);} };
   const fetchStats = async () => { try { const r = await api.get("/tasks/stats"); if(r.data.code===0) setStats(r.data.data); } catch(e){} };
-  useEffect(() => { fetchTasks(); fetchStats(); }, []);
+  const fetchResources = async () => { try { const r = await api.get('/resources', {params:{size:100}}); if(r.data.code===0) setBackendResources(r.data.data||[]); } catch(e){} };
+  const fetchDatasets = async () => { try { const r = await api.get('/datasets', {params:{size:100}}); if(r.data.code===0) setBackendDatasets(r.data.data||[]); } catch(e){} };
+  useEffect(() => { fetchTasks(); fetchStats(); fetchResources(); fetchDatasets(); }, []);
 
   const handleCreate = async (values) => {
     const payload = { ...values, metrics: values.metrics ? values.metrics.join(",") : "", tags: values.tags ? values.tags.join(",") : "" };
@@ -76,11 +80,11 @@ export default function Tasks() {
     { title:"任务编号", dataIndex:"taskNo", width:140, ellipsis:true, fixed:"left" },
     { title:"名称", dataIndex:"name", ellipsis:true, width:200 },
     { title:"评测类型", dataIndex:"evalType", width:100, render:v=><Tag color="blue">{EVAL_TYPES[v]||v}</Tag> },
-    { title:"评测对象", dataIndex:"evalObject", width:90, render:v=><Tag>{EVAL_OBJECTS[v]||v}</Tag> },
+    { title:"评测维度", dataIndex:"evalObject", width:90, render:v=><Tag>{EVAL_OBJECTS[v]||v}</Tag> },
     { title:"优先级", dataIndex:"priority", width:70, render:v=><Tag color={PRIORITY_COLORS[v]}>{PRIORITIES[v]||v}</Tag> },
     { title:"状态", dataIndex:"status", width:90, render:v=><Badge status={STATUS_COLORS[v]} text={STATUS_MAP[v]||v}/> },
     { title:"进度", dataIndex:"progress", width:120, render:v=><Progress percent={v||0} size="small" strokeColor={v>=100?"#52c41a":v>=50?"#1890ff":"#faad14"}/> },
-    { title:"目标", dataIndex:"targetModel", width:140, ellipsis:true },
+    { title:"评测对象", dataIndex:"targetModel", width:140, ellipsis:true },
     { title:"创建时间", dataIndex:"createdAt", width:140, render:v=>v?dayjs(v).format("MM-DD HH:mm"):"-", sorter:(a,b)=>new Date(a.createdAt)-new Date(b.createdAt) },
     { title:"操作", key:"action", width:220, fixed:"right", render:(_,r)=>(
       <Space size={2}>
@@ -110,9 +114,9 @@ export default function Tasks() {
       <Form.Item name="name" label="任务名称" rules={[{required:true,message:"请输入任务名称"}]}><Input placeholder="例：华为昇腾910B ResNet50 推理性能评测" maxLength={100} showCount/></Form.Item>
       <Row gutter={16}>
         <Col span={12}><Form.Item name="evalType" label="评测类型" rules={[{required:true}]}><Select options={Object.entries(EVAL_TYPES).map(([k,v])=>({value:k,label:v}))} placeholder="选择评测类型"/></Form.Item></Col>
-        <Col span={12}><Form.Item name="evalObject" label="评测对象" rules={[{required:true}]}><Select options={Object.entries(EVAL_OBJECTS).map(([k,v])=>({value:k,label:v}))} placeholder="选择评测对象"/></Form.Item></Col>
+        <Col span={12}><Form.Item name="evalObject" label="评测维度" rules={[{required:true}]}><Select options={Object.entries(EVAL_OBJECTS).map(([k,v])=>({value:k,label:v}))} placeholder="选择评测维度"/></Form.Item></Col>
       </Row>
-      <Form.Item name="targetModel" label="评测目标（模型/芯片/框架名称）" rules={[{required:true}]}><Input placeholder="例：ResNet50 / 华为昇腾910B / PyTorch 2.1"/></Form.Item>
+      <Form.Item name="targetModel" label="评测对象（模型/芯片/框架名称）" rules={[{required:true}]}><Input placeholder="例：ResNet50 / 华为昇腾910B / PyTorch 2.1"/></Form.Item>
       <Row gutter={16}>
         <Col span={12}><Form.Item name="priority" label="优先级" initialValue="MEDIUM"><Select options={Object.entries(PRIORITIES).map(([k,v])=>({value:k,label:v}))}/></Form.Item></Col>
         <Col span={12}><Form.Item name="tags" label="标签"><Select mode="tags" placeholder="输入标签后回车" tokenSeparators={[","]}/></Form.Item></Col>
@@ -127,13 +131,13 @@ export default function Tasks() {
       <Form.Item name="datasetSource" label="数据集来源" initialValue="preset"><Radio.Group><Radio.Button value="preset">预置数据集</Radio.Button><Radio.Button value="custom">自定义上传</Radio.Button></Radio.Group></Form.Item>
       <Form.Item noStyle shouldUpdate={(prev,cur)=>prev.datasetSource!==cur.datasetSource}>
         {({getFieldValue})=>getFieldValue("datasetSource")==="preset" ?
-          <Form.Item name="datasetId" label="选择数据集"><Select options={PRESET_DATASETS} placeholder="选择预置数据集" allowClear/></Form.Item> :
+          <Form.Item name="datasetId" label="选择数据集"><Select placeholder="选择数据集" options={backendDatasets.length>0 ? backendDatasets.map(d=>({value:String(d.id),label:d.name+(d.type?" ("+d.type+")":"")})) : PRESET_DATASETS} allowClear/></Form.Item> :
           <Form.Item name="datasetFile" label="上传数据集"><Dragger accept=".csv,.xlsx,.zip,.tar.gz" maxCount={1}><p className="ant-upload-drag-icon"><InboxOutlined/></p><p>点击或拖拽上传数据集</p><p className="ant-upload-hint">支持 CSV, Excel, ZIP, TAR.GZ</p></Dragger></Form.Item>
         }
       </Form.Item>
       <Divider orientation="left">硬件资源</Divider>
       <Row gutter={16}>
-        <Col span={12}><Form.Item name="gpuType" label="GPU/芯片型号"><Select options={GPU_OPTIONS} placeholder="选择芯片" allowClear/></Form.Item></Col>
+        <Col span={12}><Form.Item name="gpuType" label="GPU/芯片型号"><Select placeholder="选择芯片" options={backendResources.length>0 ? backendResources.map(r=>({value:String(r.id),label:r.name+(r.model?" ("+r.model+")":"")})) : GPU_OPTIONS} allowClear/></Form.Item></Col>
         <Col span={12}><Form.Item name="gpuCount" label="GPU数量" initialValue={1}><InputNumber min={1} max={128} style={{width:"100%"}}/></Form.Item></Col>
       </Row>
       <Row gutter={16}>
@@ -163,8 +167,8 @@ export default function Tasks() {
           {selectedTemplate && <Descriptions.Item label="使用模板">{selectedTemplate.name}</Descriptions.Item>}
           <Descriptions.Item label="任务名称" span={2}>{vals.name||"-"}</Descriptions.Item>
           <Descriptions.Item label="评测类型">{EVAL_TYPES[vals.evalType]||"-"}</Descriptions.Item>
-          <Descriptions.Item label="评测对象">{EVAL_OBJECTS[vals.evalObject]||"-"}</Descriptions.Item>
-          <Descriptions.Item label="评测目标" span={2}>{vals.targetModel||"-"}</Descriptions.Item>
+          <Descriptions.Item label="评测维度">{EVAL_OBJECTS[vals.evalObject]||"-"}</Descriptions.Item>
+          <Descriptions.Item label="评测对象" span={2}>{vals.targetModel||"-"}</Descriptions.Item>
           <Descriptions.Item label="优先级"><Tag color={PRIORITY_COLORS[vals.priority]}>{PRIORITIES[vals.priority]||"中"}</Tag></Descriptions.Item>
           <Descriptions.Item label="GPU">{GPU_OPTIONS.find(g=>g.value===vals.gpuType)?.label||"未指定"} x {vals.gpuCount||1}</Descriptions.Item>
           <Descriptions.Item label="精度">{vals.precision||"FP16"}</Descriptions.Item>
@@ -219,9 +223,9 @@ export default function Tasks() {
             <Descriptions.Item label="状态"><Badge status={STATUS_COLORS[selected.status]} text={STATUS_MAP[selected.status]}/></Descriptions.Item>
             <Descriptions.Item label="名称" span={2}>{selected.name}</Descriptions.Item>
             <Descriptions.Item label="评测类型"><Tag color="blue">{EVAL_TYPES[selected.evalType]||selected.evalType}</Tag></Descriptions.Item>
-            <Descriptions.Item label="评测对象"><Tag>{EVAL_OBJECTS[selected.evalObject]||selected.evalObject||"-"}</Tag></Descriptions.Item>
+            <Descriptions.Item label="评测维度"><Tag>{EVAL_OBJECTS[selected.evalObject]||selected.evalObject||"-"}</Tag></Descriptions.Item>
             <Descriptions.Item label="优先级"><Tag color={PRIORITY_COLORS[selected.priority]}>{PRIORITIES[selected.priority]||selected.priority}</Tag></Descriptions.Item>
-            <Descriptions.Item label="目标">{selected.targetModel||"-"}</Descriptions.Item>
+            <Descriptions.Item label="评测对象">{selected.targetModel||"-"}</Descriptions.Item>
             <Descriptions.Item label="进度" span={2}><Progress percent={selected.progress||0} style={{maxWidth:300}}/></Descriptions.Item>
             <Descriptions.Item label="创建时间">{dayjs(selected.createdAt).format("YYYY-MM-DD HH:mm:ss")}</Descriptions.Item>
             {selected.completedAt&&<Descriptions.Item label="完成时间">{dayjs(selected.completedAt).format("YYYY-MM-DD HH:mm:ss")}</Descriptions.Item>}

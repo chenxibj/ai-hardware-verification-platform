@@ -6,7 +6,9 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import com.lab.audit.AuditService;
 import java.util.*;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import java.util.stream.Collectors;
 
 @RestController
@@ -14,6 +16,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class UserController {
     private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final AuditService auditService;
 
     @GetMapping
     public ResponseEntity<Map<String, Object>> list(
@@ -33,6 +37,38 @@ public class UserController {
         return ResponseEntity.ok(res);
     }
 
+
+    @PostMapping
+    public ResponseEntity<Map<String, Object>> create(@RequestBody Map<String, String> body, @AuthenticationPrincipal User admin) {
+        if (!"ADMIN".equals(admin.getRole())) {
+            return ResponseEntity.status(403).body(Map.of("code", 1003, "message", "Permission denied"));
+        }
+        String username = body.get("username");
+        String email = body.get("email");
+        String password = body.getOrDefault("password", "ahvp123456");
+        String role = body.getOrDefault("role", "USER");
+        String phone = body.get("phone");
+        if (username == null || email == null) {
+            return ResponseEntity.badRequest().body(Map.of("code", 1001, "message", "用户名和邮箱不能为空"));
+        }
+        if (userRepository.findByUsername(username).isPresent()) {
+            return ResponseEntity.badRequest().body(Map.of("code", 1002, "message", "用户名已存在"));
+        }
+        if (userRepository.existsByEmail(email)) {
+            return ResponseEntity.badRequest().body(Map.of("code", 1002, "message", "邮箱已被注册"));
+        }
+        User user = new User();
+        user.setUsername(username);
+        user.setEmail(email);
+        user.setPassword(passwordEncoder.encode(password));
+        user.setRole(role);
+        user.setPhone(phone);
+        user.setStatus(User.Status.ACTIVE);
+        userRepository.save(user);
+        auditService.log(admin.getId(), admin.getUsername(), "CREATE", "USER", user.getId(), "创建用户: " + username);
+        return ResponseEntity.ok(Map.of("code", 0, "message", "success", "data", safeUser(user)));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<Map<String, Object>> getById(@PathVariable Long id) {
         return userRepository.findById(id)
@@ -48,6 +84,7 @@ public class UserController {
         User user = userRepository.findById(id).orElseThrow(() -> new RuntimeException("User not found"));
         user.setRole(body.get("role"));
         userRepository.save(user);
+        auditService.log(admin.getId(), admin.getUsername(), "UPDATE", "USER", user.getId(), "修改角色为: " + body.get("role"));
         return ResponseEntity.ok(Map.of("code", 0, "message", "success", "data", safeUser(user)));
     }
 
@@ -59,6 +96,7 @@ public class UserController {
         User user = userRepository.findById(id).orElseThrow(() -> new RuntimeException("User not found"));
         user.setStatus(User.Status.valueOf(body.get("status")));
         userRepository.save(user);
+        auditService.log(admin.getId(), admin.getUsername(), "UPDATE", "USER", user.getId(), "修改状态为: " + body.get("status"));
         return ResponseEntity.ok(Map.of("code", 0, "message", "success", "data", safeUser(user)));
     }
 

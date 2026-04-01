@@ -63,9 +63,9 @@ public class CommunityController {
     public ResponseEntity<Map<String,Object>> stats() {
         return ResponseEntity.ok(Map.of("code",0,"data",Map.of(
             "articles", articleRepository.countByStatus("PUBLISHED"),
-            "tutorials", articleRepository.countByCategory("TUTORIAL"),
-            "discussions", articleRepository.countByCategory("DISCUSSION"),
-            "requirements", articleRepository.countByCategory("REQUIREMENT")
+            "tutorials", articleRepository.countByCategoryAndStatus("TUTORIAL", "PUBLISHED"),
+            "discussions", articleRepository.countByCategoryAndStatus("DISCUSSION", "PUBLISHED"),
+            "requirements", articleRepository.countByCategoryAndStatus("REQUIREMENT", "PUBLISHED")
         )));
     }
 }
