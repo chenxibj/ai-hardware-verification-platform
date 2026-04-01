@@ -1,0 +1,30 @@
+[
+  {
+    "fileName": "mnist_test_500.npz",
+    "assetType": "DATASET",
+    "format": "npz",
+    "fileSize": 392840,
+    "filePath": "/root/ai-hardware-verification-platform/assets/mnist_test_500.npz"
+  },
+  {
+    "fileName": "test_classification_200.csv",
+    "assetType": "DATASET",
+    "format": "csv",
+    "fileSize": 8025,
+    "filePath": "/root/ai-hardware-verification-platform/assets/test_classification_200.csv"
+  },
+  {
+    "fileName": "simple_mlp.onnx",
+    "assetType": "MODEL",
+    "format": "onnx",
+    "fileSize": 407339,
+    "filePath": "/root/ai-hardware-verification-platform/assets/simple_mlp.onnx"
+  },
+  {
+    "fileName": "linear_regression.onnx",
+    "assetType": "MODEL",
+    "format": "onnx",
+    "fileSize": 157,
+    "filePath": "/root/ai-hardware-verification-platform/assets/linear_regression.onnx"
+  }
+]
