@@ -1,96 +1,32 @@
 package com.lab.task;
-
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
-
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.Instant;
-import java.util.List;
 
-/**
- * 评测任务实体类
- */
-@Data
-@Entity
-@Table(name = "evaluation_tasks")
-@NoArgsConstructor
-@AllArgsConstructor
+@Data @Entity @Table(name = "evaluation_tasks") @NoArgsConstructor
 public class EvaluationTask {
-
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-
-    @Column(name = "task_no", unique = true, nullable = false, length = 64)
-    private String taskNo;
-
-    @Column(name = "task_type", nullable = false, length = 32)
-    @Enumerated(EnumType.STRING)
-    private TaskType taskType; // TEMPLATE or CUSTOM
-
-    @Column(name = "eval_type", nullable = false, length = 32)
-    @Enumerated(EnumType.STRING)
-    private EvalType evalType; // MODEL, CHIP, FRAMEWORK, OPERATOR
-
-    @Column(name = "status", nullable = false, length = 32)
-    @Enumerated(EnumType.STRING)
-    private TaskStatus status; // PENDING, QUEUED, RUNNING, COMPLETED, FAILED, CANCELLED
-
-    @Column(name = "priority", nullable = false, length = 16)
-    @Enumerated(EnumType.STRING)
-    private Priority priority; // HIGH, MEDIUM, LOW
-
-    @Column(name = "eval_config", nullable = false, columnDefinition = "jsonb")
-    private String evalConfig;
-
-    @Column(name = "dataset_ids", columnDefinition = "bigint[]")
-    private List<Long> datasetIds;
-
-    @Column(name = "resource_spec", columnDefinition = "jsonb")
-    private String resourceSpec;
-
-    @Column(name = "allocated_resources", columnDefinition = "jsonb")
-    private String allocatedResources;
-
-    @Column(name = "resource_pool_id")
-    private Long resourcePoolId;
-
-    @Column(name = "progress", nullable = false)
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
+    @Column(name = "task_no", unique = true, nullable = false, length = 64) private String taskNo;
+    @Column(nullable = false, length = 200) private String name;
+    @Column(length = 500) private String description;
+    @Column(name = "eval_type", length = 32) private String evalType;
+    @Column(name = "target_model", length = 100) private String targetModel;
+    @Column(name = "dataset_ids", length = 500) private String datasetIds;
+    @Column(nullable = false, length = 32) private String status = "PENDING";
+    @Column(length = 16) private String priority = "MEDIUM"; // LOW, MEDIUM, HIGH, CRITICAL
+    @Column(length = 500) private String tags;
     private Integer progress = 0;
-
-    @Column(name = "started_at")
-    private Instant startedAt;
-
-    @Column(name = "completed_at")
-    private Instant completedAt;
-
-    @Column(name = "created_by", nullable = false)
-    private Long createdBy;
-
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
-    private Instant createdAt;
-
-    @UpdateTimestamp
-    @Column(name = "updated_at")
-    private Instant updatedAt;
-
-    public enum TaskType {
-        TEMPLATE, CUSTOM
-    }
-
-    public enum EvalType {
-        MODEL, CHIP, FRAMEWORK, OPERATOR
-    }
-
-    public enum TaskStatus {
-        PENDING, QUEUED, RUNNING, COMPLETED, FAILED, CANCELLED
-    }
-
-    public enum Priority {
-        HIGH, MEDIUM, LOW
-    }
+    @JdbcTypeCode(SqlTypes.JSON) @Column(columnDefinition = "jsonb") private String result;
+    @JdbcTypeCode(SqlTypes.JSON) @Column(name = "config", columnDefinition = "jsonb") private String config;
+    @Column(name = "error_message", columnDefinition = "text") private String errorMessage;
+    @Column(name = "created_by", nullable = false) private Long createdBy;
+    @Column(name = "started_at") private Instant startedAt;
+    @Column(name = "completed_at") private Instant completedAt;
+    @CreationTimestamp @Column(name = "created_at", updatable = false) private Instant createdAt;
+    @UpdateTimestamp @Column(name = "updated_at") private Instant updatedAt;
 }
