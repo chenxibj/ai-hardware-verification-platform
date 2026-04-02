@@ -6,9 +6,9 @@ services:
     image: postgres:15-alpine
     container_name: ahvp-postgres
     environment:
-      POSTGRES_DB: ahvp
-      POSTGRES_USER: ahvp
-      POSTGRES_PASSWORD: Ahvp@2026Secure
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - ./deploy/data/postgres:/var/lib/postgresql/data
       - ./deploy/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -47,8 +47,8 @@ services:
     container_name: ahvp-minio
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ahvp-admin
-      MINIO_ROOT_PASSWORD: Ahvp@2026Secure
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - ./deploy/data/minio:/data
     ports:
@@ -73,14 +73,15 @@ services:
       SPRING_PROFILES_ACTIVE: dev
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: ahvp
-      DB_USER: ahvp
-      DB_PASSWORD: Ahvp@2026Secure
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: ahvp-admin
-      MINIO_SECRET_KEY: Ahvp@2026Secure
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      JWT_SECRET: ${JWT_SECRET}
     depends_on:
       postgres:
         condition: service_healthy
@@ -103,14 +104,14 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: ahvp
-      DB_USER: ahvp
-      DB_PASSWORD: Ahvp@2026Secure
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: ahvp-admin
-      MINIO_SECRET_KEY: Ahvp@2026Secure
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
     depends_on:
       - backend
     networks:
