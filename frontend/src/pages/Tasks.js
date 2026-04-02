@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Card, Table, Tag, Space, Button, Row, Col, Statistic, Modal, Form, Input, Select, message, Badge, Progress, Steps, Divider, InputNumber, Switch, Upload, Tabs, Descriptions, Radio, Alert, Typography } from "antd";
-import { ProjectOutlined, PlusOutlined, ReloadOutlined, EyeOutlined, DeleteOutlined, CopyOutlined, StopOutlined, RedoOutlined, SearchOutlined, InboxOutlined, SettingOutlined, ThunderboltOutlined, CheckCircleOutlined, ExperimentOutlined, RocketOutlined, ApiOutlined, AppstoreOutlined, CloudServerOutlined } from "@ant-design/icons";
+import { ProjectOutlined, PlusOutlined, ReloadOutlined, EyeOutlined, DeleteOutlined, CopyOutlined, StopOutlined, RedoOutlined, SearchOutlined, InboxOutlined, SettingOutlined, ThunderboltOutlined, CheckCircleOutlined, ExperimentOutlined, RocketOutlined, ApiOutlined, AppstoreOutlined, CloudServerOutlined, FileTextOutlined } from "@ant-design/icons";
 import api from "../utils/api";
 import dayjs from "dayjs";
 const { TextArea } = Input;
@@ -8,21 +8,19 @@ const { Dragger } = Upload;
 const { Text } = Typography;
 
 const EVAL_TYPES = { PERFORMANCE:"性能评测", ACCURACY:"精度评测", COMPATIBILITY:"兼容性评测", STABILITY:"稳定性评测", GENERAL:"通用评测" };
-const EVAL_OBJECTS = { CHIP:"芯片", OPERATOR:"算子", MIDDLEWARE:"中间层", FRAMEWORK:"框架", MODEL:"模型", SCENE:"场景" };
 const PRIORITIES = { HIGH:"高", MEDIUM:"中", LOW:"低" };
 const PRIORITY_COLORS = { HIGH:"red", MEDIUM:"blue", LOW:"default" };
 const STATUS_MAP = { PENDING:"待执行", QUEUED:"排队中", RUNNING:"执行中", COMPLETED:"已完成", FAILED:"失败", CANCELLED:"已取消", TERMINATED:"已终止" };
 const STATUS_COLORS = { PENDING:"default", QUEUED:"warning", RUNNING:"processing", COMPLETED:"success", FAILED:"error", CANCELLED:"default", TERMINATED:"default" };
 
 const PRESET_TEMPLATES = [
-  { id:"chip_perf", name:"芯片性能评测", icon:<ThunderboltOutlined/>, evalType:"PERFORMANCE", evalObject:"CHIP", desc:"GPU/NPU算力密度、能效比、多卡互联测试", metrics:["算力(TOPS)","能效比(TOPS/W)","互联带宽(GB/s)","P95延迟"] },
-  { id:"model_accuracy", name:"模型精度评测", icon:<ExperimentOutlined/>, evalType:"ACCURACY", evalObject:"MODEL", desc:"模型在不同精度下的准确率、召回率、F1评估", metrics:["Top-1准确率","Top-5准确率","F1值","精度损失%"] },
-  { id:"model_perf", name:"模型推理性能", icon:<RocketOutlined/>, evalType:"PERFORMANCE", evalObject:"MODEL", desc:"推理延迟、吞吐量、资源利用率测试", metrics:["首包延迟","P95延迟","吞吐量(QPS)","GPU利用率"] },
-  { id:"framework_compat", name:"框架兼容性评测", icon:<ApiOutlined/>, evalType:"COMPATIBILITY", evalObject:"FRAMEWORK", desc:"框架在国产芯片上的适配性、算子支持率测试", metrics:["安装成功率","模型加载率","算子支持率","兼容性评分"] },
-  { id:"operator_perf", name:"算子性能评测", icon:<AppstoreOutlined/>, evalType:"PERFORMANCE", evalObject:"OPERATOR", desc:"单算子/融合算子执行延迟、精度损失测试", metrics:["执行延迟","吞吐量","精度损失","算力利用率"] },
-  { id:"scene_effect", name:"场景效果评测", icon:<SettingOutlined/>, evalType:"PERFORMANCE", evalObject:"SCENE", desc:"行业场景下模型实际应用效果量化评估", metrics:["准确率","召回率","业务指标","适配性评分"] },
+  { id:"chip_perf", name:"芯片性能评测", icon:<ThunderboltOutlined/>, evalType:"PERFORMANCE", desc:"GPU/NPU算力密度、能效比、多卡互联测试", metrics:["算力(TOPS)","能效比(TOPS/W)","互联带宽(GB/s)","P95延迟"] },
+  { id:"model_accuracy", name:"模型精度评测", icon:<ExperimentOutlined/>, evalType:"ACCURACY", desc:"模型在不同精度下的准确率、召回率、F1评估", metrics:["Top-1准确率","Top-5准确率","F1值","精度损失%"] },
+  { id:"model_perf", name:"模型推理性能", icon:<RocketOutlined/>, evalType:"PERFORMANCE", desc:"推理延迟、吞吐量、资源利用率测试", metrics:["首包延迟","P95延迟","吞吐量(QPS)","GPU利用率"] },
+  { id:"framework_compat", name:"框架兼容性评测", icon:<ApiOutlined/>, evalType:"COMPATIBILITY", desc:"框架在国产芯片上的适配性、算子支持率测试", metrics:["安装成功率","模型加载率","算子支持率","兼容性评分"] },
+  { id:"operator_perf", name:"算子性能评测", icon:<AppstoreOutlined/>, evalType:"PERFORMANCE", desc:"单算子/融合算子执行延迟、精度损失测试", metrics:["执行延迟","吞吐量","精度损失","算力利用率"] },
+  { id:"scene_effect", name:"场景效果评测", icon:<SettingOutlined/>, evalType:"PERFORMANCE", desc:"行业场景下模型实际应用效果量化评估", metrics:["准确率","召回率","业务指标","适配性评分"] },
 ];
-
 
 const GPU_OPTIONS = [
   { value:"ascend_910b", label:"华为昇腾 910B" },{ value:"ascend_910c", label:"华为昇腾 910C" },
@@ -48,55 +46,32 @@ export default function Tasks() {
   const [createStep, setCreateStep] = useState(0);
   const [createMode, setCreateMode] = useState(null);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [form] = Form.useForm();
   const [backendResources, setBackendResources] = useState([]);
   const [backendDatasets, setBackendDatasets] = useState([]);
   const [computeNodes, setComputeNodes] = useState([]);
   const [executions, setExecutions] = useState([]);
-  const [evalTargetOptions, setEvalTargetOptions] = useState([]);
-  const [evalTargetLoading, setEvalTargetLoading] = useState(false);
+  const [taskReport, setTaskReport] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
 
   const fetchTasks = async () => { setLoading(true); try { const params = {size:100}; if(statusFilter) params.status=statusFilter; if(searchText) params.keyword=searchText; const r = await api.get("/tasks",{params}); if(r.data.code===0) setTasks(r.data.data||[]); } catch(e){message.error("获取失败");} finally{setLoading(false);} };
   const fetchStats = async () => { try { const r = await api.get("/tasks/stats"); if(r.data.code===0) setStats(r.data.data); } catch(e){} };
   const fetchResources = async () => { try { const r = await api.get("/resources", {params:{size:100}}); if(r.data.code===0) setBackendResources(r.data.data||[]); } catch(e){} };
   const fetchDatasets = async () => { try { const r = await api.get("/assets", {params:{assetType:"DATASET",size:100}}); if(r.data.code===0) setBackendDatasets(r.data.data||[]); } catch(e){} };
-  const fetchNodes = async () => { try { const r = await api.get("/nodes"); if(r.data.code===0) setComputeNodes(r.data.data||[]); } catch(e){} };
+  const fetchNodes = async () => { try { const r = await api.get("/nodes"); if(r.data.code===0) { const nodes = r.data.data||[]; setComputeNodes(nodes); const online = nodes.filter(n=>n.status==="ONLINE"); if(online.length===1) setSelectedNodeId(online[0].id); } } catch(e){} };
   const fetchExecutions = async (taskId) => { try { const r = await api.get(`/tasks/${taskId}/executions`); if(r.data.code===0) setExecutions(r.data.data||[]); } catch(e){} };
-
-  const EVAL_OBJECT_ASSET_TYPE_MAP = { MODEL:"MODEL", CHIP:"CHIP", OPERATOR:"OPERATOR", MIDDLEWARE:"MIDDLEWARE", FRAMEWORK:"FRAMEWORK", SCENE:"SCENE" };
-  const fetchEvalTargets = async (evalObjectValue) => {
-    if (!evalObjectValue) { setEvalTargetOptions([]); return; }
-    setEvalTargetLoading(true);
-    try {
-      const assetType = EVAL_OBJECT_ASSET_TYPE_MAP[evalObjectValue] || evalObjectValue;
-      const r = await api.get("/assets", { params: { assetType, size: 200 } });
-      if (r.data.code === 0) {
-        const assets = r.data.data || [];
-        const opts = assets.map(a => ({
-          value: a.name,
-          label: a.name + ((a.version && a.version !== "null") ? " v" + a.version : ""),
-        }));
-        setEvalTargetOptions(opts);
-      } else {
-        setEvalTargetOptions([]);
-      }
-    } catch (e) {
-      setEvalTargetOptions([]);
-    } finally {
-      setEvalTargetLoading(false);
-    }
-  };
+  const fetchTaskReport = async (taskId) => { setReportLoading(true); try { const r = await api.get("/reports", {params:{taskId,page:0,size:1}}); if(r.data.code===0 && r.data.data && r.data.data.length>0) { setTaskReport(r.data.data[0]); } else { setTaskReport(null); } } catch(e){ setTaskReport(null); } finally{ setReportLoading(false); } };
 
   useEffect(() => { fetchTasks(); fetchStats(); fetchResources(); fetchDatasets(); fetchNodes(); }, []);
 
   const handleCreate = async (values) => {
-    const payload = { ...values, metrics: values.metrics ? values.metrics.join(",") : "", tags: values.tags ? values.tags.join(",") : "", targetModel: Array.isArray(values.targetModel) ? values.targetModel.join(",") : (values.targetModel || "") };
-    if (selectedTemplate) { payload.templateId = selectedTemplate.id; payload.evalType = selectedTemplate.evalType; payload.evalObject = selectedTemplate.evalObject; }
-    // targetNodeId 传给后端
-    if (values.targetNodeId) { payload.targetNodeId = values.targetNodeId; }
+    const payload = { ...values, metrics: values.metrics ? values.metrics.join(",") : "", tags: values.tags ? values.tags.join(",") : "" };
+    if (selectedTemplate) { payload.templateId = selectedTemplate.id; payload.evalType = selectedTemplate.evalType; }
+    if (selectedNodeId) { payload.targetNodeId = selectedNodeId; }
     try { const r = await api.post("/tasks", payload); if(r.data.code===0) { message.success("任务创建成功，已自动调度执行"); resetCreate(); fetchTasks(); fetchStats(); } else message.error(r.data.message||"创建失败"); } catch(e) { message.error("创建失败"); }
   };
-  const resetCreate = () => { setCreateVisible(false); setCreateStep(0); setCreateMode(null); setSelectedTemplate(null); setEvalTargetOptions([]); form.resetFields(); };
+  const resetCreate = () => { setCreateVisible(false); setCreateStep(0); setCreateMode(null); setSelectedTemplate(null); setSelectedNodeId(null); form.resetFields(); };
   const handleCancel = (id) => { Modal.confirm({title:"确定取消任务？",okText:"确认取消",okType:"danger",onOk:()=>api.post("/tasks/"+id+"/cancel").then(()=>{message.success("已取消");fetchTasks();fetchStats();})}); };
   const handleRetry = (id) => { api.post("/tasks/"+id+"/retry").then(()=>{message.success("已重试，自动调度中...");fetchTasks();fetchStats();}).catch(()=>message.error("失败")); };
   const handleClone = (id) => { api.post("/tasks/"+id+"/clone").then(()=>{message.success("已克隆并自动调度");fetchTasks();fetchStats();}).catch(()=>message.error("失败")); };
@@ -107,7 +82,11 @@ export default function Tasks() {
   const showDetail = (record) => {
     setSelected(record);
     setDetailVisible(true);
+    setTaskReport(null);
     fetchExecutions(record.id);
+    if (record.status === "COMPLETED") {
+      fetchTaskReport(record.id);
+    }
   };
 
   const isPreset = (record) => record.tags && record.tags.includes("SYSTEM_PRESET");
@@ -116,11 +95,9 @@ export default function Tasks() {
     { title:"任务编号", dataIndex:"taskNo", width:140, ellipsis:true, fixed:"left" },
     { title:"名称", dataIndex:"name", ellipsis:true, width:260, render:(v,r)=><span>{v} {isPreset(r) && <Tag color="purple" style={{marginLeft:4,fontSize:11}}>📦 系统预置</Tag>}</span> },
     { title:"评测类型", dataIndex:"evalType", width:100, render:v=><Tag color="blue">{EVAL_TYPES[v]||v}</Tag> },
-    { title:"评测维度", dataIndex:"evalObject", width:90, render:v=><Tag>{EVAL_OBJECTS[v]||v}</Tag> },
     { title:"优先级", dataIndex:"priority", width:70, render:v=><Tag color={PRIORITY_COLORS[v]}>{PRIORITIES[v]||v}</Tag> },
     { title:"状态", dataIndex:"status", width:90, render:v=><Badge status={STATUS_COLORS[v]} text={STATUS_MAP[v]||v}/> },
     { title:"进度", dataIndex:"progress", width:120, render:v=><Progress percent={v||0} size="small" strokeColor={v>=100?"#52c41a":v>=50?"#1890ff":"#faad14"}/> },
-    { title:"评测对象", dataIndex:"targetModel", width:140, ellipsis:true },
     { title:"创建时间", dataIndex:"createdAt", width:140, render:v=>v?dayjs(v).format("MM-DD HH:mm"):"-", sorter:(a,b)=>new Date(a.createdAt)-new Date(b.createdAt) },
     { title:"操作", key:"action", width:220, fixed:"right", render:(_,r)=>(
       <Space size={2}>
@@ -135,26 +112,107 @@ export default function Tasks() {
 
   const onlineNodes = computeNodes.filter(n => n.status === "ONLINE");
 
+  // ===== Template Flow: Step 0 - Mode Select =====
   const renderModeSelect = () => (
     <div style={{padding:"20px 0"}}>
       <Row gutter={[24,24]}>
         <Col span={12}><Card hoverable style={{textAlign:"center",border:createMode==="template"?"2px solid #1890ff":"1px solid #f0f0f0",minHeight:160}} onClick={()=>setCreateMode("template")}><AppstoreOutlined style={{fontSize:40,color:"#1890ff",marginBottom:12}}/><h3>模板化创建</h3><Text type="secondary">选择预置评测模板，快速创建任务</Text></Card></Col>
         <Col span={12}><Card hoverable style={{textAlign:"center",border:createMode==="custom"?"2px solid #1890ff":"1px solid #f0f0f0",minHeight:160}} onClick={()=>setCreateMode("custom")}><SettingOutlined style={{fontSize:40,color:"#722ed1",marginBottom:12}}/><h3>自定义创建</h3><Text type="secondary">灵活配置评测参数，定制化评测</Text></Card></Col>
       </Row>
-      {createMode==="template" && <div style={{marginTop:24}}><Divider>选择评测模板</Divider><Row gutter={[16,16]}>
-        {PRESET_TEMPLATES.map(t=>(<Col span={8} key={t.id}><Card size="small" hoverable style={{border:selectedTemplate?.id===t.id?"2px solid #1890ff":"1px solid #f0f0f0"}} onClick={()=>{setSelectedTemplate(t);form.setFieldsValue({evalType:t.evalType,evalObject:t.evalObject,metrics:t.metrics,targetModel:undefined});fetchEvalTargets(t.evalObject);}}><div style={{textAlign:"center",marginBottom:8}}>{React.cloneElement(t.icon,{style:{fontSize:28,color:"#1890ff"}})}</div><h4 style={{margin:0,textAlign:"center"}}>{t.name}</h4><Text type="secondary" style={{fontSize:12,display:"block",textAlign:"center"}}>{t.desc}</Text></Card></Col>))}
-      </Row></div>}
     </div>
   );
 
+  // ===== Template Flow: Step 1 - Select Template =====
+  const renderTemplateSelect = () => (
+    <div style={{padding:"20px 0"}}>
+      <Divider>选择评测模板</Divider>
+      <Row gutter={[16,16]}>
+        {PRESET_TEMPLATES.map(t=>(
+          <Col span={8} key={t.id}>
+            <Card size="small" hoverable style={{border:selectedTemplate?.id===t.id?"2px solid #1890ff":"1px solid #f0f0f0",minHeight:140}} onClick={()=>{setSelectedTemplate(t);form.setFieldsValue({evalType:t.evalType,metrics:t.metrics});}}>
+              <div style={{textAlign:"center",marginBottom:8}}>{React.cloneElement(t.icon,{style:{fontSize:28,color:"#1890ff"}})}</div>
+              <h4 style={{margin:0,textAlign:"center"}}>{t.name}</h4>
+              <Text type="secondary" style={{fontSize:12,display:"block",textAlign:"center",marginTop:4}}>{t.desc}</Text>
+              <div style={{marginTop:8,textAlign:"center"}}>{t.metrics.slice(0,2).map(m=><Tag key={m} color="blue" style={{fontSize:11}}>{m}</Tag>)}{t.metrics.length>2 && <Tag style={{fontSize:11}}>+{t.metrics.length-2}</Tag>}</div>
+            </Card>
+          </Col>
+        ))}
+      </Row>
+      {selectedTemplate && <Alert message={`已选择: ${selectedTemplate.name}`} type="success" showIcon style={{marginTop:16}}/>}
+    </div>
+  );
+
+  // ===== Template Flow: Step 2 - Select Node =====
+  const renderNodeSelect = () => (
+    <div style={{padding:"20px 0",maxWidth:700,margin:"0 auto"}}>
+      <Divider><CloudServerOutlined /> 选择计算节点</Divider>
+      {onlineNodes.length === 0 && <Alert message="当前无在线计算节点" description="任务创建后将排队等待节点上线" type="warning" showIcon style={{marginBottom:16}}/>}
+      {onlineNodes.length > 0 && (
+        <Radio.Group value={selectedNodeId} onChange={e=>setSelectedNodeId(e.target.value)} style={{width:"100%"}}>
+          <Space direction="vertical" style={{width:"100%"}}>
+            {onlineNodes.map(node=>(
+              <Radio key={node.id} value={node.id} style={{width:"100%"}}>
+                <Card size="small" hoverable style={{display:"inline-block",width:"calc(100% - 24px)",border:selectedNodeId===node.id?"2px solid #1890ff":"1px solid #f0f0f0",marginLeft:8}}>
+                  <Row justify="space-between" align="middle">
+                    <Col>
+                      <Space>
+                        <Badge status="success"/>
+                        <Text strong>{node.name}</Text>
+                        <Tag color="green">在线</Tag>
+                        {node.ipAddress && <Text type="secondary" style={{fontSize:12}}>({node.ipAddress})</Text>}
+                      </Space>
+                    </Col>
+                    <Col>
+                      {node.hardwareInfo && <Space size={16}>
+                        <Text type="secondary" style={{fontSize:12}}>CPU: {node.hardwareInfo.cpu_cores_logical}核</Text>
+                        <Text type="secondary" style={{fontSize:12}}>内存: {node.hardwareInfo.memory_total_gb?.toFixed(1)}GB</Text>
+                        <Text type="secondary" style={{fontSize:12}}>磁盘余: {node.hardwareInfo.disk_free_gb?.toFixed(1)}GB</Text>
+                      </Space>}
+                    </Col>
+                  </Row>
+                  {node.latestMetrics && <div style={{marginTop:8}}>
+                    <Space size={16}>
+                      <Text type="secondary" style={{fontSize:11}}>CPU: {node.latestMetrics.cpuPercent}%</Text>
+                      <Text type="secondary" style={{fontSize:11}}>内存: {node.latestMetrics.memoryUsedPercent}%</Text>
+                      <Text type="secondary" style={{fontSize:11}}>磁盘: {node.latestMetrics.diskUsedPercent}%</Text>
+                      <Text type="secondary" style={{fontSize:11}}>负载: {node.latestMetrics.load1m}</Text>
+                    </Space>
+                  </div>}
+                </Card>
+              </Radio>
+            ))}
+          </Space>
+        </Radio.Group>
+      )}
+      {onlineNodes.length === 1 && <Alert message="仅一个在线节点，已自动选中" type="info" showIcon style={{marginTop:12}}/>}
+    </div>
+  );
+
+  // ===== Template Flow: Step 3 - Confirm =====
+  const renderTemplateConfirm = () => {
+    const selectedNode = computeNodes.find(n => n.id === selectedNodeId);
+    return (
+      <div style={{maxWidth:700,margin:"0 auto",padding:"20px 0"}}>
+        <Alert message="请确认任务配置" description="提交后将自动调度到计算节点执行" type="info" showIcon style={{marginBottom:24}}/>
+        <Descriptions bordered column={2} size="small">
+          <Descriptions.Item label="创建模式">模板化创建</Descriptions.Item>
+          <Descriptions.Item label="使用模板">{selectedTemplate?.name || "-"}</Descriptions.Item>
+          <Descriptions.Item label="评测类型" span={2}><Tag color="blue">{EVAL_TYPES[selectedTemplate?.evalType]||"-"}</Tag></Descriptions.Item>
+          <Descriptions.Item label="目标计算节点" span={2}>
+            {selectedNode ? <><Badge status="success"/> {selectedNode.name} ({selectedNode.ipAddress})</> : <Text type="secondary">自动分配</Text>}
+          </Descriptions.Item>
+          {selectedTemplate?.metrics && <Descriptions.Item label="评测指标" span={2}>{selectedTemplate.metrics.map(m=><Tag key={m} color="blue">{m}</Tag>)}</Descriptions.Item>}
+          <Descriptions.Item label="模板描述" span={2}>{selectedTemplate?.desc || "-"}</Descriptions.Item>
+        </Descriptions>
+      </div>
+    );
+  };
+
+  // ===== Custom Flow: Step 1 - Basic Info =====
   const renderBasicInfo = () => (
     <div style={{maxWidth:700,margin:"0 auto",padding:"20px 0"}}>
       <Form.Item name="name" label="任务名称" rules={[{required:true,message:"请输入任务名称"}]}><Input placeholder="例：华为昇腾910B ResNet50 推理性能评测" maxLength={100} showCount/></Form.Item>
-      <Row gutter={16}>
-        <Col span={12}><Form.Item name="evalType" label="评测类型" rules={[{required:true}]}><Select options={Object.entries(EVAL_TYPES).map(([k,v])=>({value:k,label:v}))} placeholder="选择评测类型"/></Form.Item></Col>
-        <Col span={12}><Form.Item name="evalObject" label="评测维度" rules={[{required:true}]}><Select options={Object.entries(EVAL_OBJECTS).map(([k,v])=>({value:k,label:v}))} placeholder="选择评测维度" onChange={(val)=>{form.setFieldsValue({targetModel:undefined});fetchEvalTargets(val);}}/></Form.Item></Col>
-      </Row>
-      <Form.Item name="targetModel" label="评测对象" rules={[{required:true,message:"请选择评测对象"}]}><Select placeholder={evalTargetLoading?"加载中...":"请先选择评测维度"} showSearch allowClear loading={evalTargetLoading} options={evalTargetOptions} optionFilterProp="label" notFoundContent={evalTargetLoading?"加载中...":"暂无评测对象，请先在评测对象库中添加"}/></Form.Item>
+      <Form.Item name="evalType" label="评测类型" rules={[{required:true}]}><Select options={Object.entries(EVAL_TYPES).map(([k,v])=>({value:k,label:v}))} placeholder="选择评测类型"/></Form.Item>
       <Row gutter={16}>
         <Col span={12}><Form.Item name="priority" label="优先级" initialValue="MEDIUM"><Select options={Object.entries(PRIORITIES).map(([k,v])=>({value:k,label:v}))}/></Form.Item></Col>
         <Col span={12}><Form.Item name="tags" label="标签"><Select mode="tags" placeholder="输入标签后回车" tokenSeparators={[","]}/></Form.Item></Col>
@@ -163,6 +221,7 @@ export default function Tasks() {
     </div>
   );
 
+  // ===== Custom Flow: Step 2 - Eval Config =====
   const renderEvalConfig = () => (
     <div style={{maxWidth:700,margin:"0 auto",padding:"20px 0"}}>
       <Divider orientation="left">数据集配置</Divider>
@@ -217,21 +276,19 @@ export default function Tasks() {
     </div>
   );
 
-  const renderConfirm = () => {
+  // ===== Custom Flow: Step 3 - Confirm =====
+  const renderCustomConfirm = () => {
     const vals = form.getFieldsValue(true);
     const selectedNode = computeNodes.find(n => n.id === vals.targetNodeId);
     return (
       <div style={{maxWidth:700,margin:"0 auto",padding:"20px 0"}}>
         <Alert message="请确认任务配置信息" description="提交后将自动调度到计算节点执行" type="info" showIcon style={{marginBottom:24}}/>
         <Descriptions bordered column={2} size="small">
-          <Descriptions.Item label="创建模式">{createMode==="template"?"模板化创建":"自定义创建"}</Descriptions.Item>
-          {selectedTemplate && <Descriptions.Item label="使用模板">{selectedTemplate.name}</Descriptions.Item>}
-          <Descriptions.Item label="任务名称" span={2}>{vals.name||"-"}</Descriptions.Item>
+          <Descriptions.Item label="创建模式">自定义创建</Descriptions.Item>
+          <Descriptions.Item label="任务名称">{vals.name||"-"}</Descriptions.Item>
           <Descriptions.Item label="评测类型">{EVAL_TYPES[vals.evalType]||"-"}</Descriptions.Item>
-          <Descriptions.Item label="评测维度">{EVAL_OBJECTS[vals.evalObject]||"-"}</Descriptions.Item>
-          <Descriptions.Item label="评测对象" span={2}>{Array.isArray(vals.targetModel) ? vals.targetModel.join(", ") : (vals.targetModel||"-")}</Descriptions.Item>
           <Descriptions.Item label="优先级"><Tag color={PRIORITY_COLORS[vals.priority]}>{PRIORITIES[vals.priority]||"中"}</Tag></Descriptions.Item>
-          <Descriptions.Item label="目标节点">
+          <Descriptions.Item label="目标节点" span={2}>
             {selectedNode ? <><Badge status="success"/> {selectedNode.name}</> : <Text type="secondary">自动分配</Text>}
           </Descriptions.Item>
           <Descriptions.Item label="GPU">{GPU_OPTIONS.find(g=>g.value===vals.gpuType)?.label||"未指定"} x {vals.gpuCount||1}</Descriptions.Item>
@@ -246,25 +303,89 @@ export default function Tasks() {
     );
   };
 
-  const stepContents = [renderModeSelect, renderBasicInfo, renderEvalConfig, renderConfirm];
-  const canNext = () => { if(createStep===0) return createMode==="custom"||(createMode==="template"&&selectedTemplate); return true; };
+  // ===== Step logic =====
+  const getStepItems = () => {
+    if (createMode === "template") {
+      return [
+        {title:"选择模式",icon:<AppstoreOutlined/>},
+        {title:"选择模板",icon:<ExperimentOutlined/>},
+        {title:"选择节点",icon:<CloudServerOutlined/>},
+        {title:"确认提交",icon:<CheckCircleOutlined/>},
+      ];
+    }
+    // custom mode or default
+    return [
+      {title:"选择模式",icon:<AppstoreOutlined/>},
+      {title:"基础信息",icon:<ProjectOutlined/>},
+      {title:"评测配置",icon:<SettingOutlined/>},
+      {title:"确认提交",icon:<CheckCircleOutlined/>},
+    ];
+  };
+
+  const getStepContent = () => {
+    if (createStep === 0) return renderModeSelect();
+    if (createMode === "template") {
+      if (createStep === 1) return renderTemplateSelect();
+      if (createStep === 2) return renderNodeSelect();
+      if (createStep === 3) return renderTemplateConfirm();
+    } else {
+      if (createStep === 1) return renderBasicInfo();
+      if (createStep === 2) return renderEvalConfig();
+      if (createStep === 3) return renderCustomConfirm();
+    }
+    return null;
+  };
+
+  const canNext = () => {
+    if (createStep === 0) return !!createMode;
+    if (createMode === "template") {
+      if (createStep === 1) return !!selectedTemplate;
+      if (createStep === 2) return true; // node can be optional
+    }
+    return true;
+  };
+
   const handleNext = async () => {
     if (createStep === 0) {
-      if (canNext()) setCreateStep(s => s + 1);
-    } else if (createStep === 1) {
-      try {
-        await form.validateFields(["name", "evalType", "evalObject", "targetModel"]);
-        setCreateStep(s => s + 1);
-      } catch (e) { /* validation errors shown by form */ }
-    } else if (createStep === 2) {
-      setCreateStep(s => s + 1);
+      if (canNext()) setCreateStep(1);
+    } else if (createMode === "template") {
+      if (createStep === 1 && selectedTemplate) setCreateStep(2);
+      else if (createStep === 2) setCreateStep(3);
+    } else {
+      // custom mode
+      if (createStep === 1) {
+        try {
+          await form.validateFields(["name", "evalType"]);
+          setCreateStep(2);
+        } catch (e) { /* validation errors shown */ }
+      } else if (createStep === 2) {
+        setCreateStep(3);
+      }
     }
   };
+
   const handleSubmit = async () => {
-    try {
-      const values = await form.validateFields();
-      handleCreate(values);
-    } catch (e) { message.error("请检查必填字段是否填写完整"); }
+    if (createMode === "template") {
+      // Template mode: directly create with template info
+      const payload = {
+        name: `${selectedTemplate.name} - ${dayjs().format("MMDD-HHmm")}`,
+        evalType: selectedTemplate.evalType,
+        templateId: selectedTemplate.id,
+        metrics: selectedTemplate.metrics.join(","),
+      };
+      if (selectedNodeId) payload.targetNodeId = selectedNodeId;
+      try {
+        const r = await api.post("/tasks", payload);
+        if(r.data.code===0) { message.success("任务创建成功，已自动调度执行"); resetCreate(); fetchTasks(); fetchStats(); }
+        else message.error(r.data.message||"创建失败");
+      } catch(e) { message.error("创建失败"); }
+    } else {
+      // Custom mode
+      try {
+        const values = await form.validateFields();
+        handleCreate(values);
+      } catch (e) { message.error("请检查必填字段是否填写完整"); }
+    }
   };
 
   return (
@@ -281,38 +402,68 @@ export default function Tasks() {
         {selectedKeys.length>0&&<><Button danger onClick={handleBatchCancel}>批量取消</Button><Button danger type="primary" onClick={handleBatchDelete}>批量删除</Button></>}
         <Button type="primary" icon={<PlusOutlined/>} size="large" onClick={()=>{setCreateVisible(true);fetchNodes();}}>创建评测任务</Button>
       </Space>}>
-        <Table columns={columns} dataSource={tasks} rowKey="id" loading={loading} scroll={{x:1500}} pagination={{pageSize:15,showTotal:t=>"共 "+t+" 条",showSizeChanger:true}} rowSelection={{selectedRowKeys:selectedKeys,onChange:setSelectedKeys}}/>
+        <Table columns={columns} dataSource={tasks} rowKey="id" loading={loading} scroll={{x:1200}} pagination={{pageSize:15,showTotal:t=>"共 "+t+" 条",showSizeChanger:true}} rowSelection={{selectedRowKeys:selectedKeys,onChange:setSelectedKeys}}/>
       </Card>
 
       <Modal title="创建评测任务" open={createVisible} onCancel={resetCreate} footer={null} width={900} destroyOnClose>
-        <Steps current={createStep} style={{marginBottom:24}} items={[{title:"选择模式",icon:<AppstoreOutlined/>},{title:"基础信息",icon:<ProjectOutlined/>},{title:"评测配置",icon:<SettingOutlined/>},{title:"确认提交",icon:<CheckCircleOutlined/>}]}/>
+        <Steps current={createStep} style={{marginBottom:24}} items={getStepItems()}/>
         <Form form={form} onFinish={handleCreate} layout="vertical" initialValues={{priority:"MEDIUM",precision:"FP16",batchSize:32,timeout:60,retryCount:0,retryInterval:10,enableAlert:true,datasetSource:"preset"}}>
-          {stepContents[createStep]()}
+          {getStepContent()}
           <Divider/>
           <div style={{textAlign:"right"}}>
             {createStep>0 && <Button style={{marginRight:8}} onClick={()=>setCreateStep(s=>s-1)}>上一步</Button>}
             {createStep<3 && <Button type="primary" disabled={!canNext()} onClick={handleNext}>下一步</Button>}
-            {createStep===3 && <Button type="primary" size="large" onClick={handleSubmit} icon={<RocketOutlined/>}>提交任务</Button>}
+            {createStep===3 && <Button type="primary" size="large" onClick={handleSubmit} icon={<RocketOutlined/>}>确认并运行</Button>}
           </div>
         </Form>
       </Modal>
 
-      <Modal title="任务详情" open={detailVisible} onCancel={()=>{setDetailVisible(false);setExecutions([]);}} width={800} footer={null}>
+      <Modal title="任务详情" open={detailVisible} onCancel={()=>{setDetailVisible(false);setExecutions([]);setTaskReport(null);}} width={800} footer={null}>
         {selected && <Tabs items={[
-          {key:"info",label:"基本信息",children:(<Descriptions bordered column={2} size="small">
-            <Descriptions.Item label="编号">{selected.taskNo}</Descriptions.Item>
-            <Descriptions.Item label="状态"><Badge status={STATUS_COLORS[selected.status]} text={STATUS_MAP[selected.status]}/></Descriptions.Item>
-            <Descriptions.Item label="名称" span={2}>{selected.name}</Descriptions.Item>
-            <Descriptions.Item label="评测类型"><Tag color="blue">{EVAL_TYPES[selected.evalType]||selected.evalType}</Tag></Descriptions.Item>
-            <Descriptions.Item label="评测维度"><Tag>{EVAL_OBJECTS[selected.evalObject]||selected.evalObject||"-"}</Tag></Descriptions.Item>
-            <Descriptions.Item label="优先级"><Tag color={PRIORITY_COLORS[selected.priority]}>{PRIORITIES[selected.priority]||selected.priority}</Tag></Descriptions.Item>
-            <Descriptions.Item label="评测对象">{selected.targetModel||"-"}</Descriptions.Item>
-            <Descriptions.Item label="进度" span={2}><Progress percent={selected.progress||0} style={{maxWidth:300}}/></Descriptions.Item>
-            <Descriptions.Item label="创建时间">{dayjs(selected.createdAt).format("YYYY-MM-DD HH:mm:ss")}</Descriptions.Item>
-            {selected.completedAt&&<Descriptions.Item label="完成时间">{dayjs(selected.completedAt).format("YYYY-MM-DD HH:mm:ss")}</Descriptions.Item>}
-            {selected.description&&<Descriptions.Item label="描述" span={2}>{selected.description}</Descriptions.Item>}
-            {selected.errorMessage&&<Descriptions.Item label="错误信息" span={2}><Text type="danger">{selected.errorMessage}</Text></Descriptions.Item>}
-          </Descriptions>)},
+          {key:"info",label:"基本信息",children:(<div>
+            <Descriptions bordered column={2} size="small">
+              <Descriptions.Item label="编号">{selected.taskNo}</Descriptions.Item>
+              <Descriptions.Item label="状态"><Badge status={STATUS_COLORS[selected.status]} text={STATUS_MAP[selected.status]}/></Descriptions.Item>
+              <Descriptions.Item label="名称" span={2}>{selected.name}</Descriptions.Item>
+              <Descriptions.Item label="评测类型"><Tag color="blue">{EVAL_TYPES[selected.evalType]||selected.evalType}</Tag></Descriptions.Item>
+              <Descriptions.Item label="优先级"><Tag color={PRIORITY_COLORS[selected.priority]}>{PRIORITIES[selected.priority]||selected.priority}</Tag></Descriptions.Item>
+              <Descriptions.Item label="进度" span={2}><Progress percent={selected.progress||0} style={{maxWidth:300}}/></Descriptions.Item>
+              <Descriptions.Item label="创建时间">{dayjs(selected.createdAt).format("YYYY-MM-DD HH:mm:ss")}</Descriptions.Item>
+              {selected.completedAt&&<Descriptions.Item label="完成时间">{dayjs(selected.completedAt).format("YYYY-MM-DD HH:mm:ss")}</Descriptions.Item>}
+              {selected.description&&<Descriptions.Item label="描述" span={2}>{selected.description}</Descriptions.Item>}
+              {selected.errorMessage&&<Descriptions.Item label="错误信息" span={2}><Text type="danger">{selected.errorMessage}</Text></Descriptions.Item>}
+            </Descriptions>
+            {/* 问题4: 关联报告 */}
+            {selected.status === "COMPLETED" && (
+              <div style={{marginTop:24}}>
+                <Divider orientation="left"><FileTextOutlined /> 关联评测报告</Divider>
+                {reportLoading ? (
+                  <Text type="secondary">加载报告中...</Text>
+                ) : taskReport ? (
+                  <Card size="small" style={{background:"#f6ffed",border:"1px solid #b7eb8f"}}>
+                    <Row justify="space-between" align="middle">
+                      <Col>
+                        <Space direction="vertical" size={4}>
+                          <Text strong>{taskReport.reportNo}</Text>
+                          <Text type="secondary">{taskReport.summary}</Text>
+                          <Space>
+                            <Tag color="green">{taskReport.status}</Tag>
+                            <Tag color="blue">评分: {taskReport.score}</Tag>
+                            <Text type="secondary" style={{fontSize:12}}>生成于 {dayjs(taskReport.createdAt).format("YYYY-MM-DD HH:mm:ss")}</Text>
+                          </Space>
+                        </Space>
+                      </Col>
+                      <Col>
+                        <Button type="primary" icon={<FileTextOutlined/>} onClick={()=>{setDetailVisible(false);message.info("请前往「评测报告」页面查看报告 "+taskReport.reportNo);}}>查看报告</Button>
+                      </Col>
+                    </Row>
+                  </Card>
+                ) : (
+                  <Alert message="暂无报告" description="该任务已完成但尚未生成评测报告" type="info" showIcon/>
+                )}
+              </div>
+            )}
+          </div>)},
           {key:"exec",label:"执行记录",children:(
             <div>
               {executions.length > 0 ? (
