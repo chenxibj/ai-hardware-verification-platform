@@ -873,5 +873,6 @@ export default function Resources() {
         .row-offline td { opacity: 0.55; }
       `}</style>
     </div>
+    </Spin>
   );
 }
