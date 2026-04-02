@@ -1,42 +1,46 @@
 import React, { useState } from "react";
 import { Card, Form, Input, Button, message, Typography, Tabs } from "antd";
 import { UserOutlined, LockOutlined, MailOutlined } from "@ant-design/icons";
-import { authApi } from "../utils/api";
+import useAuthStore from "../stores/useAuthStore";
 
 const { Title } = Typography;
 
-export default function Login({ onLogin }) {
+export default function Login() {
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState("login");
+  const login = useAuthStore((s) => s.login);
+  const register = useAuthStore((s) => s.register);
 
   const handleLogin = async (values) => {
     setLoading(true);
     try {
-      const res = await authApi.login(values);
-      if (res.data.code === 0) {
-        localStorage.setItem("token", res.data.data.token);
-        localStorage.setItem("refreshToken", res.data.data.refreshToken);
-        localStorage.setItem("user", JSON.stringify(res.data.data.user));
+      const result = await login(values.email, values.password);
+      if (result.success) {
         message.success("登录成功");
-        onLogin(res.data.data.user);
-      } else { message.error(res.data.message); }
-    } catch (err) { message.error(err.response?.data?.message || "登录失败"); }
-    finally { setLoading(false); }
+      } else {
+        message.error(result.message || "登录失败");
+      }
+    } catch (err) {
+      message.error(err.response?.data?.message || "登录失败");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleRegister = async (values) => {
     setLoading(true);
     try {
-      const res = await authApi.register(values);
-      if (res.data.code === 0) {
-        localStorage.setItem("token", res.data.data.token);
-        localStorage.setItem("refreshToken", res.data.data.refreshToken);
-        localStorage.setItem("user", JSON.stringify(res.data.data.user));
+      const result = await register(values.username, values.email, values.password);
+      if (result.success) {
         message.success("注册成功");
-        onLogin(res.data.data.user);
-      } else { message.error(res.data.message); }
-    } catch (err) { message.error(err.response?.data?.message || "注册失败"); }
-    finally { setLoading(false); }
+      } else {
+        message.error(result.message || "注册失败");
+      }
+    } catch (err) {
+      message.error(err.response?.data?.message || "注册失败");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

@@ -8,6 +8,8 @@ import {
   LogoutOutlined, AppstoreOutlined,
 } from "@ant-design/icons";
 import api from "./utils/api";
+import useAuthStore from "./stores/useAuthStore";
+import useNotificationStore from "./stores/useNotificationStore";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Tasks from "./pages/Tasks";
@@ -63,39 +65,30 @@ const menuItems = [
 ];
 
 function App() {
-  const [user, setUser] = useState(null);
+  const user = useAuthStore((s) => s.user);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const logout = useAuthStore((s) => s.logout);
+  const notifCount = useNotificationStore((s) => s.unreadCount);
+  const setUnreadCount = useNotificationStore((s) => s.setUnreadCount);
   const [currentPage, setCurrentPage] = useState("dashboard");
   const [collapsed, setCollapsed] = useState(false);
-  const [notifCount, setNotifCount] = useState(0);
 
   useEffect(() => {
-    const u = localStorage.getItem("user");
-    if (u) try { setUser(JSON.parse(u)); } catch(e) { localStorage.clear(); }
-  }, []);
-
-  useEffect(() => {
-    if (user) {
+    if (isAuthenticated) {
       api.get("/notifications/count").then(r => {
         if (r.data && r.data.code === 0) {
           const d = r.data.data;
-          setNotifCount(typeof d === "number" ? d : (d && d.unread) || 0);
+          setUnreadCount(typeof d === "number" ? d : (d && d.unread) || 0);
         }
       }).catch(() => {});
     }
-  }, [user, currentPage]);
-
-  const handleLogin = (userData) => {
-    setUser(userData);
-  };
+  }, [isAuthenticated, currentPage, setUnreadCount]);
 
   const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("refreshToken");
-    localStorage.removeItem("user");
-    setUser(null);
+    logout();
   };
 
-  if (!user) return <Login onLogin={handleLogin} />;
+  if (!isAuthenticated || !user) return <Login />;
 
   const PageComponent = PAGE_COMPONENTS[currentPage] || Dashboard;
 

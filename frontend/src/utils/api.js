@@ -10,17 +10,14 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (res) => res,
-  (err) => {
+  async (err) => {
     if (err.response) {
       const status = err.response.status;
       // Handle both 401 (Unauthorized) and 403 (Forbidden) when token is present
-      // 401: token expired or invalid (after backend fix)
-      // 403: fallback for token issues (defense in depth)
       if (status === 401 || (status === 403 && localStorage.getItem("token"))) {
-        localStorage.removeItem("token");
-        localStorage.removeItem("refreshToken");
-        localStorage.removeItem("user");
-        if (window.location.pathname !== "/login") window.location.href = "/login";
+        // Lazy import to avoid circular dependency (store imports api)
+        const { default: useAuthStore } = await import("../stores/useAuthStore");
+        useAuthStore.getState().logout();
       }
     }
     return Promise.reject(err);
