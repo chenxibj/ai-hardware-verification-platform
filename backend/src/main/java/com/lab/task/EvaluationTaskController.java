@@ -172,4 +172,63 @@ public class EvaluationTaskController {
             return ResponseEntity.badRequest().body(response);
         }
     }
+
+    /**
+     * 暂停任务
+     */
+    @PostMapping("/{taskId}/pause")
+    public ResponseEntity<Map<String, Object>> pauseTask(
+            @PathVariable Long taskId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        
+        if (userId == null) {
+            userId = 1L;
+        }
+
+        try {
+            EvaluationTask task = taskService.pauseTask(taskId, userId);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 0);
+            response.put("message", "success");
+            response.put("data", task);
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 1001);
+            response.put("message", e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
+    /**
+     * 恢复任务
+     */
+    @PostMapping("/{taskId}/resume")
+    public ResponseEntity<Map<String, Object>> resumeTask(
+            @PathVariable Long taskId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        
+        if (userId == null) {
+            userId = 1L;
+        }
+
+        try {
+            EvaluationTask task = taskService.resumeTask(taskId, userId);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 0);
+            response.put("message", "success");
+            response.put("data", task);
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 1001);
+            response.put("message", e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
 }

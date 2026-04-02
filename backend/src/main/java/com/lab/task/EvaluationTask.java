@@ -37,7 +37,7 @@ public class EvaluationTask {
 
     @Column(name = "status", nullable = false, length = 32)
     @Enumerated(EnumType.STRING)
-    private TaskStatus status; // PENDING, QUEUED, RUNNING, COMPLETED, FAILED, CANCELLED
+    private TaskStatus status; // PENDING, QUEUED, RUNNING, PAUSED, COMPLETED, FAILED, CANCELLED
 
     @Column(name = "priority", nullable = false, length = 16)
     @Enumerated(EnumType.STRING)
@@ -87,7 +87,7 @@ public class EvaluationTask {
     }
 
     public enum TaskStatus {
-        PENDING, QUEUED, RUNNING, COMPLETED, FAILED, CANCELLED
+        PENDING, QUEUED, RUNNING, PAUSED, COMPLETED, FAILED, CANCELLED
     }
 
     public enum Priority {

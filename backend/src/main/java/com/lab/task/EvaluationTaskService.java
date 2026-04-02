@@ -153,4 +153,36 @@ public class EvaluationTaskService {
         return "TASK-" + Instant.now().getEpochSecond() + "-" + 
                String.format("%03d", (int)(Math.random() * 1000));
     }
+
+    /**
+     * 暂停任务
+     */
+    @Transactional
+    public EvaluationTask pauseTask(Long taskId, Long userId) {
+        EvaluationTask task = taskRepository.findById(taskId)
+                .orElseThrow(() -> new RuntimeException("Task not found: " + taskId));
+        
+        if (task.getStatus() != EvaluationTask.TaskStatus.RUNNING &&
+            task.getStatus() != EvaluationTask.TaskStatus.PENDING) {
+            throw new RuntimeException("Only running or pending tasks can be paused, current: " + task.getStatus());
+        }
+
+        return updateTaskStatus(taskId, EvaluationTask.TaskStatus.PAUSED, "Paused by user");
+    }
+
+    /**
+     * 恢复任务
+     */
+    @Transactional
+    public EvaluationTask resumeTask(Long taskId, Long userId) {
+        EvaluationTask task = taskRepository.findById(taskId)
+                .orElseThrow(() -> new RuntimeException("Task not found: " + taskId));
+        
+        if (task.getStatus() != EvaluationTask.TaskStatus.PAUSED) {
+            throw new RuntimeException("Only paused tasks can be resumed, current: " + task.getStatus());
+        }
+
+        return updateTaskStatus(taskId, EvaluationTask.TaskStatus.PENDING, "Resumed by user");
+    }
+
 }
