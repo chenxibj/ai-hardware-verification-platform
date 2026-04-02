@@ -2,14 +2,15 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Card, Table, Tag, Space, Button, Row, Col, Statistic, Modal, message,
   Badge, Descriptions, Tooltip, Progress, Typography, Drawer, Spin, Popconfirm, Empty,
-  Form, Input, InputNumber, Radio, Alert
+  Form, Input, InputNumber, Radio, Alert, Tabs
 } from "antd";
 import {
   CloudServerOutlined, ReloadOutlined, DeleteOutlined, CheckCircleOutlined,
   StopOutlined, DesktopOutlined, ThunderboltOutlined, WarningOutlined,
   InfoCircleOutlined, FieldTimeOutlined, DashboardOutlined,
   ClockCircleOutlined, HddOutlined, ApiOutlined, PlusOutlined,
-  SyncOutlined, ExclamationCircleOutlined, LoadingOutlined
+  SyncOutlined, ExclamationCircleOutlined, LoadingOutlined,
+  LaptopOutlined, CodeOutlined, ExperimentOutlined
 } from "@ant-design/icons";
 import ReactECharts from "echarts-for-react";
 import api from "../utils/api";
@@ -63,6 +64,12 @@ export default function Resources() {
   const [metricsHours, setMetricsHours] = useState(1);
   const refreshTimer = useRef(null);
 
+  // ====== Env Info state ======
+  const [envInfo, setEnvInfo] = useState(null);
+  const [envInfoLoading, setEnvInfoLoading] = useState(false);
+  const [envInfoCollecting, setEnvInfoCollecting] = useState(false);
+  const [activeTab, setActiveTab] = useState("basic");
+
   // ====== New: Add Node Modal state ======
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [addLoading, setAddLoading] = useState(false);
@@ -102,11 +109,51 @@ export default function Resources() {
     }
   }, []);
 
+  // ====== Fetch env info ======
+  const fetchEnvInfo = useCallback(async (nodeId) => {
+    setEnvInfoLoading(true);
+    try {
+      const res = await api.get(`/nodes/${nodeId}/env-info`);
+      if (res.data.code === 0 && res.data.data && Object.keys(res.data.data).length > 0) {
+        setEnvInfo(res.data.data);
+      } else {
+        setEnvInfo(null);
+      }
+    } catch (e) {
+      console.error("获取环境信息失败", e);
+      setEnvInfo(null);
+    } finally {
+      setEnvInfoLoading(false);
+    }
+  }, []);
+
+  const handleCollectEnvInfo = async (nodeId) => {
+    setEnvInfoCollecting(true);
+    try {
+      const res = await api.post(`/nodes/${nodeId}/env-info/collect`);
+      if (res.data.code === 0) {
+        message.success("环境信息采集已触发，请稍后刷新");
+        // Poll after a delay
+        setTimeout(() => fetchEnvInfo(nodeId), 5000);
+        setTimeout(() => fetchEnvInfo(nodeId), 15000);
+      } else {
+        message.error(res.data.message || "采集触发失败");
+      }
+    } catch (e) {
+      message.error("采集触发失败");
+    } finally {
+      setEnvInfoCollecting(false);
+    }
+  };
+
   const openDetail = (node) => {
     setSelectedNode(node);
     setDrawerVisible(true);
     setMetricsHours(1);
+    setActiveTab("basic");
+    setEnvInfo(null);
     fetchMetrics(node.id, 1);
+    fetchEnvInfo(node.id);
   };
 
   const handleStatusChange = async (id, status) => {
@@ -307,6 +354,20 @@ export default function Resources() {
           </div>
         );
       }
+    },
+    {
+      title: "OS", key: "os", width: 120,
+      render: (_, r) => {
+        const hw = r.hardwareInfo || {};
+        const os = hw.os || "";
+        if (!os) return <Text type="secondary">-</Text>;
+        const parts = os.split(" ");
+        return (
+          <Tooltip title={os}>
+            <Text style={{ fontSize: 12 }}><LaptopOutlined style={{ marginRight: 4 }} />{parts[0]}</Text>
+          </Tooltip>
+        );
+      },
     },
     {
       title: "CPU", key: "cpu", width: 120, sorter: (a, b) => (a.latestMetrics?.cpuPercent || 0) - (b.latestMetrics?.cpuPercent || 0),
@@ -547,6 +608,11 @@ export default function Resources() {
         destroyOnClose
       >
         {selectedNode && (
+          <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
+            {
+              key: "basic",
+              label: <span><InfoCircleOutlined /> 基本信息</span>,
+              children: (
           <div>
             {/* Error message alert for FAILED nodes */}
             {selectedNode.status === "FAILED" && selectedNode.errorMessage && (
@@ -672,6 +738,133 @@ export default function Resources() {
               </Spin>
             </Card>
           </div>
+              ),
+            },
+            {
+              key: "envInfo",
+              label: <span><ExperimentOutlined /> 环境信息</span>,
+              children: (
+                <div>
+                  <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Text type="secondary">
+                      {envInfo?.collected_at ? `上次采集: ${dayjs(envInfo.collected_at).format("YYYY-MM-DD HH:mm:ss")}` : "尚未采集环境信息"}
+                    </Text>
+                    <Space>
+                      <Button
+                        icon={<ReloadOutlined />}
+                        size="small"
+                        onClick={() => fetchEnvInfo(selectedNode.id)}
+                        loading={envInfoLoading}
+                      >
+                        刷新
+                      </Button>
+                      <Button
+                        icon={<SyncOutlined />}
+                        size="small"
+                        type="primary"
+                        onClick={() => handleCollectEnvInfo(selectedNode.id)}
+                        loading={envInfoCollecting}
+                      >
+                        重新采集
+                      </Button>
+                    </Space>
+                  </div>
+
+                  <Spin spinning={envInfoLoading}>
+                    {envInfo ? (
+                      <>
+                        {/* OS & Kernel */}
+                        <Descriptions title={<span><LaptopOutlined /> 操作系统</span>} column={2} size="small" bordered style={{ marginBottom: 16 }}>
+                          <Descriptions.Item label="发行版">{envInfo.os_pretty || envInfo.os_name || "-"}</Descriptions.Item>
+                          <Descriptions.Item label="版本">{envInfo.os_version || "-"}</Descriptions.Item>
+                          <Descriptions.Item label="内核版本" span={2}>{envInfo.kernel_version || "-"}</Descriptions.Item>
+                        </Descriptions>
+
+                        {/* CPU */}
+                        <Descriptions title={<span><DesktopOutlined /> CPU 信息</span>} column={2} size="small" bordered style={{ marginBottom: 16 }}>
+                          <Descriptions.Item label="型号" span={2}>{envInfo.cpu_model || "-"}</Descriptions.Item>
+                          <Descriptions.Item label="架构">{envInfo.cpu_arch || "-"}</Descriptions.Item>
+                          <Descriptions.Item label="物理核心">{envInfo.cpu_cores || "-"}</Descriptions.Item>
+                          <Descriptions.Item label="线程数">{envInfo.cpu_threads || "-"}</Descriptions.Item>
+                          <Descriptions.Item label="插槽数">{envInfo.cpu_sockets || "-"}</Descriptions.Item>
+                          <Descriptions.Item label="指令集支持" span={2}>
+                            {envInfo.cpu_flags && envInfo.cpu_flags.length > 0
+                              ? envInfo.cpu_flags.map(f => (
+                                  <Tag key={f} color={f.startsWith("avx512") ? "gold" : f === "avx2" ? "green" : "blue"} style={{ marginBottom: 4 }}>
+                                    {f.toUpperCase()}
+                                  </Tag>
+                                ))
+                              : <Text type="secondary">无</Text>
+                            }
+                          </Descriptions.Item>
+                          <Descriptions.Item label="AVX2">
+                            {envInfo.avx2_support ? <Tag color="success">支持</Tag> : <Tag>不支持</Tag>}
+                          </Descriptions.Item>
+                          <Descriptions.Item label="AVX-512">
+                            {envInfo.avx512_support ? <Tag color="success">支持</Tag> : <Tag>不支持</Tag>}
+                          </Descriptions.Item>
+                        </Descriptions>
+
+                        {/* GPU */}
+                        <Descriptions title={<span><ThunderboltOutlined /> GPU 信息</span>} column={2} size="small" bordered style={{ marginBottom: 16 }}>
+                          <Descriptions.Item label="GPU 数量">{envInfo.gpu_count || 0}</Descriptions.Item>
+                          <Descriptions.Item label="GPU 驱动">{envInfo.gpu_driver || "-"}</Descriptions.Item>
+                          {envInfo.gpus && envInfo.gpus.length > 0 ? (
+                            envInfo.gpus.map((gpu, i) => (
+                              <Descriptions.Item key={i} label={`GPU #${i}`} span={2}>
+                                {gpu.name} ({gpu.memory_mb ? (gpu.memory_mb / 1024).toFixed(1) + " GB" : "?"} 显存)
+                              </Descriptions.Item>
+                            ))
+                          ) : (
+                            <Descriptions.Item label="状态" span={2}>
+                              <Text type="secondary">未检测到 GPU</Text>
+                            </Descriptions.Item>
+                          )}
+                          <Descriptions.Item label="CUDA">{envInfo.cuda_version || "-"}</Descriptions.Item>
+                          <Descriptions.Item label="cuDNN">{envInfo.cudnn_version || "-"}</Descriptions.Item>
+                        </Descriptions>
+
+                        {/* Software */}
+                        <Descriptions title={<span><CodeOutlined /> 软件环境</span>} column={2} size="small" bordered style={{ marginBottom: 16 }}>
+                          <Descriptions.Item label="Python">{envInfo.python_version || "-"}</Descriptions.Item>
+                          <Descriptions.Item label="Python 路径">{envInfo.python_path || "-"}</Descriptions.Item>
+                          {envInfo.dl_frameworks && Object.keys(envInfo.dl_frameworks).length > 0 ? (
+                            Object.entries(envInfo.dl_frameworks).map(([name, ver]) => (
+                              <Descriptions.Item key={name} label={name}>{ver}</Descriptions.Item>
+                            ))
+                          ) : (
+                            <Descriptions.Item label="深度学习框架" span={2}>
+                              <Text type="secondary">未检测到深度学习框架</Text>
+                            </Descriptions.Item>
+                          )}
+                          {envInfo.pytorch_cuda_available !== undefined && (
+                            <Descriptions.Item label="PyTorch CUDA">
+                              {envInfo.pytorch_cuda_available ? <Tag color="success">可用</Tag> : <Tag>不可用</Tag>}
+                            </Descriptions.Item>
+                          )}
+                        </Descriptions>
+                      </>
+                    ) : (
+                      <Empty
+                        description="暂无环境信息"
+                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                        style={{ padding: "40px 0" }}
+                      >
+                        <Button
+                          type="primary"
+                          icon={<SyncOutlined />}
+                          onClick={() => handleCollectEnvInfo(selectedNode.id)}
+                          loading={envInfoCollecting}
+                        >
+                          立即采集
+                        </Button>
+                      </Empty>
+                    )}
+                  </Spin>
+                </div>
+              ),
+            },
+          ]} />
         )}
       </Drawer>
 
