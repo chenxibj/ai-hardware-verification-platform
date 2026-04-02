@@ -746,6 +746,7 @@ export default function Reports() {
   };
 
   return (
+    <Spin spinning={loading}>
     <div>
       {/* 统计卡片 */}
       <Row gutter={16} style={{ marginBottom: 16 }}>
@@ -754,7 +755,7 @@ export default function Reports() {
           ["审核中", reportStats.reviewing || 0, <LineChartOutlined />, "#fa8c16"],
           ["平均评分", (reportStats.avgScore || 0).toFixed?.(1) || "0", null, "#722ed1"]
         ].map(([t, v, icon, color], i) => (
-          <Col span={6} key={i}><Card size="small"><Statistic title={t} value={v} prefix={typeof icon === "object" && icon ? React.cloneElement(icon, { style: { color } }) : null} valueStyle={{ color }} /></Card></Col>
+          <Col xs={24} sm={12} md={6} key={i}><Card size="small"><Statistic title={t} value={v} prefix={typeof icon === "object" && icon ? React.cloneElement(icon, { style: { color } }) : null} valueStyle={{ color }} /></Card></Col>
         ))}
       </Row>
 
@@ -786,7 +787,8 @@ export default function Reports() {
         <Button size="small" icon={<ReloadOutlined />} onClick={() => { fetchReports(); fetchStats(); }}>刷新</Button>
         <Button size="small" icon={<DownloadOutlined />} onClick={() => handleExport("Excel")}>批量导出</Button>
       </Space>}>
-        <Table columns={columns} dataSource={reports} rowKey="id" loading={loading} size="small" pagination={{ pageSize: 10, showTotal: t => "共 " + t + " 条" }}
+        <Table columns={columns} dataSource={reports} rowKey="id" loading={loading} size="small" pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'], showTotal: (total) => `共 ${total} 条` }}
+          scroll={{ x: 'max-content' }}
           rowSelection={compareMode ? { selectedRowKeys: compareIds, onChange: setCompareIds } : undefined} />
       </Card>
 
@@ -808,5 +810,6 @@ export default function Reports() {
       {/* 失败行样式 */}
       <style>{`.ant-table-row-fail { background: #fff2f0 !important; } .ant-table-row-fail:hover > td { background: #ffeded !important; }`}</style>
     </div>
+    </Spin>
   );
 }

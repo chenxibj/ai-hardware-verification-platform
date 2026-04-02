@@ -430,6 +430,7 @@ export default function Resources() {
   ];
 
   return (
+    <Spin spinning={loading}>
     <div>
       {/* Stats Cards */}
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
@@ -492,8 +493,8 @@ export default function Resources() {
             rowKey="id"
             loading={loading}
             size="small"
-            scroll={{ x: 1200 }}
-            pagination={false}
+            scroll={{ x: 'max-content' }}
+            pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'], showTotal: (total) => `共 ${total} 条` }}
             rowClassName={(r) => r.status === "OFFLINE" ? "row-offline" : ""}
           />
         )}

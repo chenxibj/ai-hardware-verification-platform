@@ -104,6 +104,7 @@ function App() {
   return (
     <Layout style={{ minHeight: "100vh" }}>
       <Sider collapsible collapsed={collapsed} onCollapse={setCollapsed} theme="light"
+        breakpoint="lg" collapsedWidth="80" onBreakpoint={(broken) => setCollapsed(broken)}
         style={{ borderRight: "1px solid #f0f0f0" }} width={220}>
         <div style={{ height: 48, display: "flex", alignItems: "center", justifyContent: "center",
           borderBottom: "1px solid #f0f0f0", fontWeight: "bold", fontSize: collapsed ? 14 : 16 }}>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Card, Table, Tag, Space, Button, Row, Col, Statistic, Select, message } from "antd";
+import { Card, Table, Tag, Space, Button, Row, Col, Statistic, Select, message, Spin } from "antd";
 import { AuditOutlined, ReloadOutlined } from "@ant-design/icons";
 import api from "../utils/api";
 import dayjs from "dayjs";
@@ -38,13 +38,14 @@ export default function AuditLogs() {
   ];
 
   return (
+    <Spin spinning={loading}>
     <div>
       <Row gutter={16} style={{marginBottom:24}}>
-        <Col span={5}><Card hoverable><Statistic title="总操作" value={stats.total||0} prefix={<AuditOutlined/>}/></Card></Col>
-        <Col span={5}><Card hoverable><Statistic title="创建" value={stats.creates||0} valueStyle={{color:"#52c41a"}}/></Card></Col>
-        <Col span={5}><Card hoverable><Statistic title="更新" value={stats.updates||0} valueStyle={{color:"#1890ff"}}/></Card></Col>
-        <Col span={5}><Card hoverable><Statistic title="删除" value={stats.deletes||0} valueStyle={{color:"#ff4d4f"}}/></Card></Col>
-        <Col span={4}><Card hoverable><Statistic title="登录" value={stats.logins||0}/></Card></Col>
+        <Col xs={24} sm={12} md={6} lg={5}><Card hoverable><Statistic title="总操作" value={stats.total||0} prefix={<AuditOutlined/>}/></Card></Col>
+        <Col xs={24} sm={12} md={6} lg={5}><Card hoverable><Statistic title="创建" value={stats.creates||0} valueStyle={{color:"#52c41a"}}/></Card></Col>
+        <Col xs={24} sm={12} md={6} lg={5}><Card hoverable><Statistic title="更新" value={stats.updates||0} valueStyle={{color:"#1890ff"}}/></Card></Col>
+        <Col xs={24} sm={12} md={6} lg={5}><Card hoverable><Statistic title="删除" value={stats.deletes||0} valueStyle={{color:"#ff4d4f"}}/></Card></Col>
+        <Col xs={24} sm={12} md={6} lg={4}><Card hoverable><Statistic title="登录" value={stats.logins||0}/></Card></Col>
       </Row>
       <Card title="操作审计日志" extra={<Space>
         <Select placeholder="操作类型" allowClear style={{width:100}} value={actionFilter} onChange={setActionFilter}
@@ -54,8 +55,9 @@ export default function AuditLogs() {
         <Button onClick={()=>{fetch();fetchStats();}}>查询</Button>
         <Button icon={<ReloadOutlined/>} onClick={()=>{fetch();fetchStats();}}>刷新</Button>
       </Space>}>
-        <Table columns={columns} dataSource={logs} rowKey="id" loading={loading} pagination={{pageSize:20,showTotal:t=>"共 "+t+" 条"}} size="small"/>
+        <Table columns={columns} dataSource={logs} rowKey="id" loading={loading} pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'], showTotal: (total) => `共 ${total} 条` }} scroll={{ x: 'max-content' }} size="small"/>
       </Card>
     </div>
+    </Spin>
   );
 }

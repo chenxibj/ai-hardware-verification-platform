@@ -25,9 +25,10 @@ export default function Settings() {
   const StatusIcon = ({up}) => up ? <CheckCircleOutlined style={{color:"#52c41a",fontSize:20}}/> : <CloseCircleOutlined style={{color:"#ff4d4f",fontSize:20}}/>;
 
   return (
+    <Spin spinning={loading}>
     <div>
       <Row gutter={24}>
-        <Col span={12}>
+        <Col xs={24} md={12}>
           <Card title={<span><InfoCircleOutlined/> 系统信息</span>}>
             <Descriptions column={1} bordered size="small">
               <Descriptions.Item label="平台名称">人工智能软硬件验证平台</Descriptions.Item>
@@ -40,7 +41,7 @@ export default function Settings() {
             </Descriptions>
           </Card>
         </Col>
-        <Col span={12}>
+        <Col xs={24} md={12}>
           <Card title={<span><HeartOutlined/> 服务健康状态</span>} extra={<Button icon={<ReloadOutlined/>} onClick={checkHealth} loading={loading}>刷新</Button>}>
             {health ? (
               <List itemLayout="horizontal" dataSource={[
@@ -70,5 +71,6 @@ export default function Settings() {
         </Card>
       )}
     </div>
+    </Spin>
   );
 }

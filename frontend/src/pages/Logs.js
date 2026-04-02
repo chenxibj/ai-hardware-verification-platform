@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Card, Table, Tag, Space, Button, Row, Col, Statistic, Select, Input, message } from "antd";
+import { Card, Table, Tag, Space, Button, Row, Col, Statistic, Select, Input, message, Spin } from "antd";
 import { FileSearchOutlined, ReloadOutlined, WarningOutlined, CloseCircleOutlined, BugOutlined } from "@ant-design/icons";
 import api from "../utils/api";
 import dayjs from "dayjs";
@@ -37,11 +37,12 @@ export default function Logs() {
   ];
 
   return (
+    <Spin spinning={loading}>
     <div>
       <Row gutter={16} style={{marginBottom:24}}>
-        <Col span={8}><Card hoverable><Statistic title="日志总数" value={stats.total||0} prefix={<FileSearchOutlined/>}/></Card></Col>
-        <Col span={8}><Card hoverable><Statistic title="错误数" value={stats.error||0} valueStyle={{color:"#ff4d4f"}} prefix={<CloseCircleOutlined/>}/></Card></Col>
-        <Col span={8}><Card hoverable><Statistic title="警告数" value={stats.warn||0} valueStyle={{color:"#faad14"}} prefix={<WarningOutlined/>}/></Card></Col>
+        <Col xs={24} sm={12} md={8}><Card hoverable><Statistic title="日志总数" value={stats.total||0} prefix={<FileSearchOutlined/>}/></Card></Col>
+        <Col xs={24} sm={12} md={8}><Card hoverable><Statistic title="错误数" value={stats.error||0} valueStyle={{color:"#ff4d4f"}} prefix={<CloseCircleOutlined/>}/></Card></Col>
+        <Col xs={24} sm={12} md={8}><Card hoverable><Statistic title="警告数" value={stats.warn||0} valueStyle={{color:"#faad14"}} prefix={<WarningOutlined/>}/></Card></Col>
       </Row>
       <Card title="评测日志" extra={<Space>
         <Input placeholder="任务ID" style={{width:100}} value={taskFilter} onChange={e=>setTaskFilter(e.target.value||null)} allowClear/>
@@ -50,8 +51,9 @@ export default function Logs() {
         <Button onClick={()=>{fetchLogs();fetchStats();}}>查询</Button>
         <Button icon={<ReloadOutlined/>} onClick={()=>{fetchLogs();fetchStats();}}>刷新</Button>
       </Space>}>
-        <Table columns={columns} dataSource={logs} rowKey="id" loading={loading} pagination={{pageSize:20,showTotal:t=>"共 "+t+" 条"}} size="small"/>
+        <Table columns={columns} dataSource={logs} rowKey="id" loading={loading} pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'], showTotal: (total) => `共 ${total} 条` }} scroll={{ x: 'max-content' }} size="small"/>
       </Card>
     </div>
+    </Spin>
   );
 }

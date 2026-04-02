@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Card, Table, Tag, Space, Button, Modal, Form, Input, Select, message, Descriptions, Typography, Tooltip, Row, Col, Popconfirm, Empty, Badge } from "antd";
+import { Card, Table, Tag, Space, Button, Modal, Form, Input, Select, message, Descriptions, Typography, Tooltip, Row, Col, Popconfirm, Empty, Badge, Spin } from "antd";
 import { AppstoreOutlined, PlusOutlined, ReloadOutlined, EyeOutlined, EditOutlined, DeleteOutlined, CopyOutlined, ThunderboltOutlined, ExperimentOutlined, RocketOutlined, ApiOutlined } from "@ant-design/icons";
 import api from "../utils/api";
 import dayjs from "dayjs";
@@ -168,13 +168,14 @@ export default function Templates() {
   const userTemplates = templates.filter(t => !t.isSystem);
 
   return (
+    <Spin spinning={loading}>
     <div>
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         {systemTemplates.map(t => {
           const config = parseConfig(t.configJson);
           const dim = config.evalDimension || config.evalObject;
           return (
-            <Col span={8} key={t.id}>
+            <Col xs={24} sm={12} md={8} key={t.id}>
               <Card hoverable size="small" style={{ borderLeft: "3px solid #1890ff" }}
                 actions={[
                   <Tooltip title="查看详情"><EyeOutlined key="view" onClick={() => { setSelected(t); setDetailVisible(true); }} /></Tooltip>,
@@ -206,7 +207,8 @@ export default function Templates() {
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建模板</Button>
         </Space>}>
         <Table columns={columns} dataSource={templates} rowKey="id" loading={loading}
-          pagination={{ pageSize: 10, showTotal: t => `共 ${t} 条` }} />
+          pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'], showTotal: (total) => `共 ${total} 条` }}
+          scroll={{ x: 'max-content' }} />
       </Card>
 
       {/* Detail Modal */}
@@ -259,5 +261,6 @@ export default function Templates() {
         </Form>
       </Modal>
     </div>
+    </Spin>
   );
 }

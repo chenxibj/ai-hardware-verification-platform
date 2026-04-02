@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Card, List, Tag, Space, Button, Row, Col, Statistic, Modal, Form, Input, Select, message, Avatar, Typography, Divider } from "antd";
+import { Card, List, Tag, Space, Button, Row, Col, Statistic, Modal, Form, Input, Select, message, Avatar, Typography, Divider, Spin } from "antd";
 import { ReadOutlined, PlusOutlined, LikeOutlined, EyeOutlined, MessageOutlined, SearchOutlined, PushpinOutlined } from "@ant-design/icons";
 import api from "../utils/api";
 import dayjs from "dayjs";
@@ -44,12 +44,13 @@ export default function Community() {
   const catColors = { TUTORIAL:"blue", CASE_STUDY:"green", ANNOUNCEMENT:"red", DISCUSSION:"default", REQUIREMENT:"purple" };
 
   return (
+    <Spin spinning={loading}>
     <div>
       <Row gutter={16} style={{marginBottom:24}}>
-        <Col span={6}><Card hoverable><Statistic title="文章总数" value={stats.articles||0} prefix={<ReadOutlined/>}/></Card></Col>
-        <Col span={6}><Card hoverable><Statistic title="教程" value={stats.tutorials||0} valueStyle={{color:"#1890ff"}}/></Card></Col>
-        <Col span={6}><Card hoverable><Statistic title="讨论" value={stats.discussions||0}/></Card></Col>
-        <Col span={6}><Card hoverable><Statistic title="需求" value={stats.requirements||0} valueStyle={{color:"#722ed1"}}/></Card></Col>
+        <Col xs={24} sm={12} md={6}><Card hoverable><Statistic title="文章总数" value={stats.articles||0} prefix={<ReadOutlined/>}/></Card></Col>
+        <Col xs={24} sm={12} md={6}><Card hoverable><Statistic title="教程" value={stats.tutorials||0} valueStyle={{color:"#1890ff"}}/></Card></Col>
+        <Col xs={24} sm={12} md={6}><Card hoverable><Statistic title="讨论" value={stats.discussions||0}/></Card></Col>
+        <Col xs={24} sm={12} md={6}><Card hoverable><Statistic title="需求" value={stats.requirements||0} valueStyle={{color:"#722ed1"}}/></Card></Col>
       </Row>
       <Card title="社区" extra={<Space>
         <Input placeholder="搜索" prefix={<SearchOutlined/>} value={searchText} onChange={e=>setSearchText(e.target.value)} onPressEnter={fetch} style={{width:160}} allowClear/>
@@ -98,5 +99,6 @@ export default function Community() {
         </div>}
       </Modal>
     </div>
+    </Spin>
   );
 }

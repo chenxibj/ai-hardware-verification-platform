@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Card, Table, Tag, Space, Button, Row, Col, Statistic, Modal, Form, Input, Select, message, Tooltip, Badge } from "antd";
+import { Card, Table, Tag, Space, Button, Row, Col, Statistic, Modal, Form, Input, Select, message, Tooltip, Badge, Spin } from "antd";
 import { DatabaseOutlined, PlusOutlined, ReloadOutlined, EyeOutlined, DeleteOutlined, SearchOutlined, CloudUploadOutlined, DownloadOutlined, LinkOutlined } from "@ant-design/icons";
 import api from "../utils/api";
 import dayjs from "dayjs";
@@ -91,13 +91,14 @@ export default function Assets() {
   ];
 
   return (
+    <Spin spinning={loading}>
     <div>
       <Row gutter={16} style={{marginBottom:24}}>
-        <Col span={5}><Card hoverable><Statistic title="总资产" value={stats.total||0} prefix={<DatabaseOutlined/>}/></Card></Col>
-        <Col span={5}><Card hoverable><Statistic title="模型" value={stats.models||0} valueStyle={{color:"#1890ff"}}/></Card></Col>
-        <Col span={5}><Card hoverable><Statistic title="数据集" value={stats.datasets||0} valueStyle={{color:"#52c41a"}}/></Card></Col>
-        <Col span={5}><Card hoverable><Statistic title="脚本" value={stats.scripts||0} valueStyle={{color:"#fa8c16"}}/></Card></Col>
-        <Col span={4}><Card hoverable><Statistic title="基准" value={stats.benchmarks||0} valueStyle={{color:"#722ed1"}}/></Card></Col>
+        <Col xs={24} sm={12} md={6} lg={5}><Card hoverable><Statistic title="总资产" value={stats.total||0} prefix={<DatabaseOutlined/>}/></Card></Col>
+        <Col xs={24} sm={12} md={6} lg={5}><Card hoverable><Statistic title="模型" value={stats.models||0} valueStyle={{color:"#1890ff"}}/></Card></Col>
+        <Col xs={24} sm={12} md={6} lg={5}><Card hoverable><Statistic title="数据集" value={stats.datasets||0} valueStyle={{color:"#52c41a"}}/></Card></Col>
+        <Col xs={24} sm={12} md={6} lg={5}><Card hoverable><Statistic title="脚本" value={stats.scripts||0} valueStyle={{color:"#fa8c16"}}/></Card></Col>
+        <Col xs={24} sm={12} md={6} lg={4}><Card hoverable><Statistic title="基准" value={stats.benchmarks||0} valueStyle={{color:"#722ed1"}}/></Card></Col>
       </Row>
       <Card title="数字资产管理" extra={<Space>
         <Input placeholder="搜索" prefix={<SearchOutlined/>} value={searchText} onChange={e=>setSearchText(e.target.value)} onPressEnter={fetchAssets} style={{width:160}} allowClear/>
@@ -105,7 +106,7 @@ export default function Assets() {
         <Button onClick={fetchAssets}>查询</Button>
         <Button type="primary" icon={<PlusOutlined/>} onClick={()=>setCreateVisible(true)}>新增资产</Button>
       </Space>}>
-        <Table columns={columns} dataSource={assets} rowKey="id" loading={loading} scroll={{x:1400}} pagination={{pageSize:10,showTotal:t=>"共 "+t+" 条"}}/>
+        <Table columns={columns} dataSource={assets} rowKey="id" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'], showTotal: (total) => `共 ${total} 条` }}/>
       </Card>
       <Modal title="新增数字资产" open={createVisible} onCancel={()=>setCreateVisible(false)} footer={null} width={600} destroyOnClose>
         <Form form={form} onFinish={handleCreate} layout="vertical" initialValues={{version:"1.0",assetType:"MODEL"}}>
@@ -138,5 +139,6 @@ export default function Assets() {
         </div>}
       </Modal>
     </div>
+    </Spin>
   );
 }

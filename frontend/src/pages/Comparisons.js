@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Card, Table, Tag, Space, Button, Row, Col, Statistic, Modal, Form, Input, Select, message } from "antd";
+import { Card, Table, Tag, Space, Button, Row, Col, Statistic, Modal, Form, Input, Select, message, Spin } from "antd";
 import { DiffOutlined, PlusOutlined, EyeOutlined, DeleteOutlined } from "@ant-design/icons";
 import api from "../utils/api";
 import dayjs from "dayjs";
@@ -42,11 +42,13 @@ export default function Comparisons() {
   ];
 
   return (
+    <Spin spinning={loading}>
     <div>
       <Card title="评测报告对比" extra={<Space>
         <Button type="primary" icon={<PlusOutlined/>} onClick={()=>setCreateVisible(true)}>新建对比</Button>
       </Space>}>
-        <Table columns={columns} dataSource={records} rowKey="id" loading={loading} pagination={{pageSize:10}}/>
+        <Table columns={columns} dataSource={records} rowKey="id" loading={loading} pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'], showTotal: (total) => `共 ${total} 条` }}
+          scroll={{ x: 'max-content' }}/>
       </Card>
 
       <Modal title="新建对比" open={createVisible} onCancel={()=>setCreateVisible(false)} footer={null} width={600} destroyOnClose>
@@ -70,5 +72,6 @@ export default function Comparisons() {
         </div>}
       </Modal>
     </div>
+    </Spin>
   );
 }

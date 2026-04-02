@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Card, Table, Tag, Space, Button, Row, Col, Statistic, Select, message, Modal, Badge, Form, Input } from "antd";
+import { Card, Table, Tag, Space, Button, Row, Col, Statistic, Select, message, Modal, Badge, Form, Input, Spin } from "antd";
 import { TeamOutlined, UserOutlined, ReloadOutlined, SafetyOutlined, PlusOutlined } from "@ant-design/icons";
 import { userApi } from "../utils/api";
 import dayjs from "dayjs";
@@ -82,14 +82,15 @@ export default function Users() {
   ];
 
   return (
+    <Spin spinning={loading}>
     <div>
       <Row gutter={16} style={{marginBottom:24}}>
-        <Col span={8}><Card hoverable><Statistic title="用户总数" value={stats.total||0} prefix={<TeamOutlined/>}/></Card></Col>
-        <Col span={8}><Card hoverable><Statistic title="活跃用户" value={stats.active||0} valueStyle={{color:"#52c41a"}} prefix={<UserOutlined/>}/></Card></Col>
-        <Col span={8}><Card hoverable><Statistic title="已禁用" value={stats.inactive||0} valueStyle={{color:"#ff4d4f"}} prefix={<SafetyOutlined/>}/></Card></Col>
+        <Col xs={24} sm={12} md={8}><Card hoverable><Statistic title="用户总数" value={stats.total||0} prefix={<TeamOutlined/>}/></Card></Col>
+        <Col xs={24} sm={12} md={8}><Card hoverable><Statistic title="活跃用户" value={stats.active||0} valueStyle={{color:"#52c41a"}} prefix={<UserOutlined/>}/></Card></Col>
+        <Col xs={24} sm={12} md={8}><Card hoverable><Statistic title="已禁用" value={stats.inactive||0} valueStyle={{color:"#ff4d4f"}} prefix={<SafetyOutlined/>}/></Card></Col>
       </Row>
       <Card title="用户管理" extra={<Space><Button icon={<ReloadOutlined/>} onClick={() => { fetchUsers(); fetchStats(); }}>刷新</Button><Button type="primary" icon={<PlusOutlined/>} onClick={() => setCreateVisible(true)}>新增用户</Button></Space>}>
-        <Table columns={columns} dataSource={users} rowKey="id" loading={loading} pagination={{pageSize:10,showTotal:t=>"共 "+t+" 条"}} scroll={{x:1200}}/>
+        <Table columns={columns} dataSource={users} rowKey="id" loading={loading} pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'], showTotal: (total) => `共 ${total} 条` }} scroll={{ x: 'max-content' }}/>
       </Card>
 
       <Modal title="新增用户" open={createVisible} onCancel={() => { setCreateVisible(false); form.resetFields(); }} footer={null} destroyOnClose>
@@ -108,5 +109,6 @@ export default function Users() {
         </Form>
       </Modal>
     </div>
+    </Spin>
   );
 }
