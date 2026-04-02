@@ -4,7 +4,7 @@ import { test as base, expect, Page, APIRequestContext } from '@playwright/test'
 export const TEST_USER = {
   email: 'test@ahvp.com',
   password: 'test123',
-  username: 'testuser',
+  username: "test",
 };
 
 /** API base (backend direct, not via frontend proxy) */

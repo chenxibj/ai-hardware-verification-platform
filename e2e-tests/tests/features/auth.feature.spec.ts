@@ -127,7 +127,7 @@ test.describe('Feature: 用户认证', () => {
     await expect(page.locator('.ant-menu')).toBeVisible();
 
     // When 用户点击头部用户按钮，再点击退出登录
-    await page.getByRole('button', { name: /testuser/ }).click();
+    await page.getByRole('button', { name: /test/ }).click();
     await page.locator('.ant-dropdown-menu-item-danger', { hasText: '退出登录' }).click();
 
     // Then 应该回到登录页面
