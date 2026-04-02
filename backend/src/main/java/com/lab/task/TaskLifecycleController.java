@@ -20,15 +20,15 @@ public class TaskLifecycleController {
         EvaluationTask task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new RuntimeException("Task not found"));
         
-        String status = task.getStatus();
-        if (!"RUNNING".equals(status) && !"PENDING".equals(status)) {
+        EvaluationTask.TaskStatus status = task.getStatus();
+        if (status != EvaluationTask.TaskStatus.RUNNING && status != EvaluationTask.TaskStatus.PENDING) {
             Map<String, Object> err = new HashMap<>();
             err.put("code", 1001);
             err.put("message", "Only RUNNING or PENDING tasks can be paused, current: " + status);
             return ResponseEntity.badRequest().body(err);
         }
 
-        task.setStatus("PAUSED");
+        task.setStatus(EvaluationTask.TaskStatus.PAUSED);
         taskRepository.save(task);
 
         Map<String, Object> response = new HashMap<>();
@@ -43,15 +43,15 @@ public class TaskLifecycleController {
         EvaluationTask task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new RuntimeException("Task not found"));
         
-        String status = task.getStatus();
-        if (!"PAUSED".equals(status)) {
+        EvaluationTask.TaskStatus status = task.getStatus();
+        if (status != EvaluationTask.TaskStatus.PAUSED) {
             Map<String, Object> err = new HashMap<>();
             err.put("code", 1001);
             err.put("message", "Only PAUSED tasks can be resumed, current: " + status);
             return ResponseEntity.badRequest().body(err);
         }
 
-        task.setStatus("PENDING");
+        task.setStatus(EvaluationTask.TaskStatus.PENDING);
         taskRepository.save(task);
 
         Map<String, Object> response = new HashMap<>();
