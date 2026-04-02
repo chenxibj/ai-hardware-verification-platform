@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Card, Table, Tag, Space, Button, Row, Col, Statistic, Modal, message,
-  Badge, Descriptions, Tooltip, Progress, Typography, Drawer, Spin, Popconfirm, Empty
+  Badge, Descriptions, Tooltip, Progress, Typography, Drawer, Spin, Popconfirm, Empty,
+  Form, Input, InputNumber, Radio, Alert
 } from "antd";
 import {
   CloudServerOutlined, ReloadOutlined, DeleteOutlined, CheckCircleOutlined,
   StopOutlined, DesktopOutlined, ThunderboltOutlined, WarningOutlined,
   InfoCircleOutlined, FieldTimeOutlined, DashboardOutlined,
-  ClockCircleOutlined, HddOutlined, ApiOutlined
+  ClockCircleOutlined, HddOutlined, ApiOutlined, PlusOutlined,
+  SyncOutlined, ExclamationCircleOutlined, LoadingOutlined
 } from "@ant-design/icons";
 import ReactECharts from "echarts-for-react";
 import api from "../utils/api";
@@ -18,6 +20,7 @@ dayjs.extend(relativeTime);
 dayjs.locale("zh-cn");
 
 const { Text, Title } = Typography;
+const { TextArea } = Input;
 
 const STATUS_MAP = {
   ONLINE: { text: "在线", badge: "success", color: "#52c41a" },
@@ -25,6 +28,9 @@ const STATUS_MAP = {
   BUSY: { text: "繁忙", badge: "processing", color: "#1890ff" },
   MAINTENANCE: { text: "维护中", badge: "warning", color: "#faad14" },
   ERROR: { text: "异常", badge: "error", color: "#ff4d4f" },
+  PENDING: { text: "待纳管", badge: "default", color: "#d9d9d9" },
+  MANAGING: { text: "纳管中", badge: "processing", color: "#1890ff" },
+  FAILED: { text: "纳管失败", badge: "error", color: "#ff4d4f" },
 };
 
 const NODE_TYPE_ICONS = {
@@ -56,6 +62,11 @@ export default function Resources() {
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [metricsHours, setMetricsHours] = useState(1);
   const refreshTimer = useRef(null);
+
+  // ====== New: Add Node Modal state ======
+  const [addModalVisible, setAddModalVisible] = useState(false);
+  const [addLoading, setAddLoading] = useState(false);
+  const [addForm] = Form.useForm();
 
   const fetchNodes = useCallback(async () => {
     setLoading(true);
@@ -121,6 +132,67 @@ export default function Resources() {
     }
   };
 
+  // ====== New: Create Node ======
+  const handleAddNode = async () => {
+    try {
+      const values = await addForm.validateFields();
+      setAddLoading(true);
+      const payload = {
+        name: values.name,
+        ipAddress: values.ipAddress,
+        sshPort: values.sshPort || 22,
+        authType: values.authType,
+        sshUser: values.sshUser || "root",
+        remark: values.remark || "",
+      };
+      if (values.authType === "password") {
+        payload.sshPassword = values.sshPassword;
+      } else {
+        payload.sshKey = values.sshKey;
+      }
+      const res = await api.post("/nodes/create", payload);
+      if (res.data.code === 0) {
+        message.success("节点已创建，正在纳管中...");
+        setAddModalVisible(false);
+        addForm.resetFields();
+        // Poll more frequently for a bit to show status updates
+        fetchNodes();
+        setTimeout(fetchNodes, 3000);
+        setTimeout(fetchNodes, 8000);
+        setTimeout(fetchNodes, 15000);
+      } else {
+        message.error(res.data.message || "创建失败");
+      }
+    } catch (e) {
+      if (e.response?.data?.message) {
+        message.error(e.response.data.message);
+      } else if (!e.errorFields) {
+        message.error("创建节点失败");
+      }
+    } finally {
+      setAddLoading(false);
+    }
+  };
+
+  // ====== New: Retry Manage ======
+  const handleRetryManage = async (node) => {
+    // For retry, we just trigger the manage endpoint with existing credentials
+    try {
+      await api.post(`/nodes/${node.id}/manage`, {
+        authType: node.sshAuthType || "password",
+        sshUser: node.sshUser || "root",
+        sshPort: node.sshPort || 22,
+      });
+      message.info("正在重新纳管...");
+      fetchNodes();
+      setTimeout(fetchNodes, 3000);
+      setTimeout(fetchNodes, 8000);
+      setTimeout(fetchNodes, 15000);
+    } catch (e) {
+      message.error("重新纳管失败");
+    }
+  };
+
   // Stats
   const totalNodes = nodes.length;
   const onlineNodes = nodes.filter(n => n.status === "ONLINE" || n.status === "BUSY").length;
@@ -178,6 +250,25 @@ export default function Resources() {
     };
   };
 
+  // ====== Render status badge with management states ======
+  const renderStatus = (status, record) => {
+    const s = STATUS_MAP[status] || STATUS_MAP.OFFLINE;
+    if (status === "MANAGING") {
+      return <Badge status="processing" text={<span><LoadingOutlined spin style={{ marginRight: 4 }} />纳管中</span>} />;
+    }
+    if (status === "FAILED") {
+      return (
+        <Tooltip title={record?.errorMessage || "纳管失败"}>
+          <Badge status="error" text={<span style={{ color: "#ff4d4f" }}><ExclamationCircleOutlined style={{ marginRight: 4 }} />纳管失败</span>} />
+        </Tooltip>
+      );
+    }
+    if (status === "PENDING") {
+      return <Badge status="default" text={<span><ClockCircleOutlined style={{ marginRight: 4 }} />待纳管</span>} />;
+    }
+    return <Badge status={s.badge} text={s.text} />;
+  };
+
   const columns = [
     {
       title: "节点", key: "node", width: 220,
@@ -196,17 +287,17 @@ export default function Resources() {
       }
     },
     {
-      title: "状态", dataIndex: "status", width: 100,
-      render: v => {
-        const s = STATUS_MAP[v] || STATUS_MAP.OFFLINE;
-        return <Badge status={s.badge} text={s.text} />;
-      },
+      title: "状态", dataIndex: "status", width: 130,
+      render: (v, r) => renderStatus(v, r),
       filters: Object.entries(STATUS_MAP).map(([k, v]) => ({ text: v.text, value: k })),
       onFilter: (val, record) => record.status === val,
     },
     {
       title: "硬件", key: "hardware", width: 220,
       render: (_, r) => {
+        if (r.status === "PENDING" || r.status === "MANAGING" || r.status === "FAILED") {
+          return <Text type="secondary" style={{ fontSize: 12 }}>-</Text>;
+        }
         const hw = r.hardwareInfo || {};
         return (
           <div style={{ fontSize: 12 }}>
@@ -256,10 +347,13 @@ export default function Resources() {
       sorter: (a, b) => new Date(a.lastHeartbeat || 0) - new Date(b.lastHeartbeat || 0),
     },
     {
-      title: "操作", key: "action", width: 200, fixed: "right",
+      title: "操作", key: "action", width: 220, fixed: "right",
       render: (_, r) => (
         <Space size={2}>
           <Button type="link" size="small" onClick={() => openDetail(r)} icon={<InfoCircleOutlined />}>详情</Button>
+          {r.status === "FAILED" && (
+            <Button type="link" size="small" onClick={() => handleRetryManage(r)} icon={<SyncOutlined />}>重试纳管</Button>
+          )}
           {r.status === "ONLINE" && (
             <Button type="link" size="small" onClick={() => handleStatusChange(r.id, "MAINTENANCE")} icon={<StopOutlined />}>维护</Button>
           )}
@@ -318,12 +412,17 @@ export default function Resources() {
           <Space>
             <Text type="secondary" style={{ fontSize: 12 }}>每30秒自动刷新</Text>
             <Button onClick={fetchNodes} icon={<ReloadOutlined />} loading={loading}>刷新</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => { addForm.resetFields(); setAddModalVisible(true); }}>
+              新增节点
+            </Button>
           </Space>
         }
       >
         {nodes.length === 0 && !loading ? (
           <Empty description="暂无注册节点" style={{ padding: "40px 0" }}>
-            <Text type="secondary">节点 Agent 启动后会自动注册到平台</Text>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => { addForm.resetFields(); setAddModalVisible(true); }}>
+              新增节点
+            </Button>
           </Empty>
         ) : (
           <Table
@@ -332,12 +431,112 @@ export default function Resources() {
             rowKey="id"
             loading={loading}
             size="small"
-            scroll={{ x: 1100 }}
+            scroll={{ x: 1200 }}
             pagination={false}
             rowClassName={(r) => r.status === "OFFLINE" ? "row-offline" : ""}
           />
         )}
       </Card>
+
+      {/* ====== New: Add Node Modal ====== */}
+      <Modal
+        title="新增计算节点"
+        open={addModalVisible}
+        onOk={handleAddNode}
+        onCancel={() => setAddModalVisible(false)}
+        confirmLoading={addLoading}
+        okText="提交纳管"
+        cancelText="取消"
+        width={560}
+        destroyOnClose
+      >
+        <Alert
+          message="添加节点后系统将自动通过 SSH 连接验证，验证成功后节点状态变为在线。"
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <Form
+          form={addForm}
+          layout="vertical"
+          initialValues={{ sshPort: 22, authType: "password", sshUser: "root" }}
+        >
+          <Form.Item
+            label="节点名称"
+            name="name"
+            rules={[
+              { required: true, message: "请输入节点名称" },
+              { max: 100, message: "名称不超过100个字符" },
+            ]}
+          >
+            <Input placeholder="例如：gpu-node-01" />
+          </Form.Item>
+
+          <Row gutter={16}>
+            <Col span={16}>
+              <Form.Item
+                label="IP 地址"
+                name="ipAddress"
+                rules={[
+                  { required: true, message: "请输入 IP 地址" },
+                  {
+                    pattern: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/,
+                    message: "请输入合法的 IP 地址",
+                  },
+                ]}
+              >
+                <Input placeholder="例如：192.168.1.100" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item label="SSH 端口" name="sshPort">
+                <InputNumber min={1} max={65535} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item label="认证方式" name="authType">
+            <Radio.Group>
+              <Radio value="password">密码认证</Radio>
+              <Radio value="key">SSH 密钥</Radio>
+            </Radio.Group>
+          </Form.Item>
+
+          <Form.Item label="用户名" name="sshUser" rules={[{ required: true, message: "请输入用户名" }]}>
+            <Input placeholder="root" />
+          </Form.Item>
+
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.authType !== cur.authType}>
+            {({ getFieldValue }) =>
+              getFieldValue("authType") === "password" ? (
+                <Form.Item
+                  label="密码"
+                  name="sshPassword"
+                  rules={[{ required: true, message: "请输入密码" }]}
+                >
+                  <Input.Password placeholder="SSH 登录密码" />
+                </Form.Item>
+              ) : (
+                <Form.Item
+                  label="SSH 私钥"
+                  name="sshKey"
+                  rules={[{ required: true, message: "请粘贴 SSH 私钥内容" }]}
+                >
+                  <TextArea
+                    rows={4}
+                    placeholder={"-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"}
+                    style={{ fontFamily: "monospace", fontSize: 12 }}
+                  />
+                </Form.Item>
+              )
+            }
+          </Form.Item>
+
+          <Form.Item label="备注信息" name="remark">
+            <TextArea rows={2} placeholder="可选：节点用途、配置说明等" />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       {/* Detail Drawer */}
       <Drawer
@@ -349,14 +548,45 @@ export default function Resources() {
       >
         {selectedNode && (
           <div>
+            {/* Error message alert for FAILED nodes */}
+            {selectedNode.status === "FAILED" && selectedNode.errorMessage && (
+              <Alert
+                message="纳管失败"
+                description={selectedNode.errorMessage}
+                type="error"
+                showIcon
+                style={{ marginBottom: 16 }}
+                action={
+                  <Button size="small" type="primary" onClick={() => handleRetryManage(selectedNode)}>
+                    重试纳管
+                  </Button>
+                }
+              />
+            )}
+
+            {selectedNode.status === "MANAGING" && (
+              <Alert
+                message="纳管进行中"
+                description="系统正在通过 SSH 连接验证该节点，请稍候..."
+                type="info"
+                showIcon
+                icon={<LoadingOutlined />}
+                style={{ marginBottom: 16 }}
+              />
+            )}
+
             {/* Basic Info */}
             <Descriptions title="基本信息" column={2} size="small" bordered style={{ marginBottom: 24 }}>
               <Descriptions.Item label="节点名称">{selectedNode.name}</Descriptions.Item>
               <Descriptions.Item label="状态">
-                <Badge status={STATUS_MAP[selectedNode.status]?.badge || "default"} text={STATUS_MAP[selectedNode.status]?.text || selectedNode.status} />
+                {renderStatus(selectedNode.status, selectedNode)}
               </Descriptions.Item>
               <Descriptions.Item label="IP 地址">{selectedNode.ipAddress || "-"}</Descriptions.Item>
-              <Descriptions.Item label="Agent 端口">{selectedNode.agentPort || "-"}</Descriptions.Item>
+              <Descriptions.Item label="SSH 端口">{selectedNode.sshPort || "-"}</Descriptions.Item>
+              <Descriptions.Item label="SSH 用户">{selectedNode.sshUser || "-"}</Descriptions.Item>
+              <Descriptions.Item label="认证方式">
+                {selectedNode.sshAuthType === "key" ? "SSH 密钥" : selectedNode.sshAuthType === "password" ? "密码" : (selectedNode.agentPort ? `Agent (${selectedNode.agentPort})` : "-")}
+              </Descriptions.Item>
               <Descriptions.Item label="描述" span={2}>{selectedNode.description || "-"}</Descriptions.Item>
               <Descriptions.Item label="标签" span={2}>
                 {selectedNode.tags ? selectedNode.tags.split(",").map(t => <Tag key={t}>{t.trim()}</Tag>) : "-"}
