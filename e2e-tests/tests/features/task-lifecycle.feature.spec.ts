@@ -17,7 +17,6 @@ test.describe('Feature: 评测任务全生命周期', () => {
     const createRes = await apiPost(request, token, '/tasks', {
       name: `BDD-Lifecycle-${Date.now()}`,
       evalType: 'PERFORMANCE',
-      evalObject: 'OPERATOR',
       priority: 'LOW',
     });
     expect(createRes.ok()).toBeTruthy();
@@ -30,7 +29,6 @@ test.describe('Feature: 评测任务全生命周期', () => {
     // Then 任务初始状态应为 PENDING
     expect(createBody.data.status).toBe('PENDING');
     expect(createBody.data.evalType).toBe('PERFORMANCE');
-    expect(createBody.data.evalObject).toBe('OPERATOR');
     expect(taskNo).toMatch(/^EVT-/);
 
     // And 轮询等待任务到达终态（COMPLETED 或 FAILED）
@@ -56,7 +54,6 @@ test.describe('Feature: 评测任务全生命周期', () => {
     const createRes = await apiPost(request, token, '/tasks', {
       name,
       evalType: 'ACCURACY',
-      evalObject: 'MODEL',
       priority: 'MEDIUM',
     });
     expect(createRes.ok()).toBeTruthy();
@@ -89,9 +86,9 @@ test.describe('Feature: 评测任务全生命周期', () => {
     const { token } = await apiLogin(request);
 
     const evalConfigs = [
-      { evalType: 'PERFORMANCE', evalObject: 'CHIP', name: 'BDD-芯片' },
-      { evalType: 'COMPATIBILITY', evalObject: 'FRAMEWORK', name: 'BDD-框架' },
-      { evalType: 'PERFORMANCE', evalObject: 'SCENE', name: 'BDD-场景' },
+      { evalType: 'PERFORMANCE', name: 'BDD-芯片' },
+      { evalType: 'COMPATIBILITY', name: 'BDD-框架' },
+      { evalType: 'PERFORMANCE', name: 'BDD-场景' },
     ];
 
     for (const cfg of evalConfigs) {
@@ -99,7 +96,6 @@ test.describe('Feature: 评测任务全生命周期', () => {
       const res = await apiPost(request, token, '/tasks', {
         name: `${cfg.name}-${Date.now()}`,
         evalType: cfg.evalType,
-        evalObject: cfg.evalObject,
         priority: 'LOW',
       });
       expect(res.ok(), `Should create ${cfg.name} task`).toBeTruthy();

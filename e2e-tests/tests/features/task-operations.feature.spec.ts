@@ -16,7 +16,6 @@ test.describe('Feature: 任务操作', () => {
     const createRes = await apiPost(request, token, '/tasks', {
       name: `BDD-Cancel-${Date.now()}`,
       evalType: 'PERFORMANCE',
-      evalObject: 'OPERATOR',
       priority: 'LOW',
     });
     const taskId = (await createRes.json()).data.id;
@@ -39,7 +38,6 @@ test.describe('Feature: 任务操作', () => {
     const createRes = await apiPost(request, token, '/tasks', {
       name: `BDD-Retry-${Date.now()}`,
       evalType: 'PERFORMANCE',
-      evalObject: 'OPERATOR',
       priority: 'LOW',
     });
     const taskId = (await createRes.json()).data.id;
@@ -65,7 +63,6 @@ test.describe('Feature: 任务操作', () => {
     const createRes = await apiPost(request, token, '/tasks', {
       name: `BDD-CloneOrig-${Date.now()}`,
       evalType: 'PERFORMANCE',
-      evalObject: 'OPERATOR',
       priority: 'LOW',
     });
     const originalId = (await createRes.json()).data.id;
@@ -165,7 +162,6 @@ test.describe('Feature: 任务操作', () => {
     const res1 = await apiPost(request, token, '/tasks', {
       name: `BDD-Batch1-${Date.now()}`,
       evalType: 'PERFORMANCE',
-      evalObject: 'OPERATOR',
       priority: 'LOW',
     });
     const id1 = (await res1.json()).data.id;
@@ -173,7 +169,6 @@ test.describe('Feature: 任务操作', () => {
     const res2 = await apiPost(request, token, '/tasks', {
       name: `BDD-Batch2-${Date.now()}`,
       evalType: 'PERFORMANCE',
-      evalObject: 'OPERATOR',
       priority: 'LOW',
     });
     const id2 = (await res2.json()).data.id;

@@ -184,4 +184,21 @@ test.describe('Feature: 评测模板管理', () => {
       await apiDelete(request, token, `/templates/${created.id}`);
     }
   });
+
+  test('Scenario: 系统模板不可删除', async ({ request }) => {
+    // Given 用户已登录，获取系统模板
+    const { token } = await apiLogin(request);
+    const listRes = await apiGet(request, token, '/templates');
+    const templates = (await listRes.json()).data;
+    const systemTemplate = templates.find((t: any) => t.isSystem);
+    expect(systemTemplate).toBeTruthy();
+
+    // When 尝试删除系统模板
+    const deleteRes = await apiDelete(request, token, `/templates/${systemTemplate.id}`);
+
+    // Then 应返回错误（不允许删除系统模板）
+    const body = await deleteRes.json();
+    expect(body.code).not.toBe(0);
+  });
+
 });
