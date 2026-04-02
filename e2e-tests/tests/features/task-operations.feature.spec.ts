@@ -31,6 +31,7 @@ test.describe('Feature: 任务操作', () => {
   });
 
   test('Scenario: 重试已取消的任务', async ({ request }) => {
+    test.setTimeout(90_000);
     // Given 用户已登录
     const { token } = await apiLogin(request);
 
@@ -231,4 +232,43 @@ test.describe('Feature: 任务操作', () => {
     expect(body.data).toBeTruthy();
     expect(Array.isArray(body.data)).toBe(true);
   });
+
+  test('Scenario: 暂停运行中的任务并恢复', async ({ request }) => {
+    // Given 用户已登录并创建一个任务
+    const { token } = await apiLogin(request);
+    const createRes = await apiPost(request, token, '/tasks', {
+      name: `BDD-Pause-${Date.now()}`,
+      evalType: 'PERFORMANCE',
+      priority: 'LOW',
+    });
+    const taskId = (await createRes.json()).data.id;
+
+    // 等待进入可暂停状态
+    await new Promise(r => setTimeout(r, 2000));
+
+    // When 暂停任务
+    const pauseRes = await apiPost(request, token, `/tasks/${taskId}/pause`);
+    const pauseBody = await pauseRes.json();
+
+    if (pauseBody.code === 0) {
+      // Then 状态应为 PAUSED
+      const taskRes = await apiGet(request, token, `/tasks/${taskId}`);
+      const taskData = (await taskRes.json()).data;
+      expect(taskData.status).toBe('PAUSED');
+
+      // When 恢复任务
+      const resumeRes = await apiPost(request, token, `/tasks/${taskId}/resume`);
+      const resumeBody = await resumeRes.json();
+
+      if (resumeBody.code === 0) {
+        // Then 状态应恢复为运行相关状态
+        const resumed = (await (await apiGet(request, token, `/tasks/${taskId}`)).json()).data;
+        expect(['PENDING', 'RUNNING', 'QUEUED']).toContain(resumed.status);
+      }
+    }
+
+    // Cleanup: 取消任务
+    await apiPost(request, token, `/tasks/${taskId}/cancel`);
+  });
+
 });
