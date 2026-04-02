@@ -1,35 +1,31 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig } from '@playwright/test';
+
+const BASE_URL = process.env.BASE_URL || 'http://localhost:80';
 
 export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 1,
+  retries: process.env.CI ? 1 : 0,
   workers: 1,
-  reporter: [['html', { open: 'never' }], ['list']],
+  reporter: [['list'], ['html', { open: 'never' }]],
   timeout: 60_000,
   expect: {
     timeout: 10_000,
   },
   use: {
-    baseURL: process.env.BASE_URL || 'http://39.97.251.94',
+    baseURL: BASE_URL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
-    actionTimeout: 15_000,
-    navigationTimeout: 30_000,
+    headless: true,
   },
   projects: [
     {
-      name: 'setup',
-      testMatch: /.*\.setup\.ts/,
-    },
-    {
       name: 'chromium',
       use: {
-        ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
+        browserName: 'chromium',
+        viewport: { width: 1440, height: 900 },
       },
-      dependencies: ['setup'],
     },
   ],
 });
