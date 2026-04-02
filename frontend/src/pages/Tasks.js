@@ -35,11 +35,6 @@ const PRESET_TEMPLATES = [
   { id:"scene_effect", name:"场景效果评测", icon:<SettingOutlined/>, evalType:"PERFORMANCE", evalObject:"SCENE", desc:"行业场景下模型实际应用效果量化评估", metrics:["准确率","召回率","业务指标","适配性评分"] },
 ];
 
-const PRESET_DATASETS = [
-  { value:"imagenet", label:"ImageNet-1K (通用CV)" },{ value:"coco", label:"COCO 2017 (检测/分割)" },
-  { value:"squad", label:"SQuAD 2.0 (NLP问答)" },{ value:"glue", label:"GLUE Benchmark (NLU)" },
-  { value:"mmlu", label:"MMLU (LLM综合)" },{ value:"humaneval", label:"HumanEval (代码生成)" },
-];
 
 const GPU_OPTIONS = [
   { value:"ascend_910b", label:"华为昇腾 910B" },{ value:"ascend_910c", label:"华为昇腾 910C" },
@@ -76,7 +71,7 @@ export default function Tasks() {
   const fetchTasks = async () => { setLoading(true); try { const params = {size:100}; if(statusFilter) params.status=statusFilter; if(searchText) params.keyword=searchText; const r = await api.get("/tasks",{params}); if(r.data.code===0) setTasks(r.data.data||[]); } catch(e){message.error("获取失败");} finally{setLoading(false);} };
   const fetchStats = async () => { try { const r = await api.get("/tasks/stats"); if(r.data.code===0) setStats(r.data.data); } catch(e){} };
   const fetchResources = async () => { try { const r = await api.get("/resources", {params:{size:100}}); if(r.data.code===0) setBackendResources(r.data.data||[]); } catch(e){} };
-  const fetchDatasets = async () => { try { const r = await api.get("/datasets", {params:{size:100}}); if(r.data.code===0) setBackendDatasets(r.data.data||[]); } catch(e){} };
+  const fetchDatasets = async () => { try { const r = await api.get("/assets", {params:{assetType:"DATASET",size:100}}); if(r.data.code===0) setBackendDatasets(r.data.data||[]); } catch(e){} };
   const fetchNodes = async () => { try { const r = await api.get("/nodes"); if(r.data.code===0) setComputeNodes(r.data.data||[]); } catch(e){} };
   const fetchExecutions = async (taskId) => { try { const r = await api.get(`/tasks/${taskId}/executions`); if(r.data.code===0) setExecutions(r.data.data||[]); } catch(e){} };
   const fetchBackendTemplates = async () => { try { const r = await api.get("/templates"); if(r.data.code===0) setBackendTemplates(r.data.data||[]); } catch(e){} };
@@ -336,10 +331,10 @@ export default function Tasks() {
   const renderEvalConfig = () => (
     <div style={{maxWidth:700,margin:"0 auto",padding:"20px 0"}}>
       <Divider orientation="left">数据集配置</Divider>
-      <Form.Item name="datasetSource" label="数据集来源" initialValue="preset"><Radio.Group><Radio.Button value="preset">预置数据集</Radio.Button><Radio.Button value="custom">自定义上传</Radio.Button></Radio.Group></Form.Item>
+      <Form.Item name="datasetSource" label="数据集来源" initialValue="preset"><Radio.Group><Radio.Button value="preset">数字资产数据集</Radio.Button><Radio.Button value="custom">自定义上传</Radio.Button></Radio.Group></Form.Item>
       <Form.Item noStyle shouldUpdate={(prev,cur)=>prev.datasetSource!==cur.datasetSource}>
         {({getFieldValue})=>getFieldValue("datasetSource")==="preset" ?
-          <Form.Item name="datasetId" label="选择数据集"><Select placeholder="选择数据集" options={backendDatasets.length>0 ? backendDatasets.map(d=>({value:String(d.id),label:d.name+(d.type?" ("+d.type+")":"")})) : PRESET_DATASETS} allowClear/></Form.Item> :
+          <>{backendDatasets.length>0 ? <Form.Item name="datasetId" label="选择数据集" rules={[{required:true,message:"请选择数据集"}]}><Select placeholder="选择数据集" options={backendDatasets.map(d=>({value:String(d.id),label:d.name+(d.assetType?" ("+d.assetType+")":"")+((d.version&&d.version!=="null")?" v"+d.version:"")}))} allowClear showSearch optionFilterProp="label"/></Form.Item> : <Alert message="暂无可用数据集" description="请先在数字资产模块中上传数据集，然后再创建评测任务。" type="warning" showIcon style={{marginBottom:16}}/>}</> :
           <Form.Item name="datasetFile" label="上传数据集"><Dragger accept=".csv,.xlsx,.zip,.tar.gz" maxCount={1}><p className="ant-upload-drag-icon"><InboxOutlined/></p><p>点击或拖拽上传数据集</p><p className="ant-upload-hint">支持 CSV, Excel, ZIP, TAR.GZ</p></Dragger></Form.Item>
         }
       </Form.Item>
