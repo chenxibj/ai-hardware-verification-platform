@@ -162,93 +162,148 @@ const buildDetailRadarChart = (results) => {
   };
 };
 
-// ====== 列表图表构建（使用列表 mock 数据）======
-const genMockMetrics = () => {
-  const latP50 = 5+Math.random()*20;
+// ====== 解析列表中每条报告的 metrics JSON ======
+const parseReportMetrics = (report) => {
+  let metrics = report.metrics;
+  if (!metrics) return {};
+  if (typeof metrics === "string") {
+    try { metrics = JSON.parse(metrics); } catch(e) { return {}; }
+  }
+  const summary = metrics.summary || {};
+  const results = Array.isArray(metrics.results) ? metrics.results : [];
+  // Compute real aggregated values from results
+  const latencies = results.filter(r => r.latency_ms_mean != null).map(r => r.latency_ms_mean);
+  const p95s = results.filter(r => r.latency_ms_p95 != null).map(r => r.latency_ms_p95);
+  const p99s = results.filter(r => r.latency_ms_p99 != null).map(r => r.latency_ms_p99);
+  const throughputs = results.filter(r => r.throughput_ops != null).map(r => r.throughput_ops);
   return {
-    latencyP50:latP50, latencyP95:10+Math.random()*40, latencyP99:15+Math.random()*60,
-    throughput: 100+Math.random()*900, gpuUtil: 60+Math.random()*35,
-    memUsage: 2+Math.random()*14, power: 80+Math.random()*200,
-    accuracy: 85+Math.random()*14, f1: 80+Math.random()*18,
-    topsPerWatt: 5+Math.random()*25,
+    avgLatency: summary.avg_latency_ms || (latencies.length > 0 ? latencies.reduce((a,b)=>a+b,0)/latencies.length : null),
+    avgP95: p95s.length > 0 ? p95s.reduce((a,b)=>a+b,0)/p95s.length : null,
+    avgP99: p99s.length > 0 ? p99s.reduce((a,b)=>a+b,0)/p99s.length : null,
+    avgThroughput: throughputs.length > 0 ? throughputs.reduce((a,b)=>a+b,0)/throughputs.length : null,
+    passRate: summary.pass_rate != null ? summary.pass_rate : null,
+    totalOps: summary.total_operators || 0,
+    passed: summary.passed || 0,
+    failed: summary.failed || 0,
+    results: results,
   };
 };
 
-const buildLatencyChart = (data) => ({
-  title:{text:"推理延迟分布",left:"center",textStyle:{fontSize:14}},
-  tooltip:{trigger:"axis"},
-  legend:{data:["P50","P95","P99"],bottom:0},
-  xAxis:{type:"category",data:data.map(d=>d.name||d.title||"未知"),axisLabel:{rotate:15}},
-  yAxis:{type:"value",name:"延迟(ms)"},
-  series:[
-    {name:"P50",type:"bar",data:data.map(d=>(d.latencyP50||0).toFixed(1)),itemStyle:{color:CHART_COLORS[0]}},
-    {name:"P95",type:"bar",data:data.map(d=>(d.latencyP95||0).toFixed(1)),itemStyle:{color:CHART_COLORS[1]}},
-    {name:"P99",type:"bar",data:data.map(d=>(d.latencyP99||0).toFixed(1)),itemStyle:{color:CHART_COLORS[2]}},
-  ],
-});
-const buildThroughputChart = (data) => ({
-  title:{text:"吞吐量对比",left:"center",textStyle:{fontSize:14}},
-  tooltip:{trigger:"axis"},
-  xAxis:{type:"category",data:data.map(d=>d.name||d.title||"未知"),axisLabel:{rotate:15}},
-  yAxis:{type:"value",name:"吞吐量(QPS)"},
-  series:[{type:"bar",data:data.map(d=>(d.throughput||0).toFixed(0)),itemStyle:{color:{type:"linear",x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:"#1890ff"},{offset:1,color:"#722ed1"}]}},barWidth:"40%"}],
-});
-const buildRadarChart = (data) => {
-  const indicators = [{name:"吞吐量",max:1200},{name:"GPU利用率",max:100},{name:"精度",max:100},{name:"能效比",max:30},{name:"F1值",max:100}];
+// ====== 列表图表构建（基于真实 metrics 数据）======
+
+const buildLatencyChart = (data) => {
+  const items = data.filter(d => d._metrics && d._metrics.avgLatency != null);
+  if (items.length === 0) return { title: { text: "推理延迟分布", left: "center", textStyle: { fontSize: 14 } }, xAxis: { type: "category", data: [] }, yAxis: { type: "value" }, series: [] };
   return {
-    title:{text:"多维性能雷达图",left:"center",textStyle:{fontSize:14}},
-    tooltip:{},
-    legend:{data:data.slice(0,3).map(d=>d.name||d.title||"未知"),bottom:0},
-    radar:{indicator:indicators,radius:"60%"},
-    series:[{type:"radar",data:data.slice(0,3).map((d,i)=>({value:[(d.throughput||0)/10,d.gpuUtil||0,d.accuracy||0,d.topsPerWatt||0,d.f1||0],name:d.name||d.title||"未知",lineStyle:{color:CHART_COLORS[i]},areaStyle:{color:CHART_COLORS[i],opacity:0.1}}))}],
+    title: { text: "推理延迟分布（平均值）", left: "center", textStyle: { fontSize: 14 } },
+    tooltip: { trigger: "axis" },
+    legend: { data: ["平均延迟", "P95", "P99"], bottom: 0 },
+    xAxis: { type: "category", data: items.map(d => d.name || d.title || "未知"), axisLabel: { rotate: items.length > 4 ? 15 : 0 } },
+    yAxis: { type: "value", name: "延迟(ms)" },
+    series: [
+      { name: "平均延迟", type: "bar", data: items.map(d => (d._metrics.avgLatency || 0).toFixed(1)), itemStyle: { color: CHART_COLORS[0] } },
+      { name: "P95", type: "bar", data: items.map(d => (d._metrics.avgP95 || 0).toFixed(1)), itemStyle: { color: CHART_COLORS[1] } },
+      { name: "P99", type: "bar", data: items.map(d => (d._metrics.avgP99 || 0).toFixed(1)), itemStyle: { color: CHART_COLORS[2] } },
+    ],
   };
 };
-const buildScatterChart = (data) => ({
-  title:{text:"延迟-吞吐量分布",left:"center",textStyle:{fontSize:14}},
-  tooltip:{trigger:"item",formatter:p=>`${p.data[2]}<br/>延迟:${p.data[0].toFixed(1)}ms<br/>吞吐:${p.data[1].toFixed(0)}QPS`},
-  xAxis:{type:"value",name:"P95延迟(ms)"},
-  yAxis:{type:"value",name:"吞吐量(QPS)"},
-  series:[{type:"scatter",data:data.map(d=>[d.latencyP95||0,d.throughput||0,d.name||d.title||"未知"]),symbolSize:d=>Math.max(10,Math.sqrt(d[1])*2),itemStyle:{color:CHART_COLORS[0],opacity:0.7},label:{show:true,formatter:p=>p.data[2],position:"top",fontSize:10}}],
-});
+const buildThroughputChart = (data) => {
+  const items = data.filter(d => d._metrics && d._metrics.avgThroughput != null);
+  if (items.length === 0) return { title: { text: "吞吐量对比", left: "center", textStyle: { fontSize: 14 } }, xAxis: { type: "category", data: [] }, yAxis: { type: "value" }, series: [] };
+  return {
+    title: { text: "平均吞吐量对比", left: "center", textStyle: { fontSize: 14 } },
+    tooltip: { trigger: "axis" },
+    xAxis: { type: "category", data: items.map(d => d.name || d.title || "未知"), axisLabel: { rotate: items.length > 4 ? 15 : 0 } },
+    yAxis: { type: "value", name: "吞吐量(ops/s)" },
+    series: [{ type: "bar", data: items.map(d => (d._metrics.avgThroughput || 0).toFixed(0)), itemStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: "#1890ff" }, { offset: 1, color: "#722ed1" }] } }, barWidth: "40%" }],
+  };
+};
+const buildRadarChart = (data) => {
+  const items = data.filter(d => d._metrics && d._metrics.avgLatency != null).slice(0, 5);
+  if (items.length < 2) return { title: { text: "多维性能雷达图", left: "center", textStyle: { fontSize: 14 } }, radar: { indicator: [] }, series: [] };
+  const maxLat = Math.max(...items.map(d => d._metrics.avgLatency || 1));
+  const maxThroughput = Math.max(...items.map(d => d._metrics.avgThroughput || 1));
+  const indicators = [
+    { name: "速度(越高越快)", max: 100 },
+    { name: "吞吐量", max: maxThroughput * 1.2 || 100 },
+    { name: "通过率", max: 100 },
+    { name: "测试项数", max: Math.max(...items.map(d => d._metrics.totalOps || 1)) * 1.2 || 20 },
+  ];
+  return {
+    title: { text: "多维性能雷达图", left: "center", textStyle: { fontSize: 14 } },
+    tooltip: {},
+    legend: { data: items.map(d => d.name || d.title || "未知"), bottom: 0 },
+    radar: { indicator: indicators, radius: "60%" },
+    series: [{ type: "radar", data: items.map((d, i) => ({
+      value: [
+        maxLat > 0 ? Math.round((1 - (d._metrics.avgLatency || 0) / maxLat) * 100) : 50,
+        d._metrics.avgThroughput || 0,
+        d._metrics.passRate != null ? d._metrics.passRate : 0,
+        d._metrics.totalOps || 0,
+      ],
+      name: d.name || d.title || "未知",
+      lineStyle: { color: CHART_COLORS[i] },
+      areaStyle: { color: CHART_COLORS[i], opacity: 0.1 }
+    })) }],
+  };
+};
+const buildScatterChart = (data) => {
+  const items = data.filter(d => d._metrics && d._metrics.avgP95 != null && d._metrics.avgThroughput != null);
+  if (items.length === 0) return { title: { text: "延迟-吞吐量分布", left: "center", textStyle: { fontSize: 14 } }, xAxis: { type: "value" }, yAxis: { type: "value" }, series: [] };
+  return {
+    title: { text: "延迟-吞吐量分布", left: "center", textStyle: { fontSize: 14 } },
+    tooltip: { trigger: "item", formatter: p => `${p.data[2]}<br/>P95延迟: ${p.data[0].toFixed(1)}ms<br/>吞吐: ${p.data[1].toFixed(0)} ops/s` },
+    xAxis: { type: "value", name: "平均P95延迟(ms)" },
+    yAxis: { type: "value", name: "平均吞吐量(ops/s)" },
+    series: [{ type: "scatter", data: items.map(d => [d._metrics.avgP95 || 0, d._metrics.avgThroughput || 0, d.name || d.title || "未知"]), symbolSize: d => Math.max(10, Math.sqrt(d[1]) * 2), itemStyle: { color: CHART_COLORS[0], opacity: 0.7 }, label: { show: true, formatter: p => p.data[2], position: "top", fontSize: 10 } }],
+  };
+};
 const buildHeatmapChart = (data) => {
-  const metrics = ["延迟","吞吐量","GPU利用率","精度","能效比"];
+  const items = data.filter(d => d._metrics && d._metrics.avgLatency != null);
+  if (items.length === 0) return { title: { text: "性能热力图", left: "center", textStyle: { fontSize: 14 } }, xAxis: { type: "category", data: [] }, yAxis: { type: "category", data: [] }, series: [] };
+  const metrics = ["延迟评分", "吞吐量评分", "通过率"];
+  const maxLat = Math.max(...items.map(d => d._metrics.avgLatency || 1));
+  const maxThr = Math.max(...items.map(d => d._metrics.avgThroughput || 1));
   const heatData = [];
-  data.forEach((d,i) => {
-    [(d.latencyP95||0)/60*100,(d.throughput||0)/12,(d.gpuUtil||0),(d.accuracy||0),(d.topsPerWatt||0)/30*100].forEach((v,j)=>{
-      heatData.push([j,i,Math.round(v)]);
-    });
+  items.forEach((d, i) => {
+    const latScore = maxLat > 0 ? Math.round((1 - (d._metrics.avgLatency || 0) / maxLat) * 100) : 0;
+    const thrScore = maxThr > 0 ? Math.round(((d._metrics.avgThroughput || 0) / maxThr) * 100) : 0;
+    const passScore = d._metrics.passRate != null ? Math.round(d._metrics.passRate) : 0;
+    [latScore, thrScore, passScore].forEach((v, j) => { heatData.push([j, i, v]); });
   });
   return {
-    title:{text:"性能热力图",left:"center",textStyle:{fontSize:14}},
-    tooltip:{formatter:p=>`${data[p.data[1]]?.name||""}<br/>${metrics[p.data[0]]}: ${p.data[2]}%`},
-    xAxis:{type:"category",data:metrics},
-    yAxis:{type:"category",data:data.map(d=>d.name||d.title||"未知")},
-    visualMap:{min:0,max:100,calculable:true,orient:"horizontal",left:"center",bottom:0,inRange:{color:["#f5f5f5","#bae7ff","#1890ff","#003a8c"]}},
-    series:[{type:"heatmap",data:heatData,label:{show:true,fontSize:10},emphasis:{itemStyle:{shadowBlur:10,shadowColor:"rgba(0,0,0,0.5)"}}}],
+    title: { text: "性能热力图", left: "center", textStyle: { fontSize: 14 } },
+    tooltip: { formatter: p => `${items[p.data[1]]?.name || items[p.data[1]]?.title || ""}<br/>${metrics[p.data[0]]}: ${p.data[2]}%` },
+    xAxis: { type: "category", data: metrics },
+    yAxis: { type: "category", data: items.map(d => d.name || d.title || "未知") },
+    visualMap: { min: 0, max: 100, calculable: true, orient: "horizontal", left: "center", bottom: 0, inRange: { color: ["#f5f5f5", "#bae7ff", "#1890ff", "#003a8c"] } },
+    series: [{ type: "heatmap", data: heatData, label: { show: true, fontSize: 10 }, emphasis: { itemStyle: { shadowBlur: 10, shadowColor: "rgba(0,0,0,0.5)" } } }],
   };
 };
 const buildTrendChart = (data) => {
-  const days = Array.from({length:7},(_,i)=>dayjs().subtract(6-i,"day").format("MM-DD"));
+  // 按创建时间排序展示各报告的延迟趋势
+  const sorted = [...data].filter(d => d._metrics && d._metrics.avgLatency != null && d.createdAt).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  if (sorted.length === 0) return { title: { text: "延迟趋势", left: "center", textStyle: { fontSize: 14 } }, xAxis: { type: "category", data: [] }, yAxis: { type: "value" }, series: [] };
+  const labels = sorted.map(d => dayjs(d.createdAt).format("MM-DD HH:mm"));
   return {
-    title:{text:"性能趋势（近7天）",left:"center",textStyle:{fontSize:14}},
-    tooltip:{trigger:"axis"},
-    legend:{data:["P95延迟","吞吐量","GPU利用率"],bottom:0},
-    xAxis:{type:"category",data:days},
-    yAxis:[{type:"value",name:"延迟(ms)/利用率(%)"},{type:"value",name:"吞吐量(QPS)"}],
-    series:[
-      {name:"P95延迟",type:"line",smooth:true,data:days.map(()=>(10+Math.random()*30).toFixed(1)),itemStyle:{color:CHART_COLORS[4]}},
-      {name:"吞吐量",type:"line",smooth:true,yAxisIndex:1,data:days.map(()=>Math.floor(200+Math.random()*600)),itemStyle:{color:CHART_COLORS[0]}},
-      {name:"GPU利用率",type:"line",smooth:true,data:days.map(()=>(60+Math.random()*35).toFixed(1)),itemStyle:{color:CHART_COLORS[1]},areaStyle:{opacity:0.1}},
+    title: { text: "延迟趋势（按报告时间）", left: "center", textStyle: { fontSize: 14 } },
+    tooltip: { trigger: "axis" },
+    legend: { data: ["平均延迟", "P95延迟"], bottom: 0 },
+    xAxis: { type: "category", data: labels, axisLabel: { rotate: 30, fontSize: 10 } },
+    yAxis: [{ type: "value", name: "延迟(ms)" }],
+    series: [
+      { name: "平均延迟", type: "line", smooth: true, data: sorted.map(d => (d._metrics.avgLatency || 0).toFixed(1)), itemStyle: { color: CHART_COLORS[0] } },
+      { name: "P95延迟", type: "line", smooth: true, data: sorted.map(d => (d._metrics.avgP95 || 0).toFixed(1)), itemStyle: { color: CHART_COLORS[4] }, areaStyle: { opacity: 0.1 } },
     ],
   };
 };
 const buildPieChart = (data) => ({
-  title:{text:"评测类型分布",left:"center",textStyle:{fontSize:14}},
-  tooltip:{trigger:"item",formatter:"{b}: {c} ({d}%)"},
-  legend:{bottom:0},
-  series:[{type:"pie",radius:["40%","65%"],avoidLabelOverlap:true,itemStyle:{borderRadius:6,borderColor:"#fff",borderWidth:2},
-    data:[...new Set(data.map(d=>d.evalType||"GENERAL"))].map((c,i)=>({value:data.filter(d=>(d.evalType||"GENERAL")===c).length,name:c,itemStyle:{color:CHART_COLORS[i]}})),
-    label:{show:true,formatter:"{b}\n{d}%"}}],
+  title: { text: "评测类型分布", left: "center", textStyle: { fontSize: 14 } },
+  tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
+  legend: { bottom: 0 },
+  series: [{ type: "pie", radius: ["40%", "65%"], avoidLabelOverlap: true, itemStyle: { borderRadius: 6, borderColor: "#fff", borderWidth: 2 },
+    data: [...new Set(data.map(d => d.evalType || "GENERAL"))].map((c, i) => ({ value: data.filter(d => (d.evalType || "GENERAL") === c).length, name: c, itemStyle: { color: CHART_COLORS[i] } })),
+    label: { show: true, formatter: "{b}\n{d}%" } }],
 });
 
 // ====== 提取 metrics 辅助函数 ======
@@ -285,7 +340,7 @@ export default function Reports() {
         const data = (r.data.data || []).map(report => ({
           ...report,
           name: report.title || "未命名报告",
-          ...genMockMetrics(),
+          _metrics: parseReportMetrics(report),
         }));
         setReports(data);
       }
