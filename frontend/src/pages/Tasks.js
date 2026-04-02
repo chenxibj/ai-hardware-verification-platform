@@ -154,7 +154,7 @@ export default function Tasks() {
         <Col span={12}><Form.Item name="evalType" label="评测类型" rules={[{required:true}]}><Select options={Object.entries(EVAL_TYPES).map(([k,v])=>({value:k,label:v}))} placeholder="选择评测类型"/></Form.Item></Col>
         <Col span={12}><Form.Item name="evalObject" label="评测维度" rules={[{required:true}]}><Select options={Object.entries(EVAL_OBJECTS).map(([k,v])=>({value:k,label:v}))} placeholder="选择评测维度" onChange={(val)=>{form.setFieldsValue({targetModel:undefined});fetchEvalTargets(val);}}/></Form.Item></Col>
       </Row>
-      <Form.Item name="targetModel" label="评测对象" rules={[{required:true}]}><Select mode="tags" placeholder="请先选择评测维度，或直接输入评测对象名称" showSearch allowClear loading={evalTargetLoading} options={evalTargetOptions} tokenSeparators={[","]} maxTagCount={1} notFoundContent={evalTargetLoading?"加载中...":"暂无匹配项，可直接输入"}/></Form.Item>
+      <Form.Item name="targetModel" label="评测对象" rules={[{required:true,message:"请选择评测对象"}]}><Select placeholder={evalTargetLoading?"加载中...":"请先选择评测维度"} showSearch allowClear loading={evalTargetLoading} options={evalTargetOptions} optionFilterProp="label" notFoundContent={evalTargetLoading?"加载中...":"暂无评测对象，请先在评测对象库中添加"}/></Form.Item>
       <Row gutter={16}>
         <Col span={12}><Form.Item name="priority" label="优先级" initialValue="MEDIUM"><Select options={Object.entries(PRIORITIES).map(([k,v])=>({value:k,label:v}))}/></Form.Item></Col>
         <Col span={12}><Form.Item name="tags" label="标签"><Select mode="tags" placeholder="输入标签后回车" tokenSeparators={[","]}/></Form.Item></Col>
