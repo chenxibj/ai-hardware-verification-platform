@@ -21,14 +21,8 @@ setup('authenticate', async ({ page }) => {
     timeout: 15000,
   });
 
-  // Frontend may not auto-navigate after login; force navigation to dashboard
-  await page.goto('/');
-  await page.waitForLoadState('networkidle');
-
-  // Wait for the main layout to appear (sidebar or menu)
-  await expect(
-    page.locator('.ant-layout-sider, .ant-menu, aside, nav').first()
-  ).toBeVisible({ timeout: 15000 });
+  // Wait for the main layout to appear
+  await expect(page.locator('.ant-layout-sider')).toBeVisible({ timeout: 10000 });
 
   // Save storage state
   await page.context().storageState({ path: authFile });
