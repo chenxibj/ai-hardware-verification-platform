@@ -1,209 +1,143 @@
-import React, { useState, useEffect } from 'react';
-import { Layout, Menu, Table, Tag, Space, Button, Card, Statistic, Row, Col, message } from 'antd';
+import React, { useState, useEffect } from "react";
+import { Layout, Menu, Button, Badge, Dropdown, Avatar, Typography, Spin } from "antd";
 import {
-  DashboardOutlined,
-  ProjectOutlined,
-  FileTextOutlined,
-  SettingOutlined,
-  PlusOutlined,
-  ReloadOutlined,
-} from '@ant-design/icons';
-import axios from 'axios';
+  DashboardOutlined, ProjectOutlined, ApartmentOutlined, FileTextOutlined,
+  DiffOutlined, FileSearchOutlined, DatabaseOutlined, CloudServerOutlined,
+  CommentOutlined, TeamOutlined, AuditOutlined, SettingOutlined,
+  BellOutlined, UserOutlined, MenuFoldOutlined, MenuUnfoldOutlined,
+  LogoutOutlined, AppstoreOutlined,
+} from "@ant-design/icons";
+import api from "./utils/api";
+import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
+import Tasks from "./pages/Tasks";
+import Templates from "./pages/Templates";
+import Workflows from "./pages/Workflows";
+import Reports from "./pages/Reports";
+import Comparisons from "./pages/Comparisons";
+import Logs from "./pages/Logs";
+import Assets from "./pages/Assets";
+import Resources from "./pages/Resources";
+import Community from "./pages/Community";
+import Users from "./pages/Users";
+import AuditLogs from "./pages/AuditLogs";
+import Settings from "./pages/Settings";
 
-const { Header, Content, Sider } = Layout;
+const { Header, Sider, Content, Footer } = Layout;
+const { Text } = Typography;
 
-const API_BASE = '/api';
+const PAGE_TITLES = {
+  dashboard: "工作台", tasks: "评测任务管理", templates: "评测模板管理", workflows: "评测编排工作流",
+  reports: "评测报告管理", comparisons: "报告对比分析", logs: "评测日志",
+  assets: "数字资产管理", resources: "计算资源管理", community: "验证平台社区",
+  users: "用户管理", audit: "操作审计", settings: "系统设置",
+};
+
+const PAGE_COMPONENTS = {
+  dashboard: Dashboard, tasks: Tasks, templates: Templates, workflows: Workflows, reports: Reports,
+  comparisons: Comparisons, logs: Logs, assets: Assets, resources: Resources,
+  community: Community, users: Users, audit: AuditLogs, settings: Settings,
+};
+
+const menuItems = [
+  { key: "dashboard", icon: <DashboardOutlined />, label: "工作台" },
+  { type: "divider" },
+  { key: "g1", label: "评测管理", type: "group", children: [
+    { key: "tasks", icon: <ProjectOutlined />, label: "评测任务" },
+    { key: "templates", icon: <AppstoreOutlined />, label: "评测模板" },
+    { key: "workflows", icon: <ApartmentOutlined />, label: "评测编排" },
+    { key: "reports", icon: <FileTextOutlined />, label: "评测报告" },
+    { key: "comparisons", icon: <DiffOutlined />, label: "报告对比" },
+    { key: "logs", icon: <FileSearchOutlined />, label: "评测日志" },
+  ]},
+  { key: "g2", label: "资源管理", type: "group", children: [
+    { key: "assets", icon: <DatabaseOutlined />, label: "数字资产" },
+    { key: "resources", icon: <CloudServerOutlined />, label: "计算资源" },
+  ]},
+  { key: "g3", label: "社区与系统", type: "group", children: [
+    { key: "community", icon: <CommentOutlined />, label: "社区" },
+    { key: "users", icon: <TeamOutlined />, label: "用户管理" },
+    { key: "audit", icon: <AuditOutlined />, label: "操作审计" },
+    { key: "settings", icon: <SettingOutlined />, label: "系统设置" },
+  ]},
+];
 
 function App() {
+  const [user, setUser] = useState(null);
+  const [currentPage, setCurrentPage] = useState("dashboard");
   const [collapsed, setCollapsed] = useState(false);
-  const [tasks, setTasks] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [stats, setStats] = useState({ total: 0, running: 0, completed: 0, failed: 0 });
+  const [notifCount, setNotifCount] = useState(0);
 
   useEffect(() => {
-    fetchTasks();
+    const u = localStorage.getItem("user");
+    if (u) try { setUser(JSON.parse(u)); } catch(e) { localStorage.clear(); }
   }, []);
 
-  const fetchTasks = async () => {
-    setLoading(true);
-    try {
-      const response = await axios.get(`${API_BASE}/tasks?size=100`);
-      if (response.data.code === 0) {
-        setTasks(response.data.data || []);
-        calculateStats(response.data.data || []);
-      }
-    } catch (error) {
-      console.error('Failed to fetch tasks:', error);
-      message.error('获取任务列表失败');
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    if (user) {
+      api.get("/notifications/count").then(r => {
+        if (r.data && r.data.code === 0) {
+          const d = r.data.data;
+          setNotifCount(typeof d === "number" ? d : (d && d.unread) || 0);
+        }
+      }).catch(() => {});
     }
+  }, [user, currentPage]);
+
+  const handleLogin = (userData) => {
+    setUser(userData);
   };
 
-  const calculateStats = (tasks) => {
-    const stats = {
-      total: tasks.length,
-      running: tasks.filter(t => t.status === 'RUNNING').length,
-      completed: tasks.filter(t => t.status === 'COMPLETED').length,
-      failed: tasks.filter(t => t.status === 'FAILED').length,
-    };
-    setStats(stats);
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("refreshToken");
+    localStorage.removeItem("user");
+    setUser(null);
   };
 
-  const columns = [
-    {
-      title: '任务编号',
-      dataIndex: 'taskNo',
-      key: 'taskNo',
-    },
-    {
-      title: '任务类型',
-      dataIndex: 'taskType',
-      key: 'taskType',
-      render: (type) => type === 'TEMPLATE' ? '模板' : '自定义',
-    },
-    {
-      title: '评测类型',
-      dataIndex: 'evalType',
-      key: 'evalType',
-      render: (type) => {
-        const map = { MODEL: '模型', CHIP: '芯片', FRAMEWORK: '框架', OPERATOR: '算子' };
-        return map[type] || type;
-      },
-    },
-    {
-      title: '优先级',
-      dataIndex: 'priority',
-      key: 'priority',
-      render: (priority) => {
-        const color = { HIGH: 'red', MEDIUM: 'blue', LOW: 'gray' }[priority] || 'default';
-        return <Tag color={color}>{priority === 'HIGH' ? '高' : priority === 'MEDIUM' ? '中' : '低'}</Tag>;
-      },
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status) => {
-        const color = {
-          PENDING: 'default',
-          QUEUED: 'processing',
-          RUNNING: 'processing',
-          COMPLETED: 'success',
-          FAILED: 'error',
-          CANCELLED: 'default',
-        }[status] || 'default';
-        const text = {
-          PENDING: '待调度',
-          QUEUED: '排队中',
-          RUNNING: '运行中',
-          COMPLETED: '已完成',
-          FAILED: '失败',
-          CANCELLED: '已取消',
-        }[status] || status;
-        return <Tag color={color}>{text}</Tag>;
-      },
-    },
-    {
-      title: '进度',
-      dataIndex: 'progress',
-      key: 'progress',
-      render: (progress) => `${progress}%`,
-    },
-    {
-      title: '创建时间',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      render: (time) => time ? new Date(time).toLocaleString('zh-CN') : '-',
-    },
-    {
-      title: '操作',
-      key: 'action',
-      render: (_, record) => (
-        <Space size="small">
-          <Button type="link" size="small">详情</Button>
-          {record.status === 'RUNNING' && (
-            <Button type="link" size="small" danger>取消</Button>
-          )}
-          {(record.status === 'FAILED' || record.status === 'CANCELLED') && (
-            <Button type="link" size="small">重试</Button>
-          )}
-        </Space>
-      ),
-    },
-  ];
+  if (!user) return <Login onLogin={handleLogin} />;
 
-  const menuItems = [
-    { key: '1', icon: <DashboardOutlined />, label: '控制台' },
-    { key: '2', icon: <ProjectOutlined />, label: '任务管理' },
-    { key: '3', icon: <FileTextOutlined />, label: '报告管理' },
-    { key: '4', icon: <SettingOutlined />, label: '系统设置' },
-  ];
+  const PageComponent = PAGE_COMPONENTS[currentPage] || Dashboard;
+
+  const userMenu = {
+    items: [
+      { key: "role", label: `角色: ${({ADMIN:"管理员",USER:"普通用户",REVIEWER:"审核员",OPERATOR:"运维"})[user.role] || user.role}`, disabled: true },
+      { type: "divider" },
+      { key: "logout", icon: <LogoutOutlined />, label: "退出登录", danger: true },
+    ],
+    onClick: ({ key }) => { if (key === "logout") handleLogout(); },
+  };
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider collapsible collapsed={collapsed} onCollapse={setCollapsed}>
-        <div style={{ 
-          height: 32, 
-          margin: 16, 
-          background: 'rgba(255, 255, 255, 0.2)',
-          borderRadius: 4,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: '#fff',
-          fontWeight: 'bold',
-        }}>
-          {collapsed ? 'AI' : 'AI 验证平台'}
+    <Layout style={{ minHeight: "100vh" }}>
+      <Sider collapsible collapsed={collapsed} onCollapse={setCollapsed} theme="light"
+        style={{ borderRight: "1px solid #f0f0f0" }} width={220}>
+        <div style={{ height: 48, display: "flex", alignItems: "center", justifyContent: "center",
+          borderBottom: "1px solid #f0f0f0", fontWeight: "bold", fontSize: collapsed ? 14 : 16 }}>
+          {collapsed ? "AI" : <strong>AI软硬件验证平台</strong>}
         </div>
-        <Menu theme="dark" defaultSelectedKeys={['1']} mode="inline" items={menuItems} />
+        <Menu mode="inline" selectedKeys={[currentPage]} items={menuItems}
+          onClick={({ key }) => setCurrentPage(key)} style={{ borderRight: 0 }} />
       </Sider>
       <Layout>
-        <Header style={{ padding: '0 16px', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 18, fontWeight: 'bold' }}>人工智能软硬件验证平台</span>
-          <Button icon={<ReloadOutlined />} onClick={fetchTasks}>刷新</Button>
+        <Header style={{ background: "#fff", padding: "0 24px", display: "flex",
+          alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #f0f0f0" }}>
+          <strong style={{ fontSize: 16 }}>{PAGE_TITLES[currentPage] || "工作台"}</strong>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <Badge count={notifCount} size="small">
+              <Button type="text" icon={<BellOutlined />} />
+            </Badge>
+            <Dropdown menu={userMenu}>
+              <Button type="text" icon={<UserOutlined />}>{user.username}</Button>
+            </Dropdown>
+          </div>
         </Header>
-        <Content style={{ padding: '24px 16px' }}>
-          <Row gutter={16} style={{ marginBottom: 24 }}>
-            <Col span={6}>
-              <Card>
-                <Statistic title="总任务数" value={stats.total} />
-              </Card>
-            </Col>
-            <Col span={6}>
-              <Card>
-                <Statistic title="运行中" value={stats.running} valueStyle={{ color: '#1890ff' }} />
-              </Card>
-            </Col>
-            <Col span={6}>
-              <Card>
-                <Statistic title="已完成" value={stats.completed} valueStyle={{ color: '#52c41a' }} />
-              </Card>
-            </Col>
-            <Col span={6}>
-              <Card>
-                <Statistic title="失败" value={stats.failed} valueStyle={{ color: '#ff4d4f' }} />
-              </Card>
-            </Col>
-          </Row>
-
-          <Card 
-            title="任务列表"
-            extra={
-              <Button type="primary" icon={<PlusOutlined />}>
-                创建任务
-              </Button>
-            }
-          >
-            <Table
-              columns={columns}
-              dataSource={tasks}
-              rowKey="id"
-              loading={loading}
-              pagination={{ pageSize: 10 }}
-            />
-          </Card>
+        <Content style={{ margin: 16, padding: 24, background: "#fff", borderRadius: 8, minHeight: 280, overflow: "auto" }}>
+          <PageComponent />
         </Content>
+        <Footer style={{ textAlign: "center", padding: "12px 50px", color: "#999" }}>
+          人工智能软硬件验证平台 v1.0.0 ©2026 上海人工智能实验室
+        </Footer>
       </Layout>
     </Layout>
   );

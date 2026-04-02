@@ -1,18 +1,30 @@
 import React, { useState, useEffect } from "react";
-import { Card, Table, Tag, Space, Button, Row, Col, Statistic, Modal, Form, Input, Select, message, Badge, Progress, Steps, Divider, InputNumber, Switch, Upload, Tabs, Descriptions, Radio, Alert, Typography } from "antd";
-import { ProjectOutlined, PlusOutlined, ReloadOutlined, EyeOutlined, DeleteOutlined, CopyOutlined, StopOutlined, RedoOutlined, SearchOutlined, InboxOutlined, SettingOutlined, ThunderboltOutlined, CheckCircleOutlined, ExperimentOutlined, RocketOutlined, ApiOutlined, AppstoreOutlined, CloudServerOutlined } from "@ant-design/icons";
+import { Card, Table, Tag, Space, Button, Row, Col, Statistic, Modal, Form, Input, Select, message, Badge, Progress, Steps, Divider, InputNumber, Switch, Upload, Tabs, Descriptions, Radio, Alert, Typography, Popconfirm, Tooltip } from "antd";
+import { ProjectOutlined, PlusOutlined, ReloadOutlined, EyeOutlined, DeleteOutlined, CopyOutlined, StopOutlined, RedoOutlined, SearchOutlined, InboxOutlined, SettingOutlined, ThunderboltOutlined, CheckCircleOutlined, ExperimentOutlined, RocketOutlined, ApiOutlined, AppstoreOutlined, CloudServerOutlined, PauseCircleOutlined, PlayCircleOutlined } from "@ant-design/icons";
 import api from "../utils/api";
 import dayjs from "dayjs";
 const { TextArea } = Input;
 const { Dragger } = Upload;
-const { Text } = Typography;
+const { Text, Paragraph } = Typography;
 
 const EVAL_TYPES = { PERFORMANCE:"性能评测", ACCURACY:"精度评测", COMPATIBILITY:"兼容性评测", STABILITY:"稳定性评测", GENERAL:"通用评测" };
 const EVAL_OBJECTS = { CHIP:"芯片", OPERATOR:"算子", MIDDLEWARE:"中间层", FRAMEWORK:"框架", MODEL:"模型", SCENE:"场景" };
+
+const EVAL_DIMENSIONS = { OPERATOR:"算子评测", CHIP:"芯片评测", MODEL:"模型评测", FRAMEWORK:"框架评测", MIDDLEWARE:"中间层评测", SCENE:"场景评测" };
+const DIMENSION_TYPE_MAP = {
+  OPERATOR: ["PERFORMANCE"],
+  CHIP: ["PERFORMANCE"],
+  MODEL: ["PERFORMANCE", "ACCURACY"],
+  FRAMEWORK: ["COMPATIBILITY"],
+  MIDDLEWARE: ["PERFORMANCE", "COMPATIBILITY"],
+  SCENE: ["PERFORMANCE", "ACCURACY", "STABILITY"],
+};
 const PRIORITIES = { HIGH:"高", MEDIUM:"中", LOW:"低" };
 const PRIORITY_COLORS = { HIGH:"red", MEDIUM:"blue", LOW:"default" };
-const STATUS_MAP = { PENDING:"待执行", QUEUED:"排队中", RUNNING:"执行中", COMPLETED:"已完成", FAILED:"失败", CANCELLED:"已取消", TERMINATED:"已终止" };
-const STATUS_COLORS = { PENDING:"default", QUEUED:"warning", RUNNING:"processing", COMPLETED:"success", FAILED:"error", CANCELLED:"default", TERMINATED:"default" };
+const STATUS_MAP = { PENDING:"待执行", QUEUED:"排队中", RUNNING:"执行中", PAUSED:"已暂停", COMPLETED:"已完成", FAILED:"失败", CANCELLED:"已取消", TERMINATED:"已终止" };
+const STATUS_COLORS = { PENDING:"default", QUEUED:"warning", RUNNING:"processing", PAUSED:"warning", COMPLETED:"success", FAILED:"error", CANCELLED:"default", TERMINATED:"default" };
+
+const DIMENSION_ICONS = { OPERATOR: <AppstoreOutlined/>, MODEL: <RocketOutlined/>, CHIP: <ThunderboltOutlined/>, FRAMEWORK: <ApiOutlined/>, SCENE: <ExperimentOutlined/>, MIDDLEWARE: <SettingOutlined/> };
 
 const PRESET_TEMPLATES = [
   { id:"chip_perf", name:"芯片性能评测", icon:<ThunderboltOutlined/>, evalType:"PERFORMANCE", evalObject:"CHIP", desc:"GPU/NPU算力密度、能效比、多卡互联测试", metrics:["算力(TOPS)","能效比(TOPS/W)","互联带宽(GB/s)","P95延迟"] },
@@ -58,6 +70,8 @@ export default function Tasks() {
   const [backendDatasets, setBackendDatasets] = useState([]);
   const [computeNodes, setComputeNodes] = useState([]);
   const [executions, setExecutions] = useState([]);
+  const [backendTemplates, setBackendTemplates] = useState([]);
+  const [templateConfirmMode, setTemplateConfirmMode] = useState(false);
 
   const fetchTasks = async () => { setLoading(true); try { const params = {size:100}; if(statusFilter) params.status=statusFilter; if(searchText) params.keyword=searchText; const r = await api.get("/tasks",{params}); if(r.data.code===0) setTasks(r.data.data||[]); } catch(e){message.error("获取失败");} finally{setLoading(false);} };
   const fetchStats = async () => { try { const r = await api.get("/tasks/stats"); if(r.data.code===0) setStats(r.data.data); } catch(e){} };
@@ -65,20 +79,50 @@ export default function Tasks() {
   const fetchDatasets = async () => { try { const r = await api.get("/datasets", {params:{size:100}}); if(r.data.code===0) setBackendDatasets(r.data.data||[]); } catch(e){} };
   const fetchNodes = async () => { try { const r = await api.get("/nodes"); if(r.data.code===0) setComputeNodes(r.data.data||[]); } catch(e){} };
   const fetchExecutions = async (taskId) => { try { const r = await api.get(`/tasks/${taskId}/executions`); if(r.data.code===0) setExecutions(r.data.data||[]); } catch(e){} };
-  useEffect(() => { fetchTasks(); fetchStats(); fetchResources(); fetchDatasets(); fetchNodes(); }, []);
+  const fetchBackendTemplates = async () => { try { const r = await api.get("/templates"); if(r.data.code===0) setBackendTemplates(r.data.data||[]); } catch(e){} };
+  useEffect(() => { fetchTasks(); fetchStats(); fetchResources(); fetchDatasets(); fetchNodes(); fetchBackendTemplates(); }, []);
+
+  const parseConfig = (configJson) => { try { return JSON.parse(configJson || "{}"); } catch { return {}; } };
 
   const handleCreate = async (values) => {
     const payload = { ...values, metrics: values.metrics ? values.metrics.join(",") : "", tags: values.tags ? values.tags.join(",") : "" };
     if (selectedTemplate) { payload.templateId = selectedTemplate.id; payload.evalType = selectedTemplate.evalType; payload.evalObject = selectedTemplate.evalObject; }
-    // targetNodeId 传给后端
     if (values.targetNodeId) { payload.targetNodeId = values.targetNodeId; }
     try { const r = await api.post("/tasks", payload); if(r.data.code===0) { message.success("任务创建成功，已自动调度执行"); resetCreate(); fetchTasks(); fetchStats(); } else message.error(r.data.message||"创建失败"); } catch(e) { message.error("创建失败"); }
   };
-  const resetCreate = () => { setCreateVisible(false); setCreateStep(0); setCreateMode(null); setSelectedTemplate(null); form.resetFields(); };
+
+  const handleTemplateRun = async (template) => {
+    const config = parseConfig(template.configJson);
+    const dim = config.evalDimension || config.evalObject || "OPERATOR";
+    const payload = {
+      name: template.name + " - " + dayjs().format("MMDD_HHmm"),
+      evalType: template.evalType || "PERFORMANCE",
+      evalObject: dim,
+      targetModel: (config.operators || config.models || ["默认"])[0],
+      priority: config.priority || "MEDIUM",
+      tags: config.tags || "",
+      description: template.description + " [从模板创建]",
+      templateId: template.id,
+      configJson: template.configJson,
+    };
+    try {
+      const r = await api.post("/tasks", payload);
+      if (r.data.code === 0) {
+        message.success("🚀 任务已创建并自动调度执行！");
+        resetCreate();
+        fetchTasks();
+        fetchStats();
+      } else message.error(r.data.message || "创建失败");
+    } catch (e) { message.error("创建失败"); }
+  };
+
+  const resetCreate = () => { setCreateVisible(false); setCreateStep(0); setCreateMode(null); setSelectedTemplate(null); setTemplateConfirmMode(false); form.resetFields(); };
   const handleCancel = (id) => { Modal.confirm({title:"确定取消任务？",okText:"确认取消",okType:"danger",onOk:()=>api.post("/tasks/"+id+"/cancel").then(()=>{message.success("已取消");fetchTasks();fetchStats();})}); };
   const handleRetry = (id) => { api.post("/tasks/"+id+"/retry").then(()=>{message.success("已重试，自动调度中...");fetchTasks();fetchStats();}).catch(()=>message.error("失败")); };
   const handleClone = (id) => { api.post("/tasks/"+id+"/clone").then(()=>{message.success("已克隆并自动调度");fetchTasks();fetchStats();}).catch(()=>message.error("失败")); };
-  const handleDelete = (id) => { Modal.confirm({title:"确定删除？",content:"删除后不可恢复",okText:"删除",okType:"danger",onOk:()=>api.delete("/tasks/"+id).then(()=>{message.success("已删除");fetchTasks();fetchStats();})}); };
+  const handlePause = (id) => { api.post("/tasks/"+id+"/pause").then(()=>{message.success("已暂停");fetchTasks();fetchStats();}).catch(()=>message.error("暂停失败")); };
+  const handleResume = (id) => { api.post("/tasks/"+id+"/resume").then(()=>{message.success("已恢复");fetchTasks();fetchStats();}).catch(()=>message.error("恢复失败")); };
+  const handleDelete = (id) => { api.delete("/tasks/"+id).then(()=>{message.success("已删除");fetchTasks();fetchStats();}).catch(()=>message.error("删除失败")); };
   const handleBatchCancel = () => { api.post("/tasks/batch/cancel",{ids:selectedKeys}).then(()=>{message.success("批量取消成功");setSelectedKeys([]);fetchTasks();fetchStats();}); };
   const handleBatchDelete = () => { Modal.confirm({title:"确定批量删除？",okType:"danger",onOk:()=>api.post("/tasks/batch/delete",{ids:selectedKeys}).then(()=>{message.success("已删除");setSelectedKeys([]);fetchTasks();fetchStats();})}); };
 
@@ -94,24 +138,91 @@ export default function Tasks() {
     { title:"任务编号", dataIndex:"taskNo", width:140, ellipsis:true, fixed:"left" },
     { title:"名称", dataIndex:"name", ellipsis:true, width:260, render:(v,r)=><span>{v} {isPreset(r) && <Tag color="purple" style={{marginLeft:4,fontSize:11}}>📦 系统预置</Tag>}</span> },
     { title:"评测类型", dataIndex:"evalType", width:100, render:v=><Tag color="blue">{EVAL_TYPES[v]||v}</Tag> },
-    { title:"评测维度", dataIndex:"evalObject", width:90, render:v=><Tag>{EVAL_OBJECTS[v]||v}</Tag> },
+    { title:"评测维度", dataIndex:"evalObject", width:100, render:v=><Tag>{EVAL_DIMENSIONS[v]||EVAL_OBJECTS[v]||v}</Tag> },
     { title:"优先级", dataIndex:"priority", width:70, render:v=><Tag color={PRIORITY_COLORS[v]}>{PRIORITIES[v]||v}</Tag> },
     { title:"状态", dataIndex:"status", width:90, render:v=><Badge status={STATUS_COLORS[v]} text={STATUS_MAP[v]||v}/> },
     { title:"进度", dataIndex:"progress", width:120, render:v=><Progress percent={v||0} size="small" strokeColor={v>=100?"#52c41a":v>=50?"#1890ff":"#faad14"}/> },
     { title:"评测对象", dataIndex:"targetModel", width:140, ellipsis:true },
     { title:"创建时间", dataIndex:"createdAt", width:140, render:v=>v?dayjs(v).format("MM-DD HH:mm"):"-", sorter:(a,b)=>new Date(a.createdAt)-new Date(b.createdAt) },
-    { title:"操作", key:"action", width:220, fixed:"right", render:(_,r)=>(
-      <Space size={2}>
-        <Button type="link" size="small" icon={<EyeOutlined/>} onClick={()=>showDetail(r)}>详情</Button>
-        <Button type="link" size="small" icon={<CopyOutlined/>} onClick={()=>handleClone(r.id)}>克隆</Button>
-        {(r.status==="PENDING"||r.status==="QUEUED"||r.status==="RUNNING")&&<Button type="link" size="small" danger icon={<StopOutlined/>} onClick={()=>handleCancel(r.id)}>取消</Button>}
-        {r.status==="FAILED"&&<Button type="link" size="small" icon={<RedoOutlined/>} onClick={()=>handleRetry(r.id)}>重试</Button>}
-        {!isPreset(r) && <Button type="link" size="small" danger icon={<DeleteOutlined/>} onClick={()=>handleDelete(r.id)}>删除</Button>}
-      </Space>
-    )},
+    { title:"操作", key:"action", width:260, fixed:"right", render:(_,r)=>{
+      const s = r.status;
+      const preset = isPreset(r);
+      return (
+        <Space size={2}>
+          <Tooltip title="详情"><Button type="link" size="small" icon={<EyeOutlined/>} onClick={()=>showDetail(r)}/></Tooltip>
+          {s==="RUNNING"&&<Tooltip title="暂停"><Button type="link" size="small" icon={<PauseCircleOutlined/>} style={{color:"#faad14"}} onClick={()=>handlePause(r.id)}/></Tooltip>}
+          {s==="PAUSED"&&<Tooltip title="恢复"><Button type="link" size="small" icon={<PlayCircleOutlined/>} style={{color:"#52c41a"}} onClick={()=>handleResume(r.id)}/></Tooltip>}
+          {(s==="PENDING"||s==="QUEUED"||s==="RUNNING"||s==="PAUSED")&&<Tooltip title="取消"><Button type="link" size="small" danger icon={<StopOutlined/>} onClick={()=>handleCancel(r.id)}/></Tooltip>}
+          {(s==="FAILED"||s==="CANCELLED")&&<Tooltip title="重试"><Button type="link" size="small" icon={<RedoOutlined/>} onClick={()=>handleRetry(r.id)}/></Tooltip>}
+          {(s==="COMPLETED"||s==="FAILED"||s==="CANCELLED")&&<Tooltip title="克隆"><Button type="link" size="small" icon={<CopyOutlined/>} onClick={()=>handleClone(r.id)}/></Tooltip>}
+          {(s==="COMPLETED"||s==="FAILED"||s==="CANCELLED")&&!preset&&<Popconfirm title="确定删除该任务？" description="删除后不可恢复" okText="删除" okType="danger" cancelText="取消" onConfirm={()=>handleDelete(r.id)}><Tooltip title="删除"><Button type="link" size="small" danger icon={<DeleteOutlined/>}/></Tooltip></Popconfirm>}
+        </Space>
+      );
+    }},
   ];
 
   const onlineNodes = computeNodes.filter(n => n.status === "ONLINE");
+
+  /* ==================== Template Confirm View ==================== */
+  const renderTemplateConfirm = () => {
+    if (!selectedTemplate) return null;
+    const config = parseConfig(selectedTemplate.configJson);
+    const dim = config.evalDimension || config.evalObject || "";
+    return (
+      <div style={{maxWidth:700, margin:"0 auto", padding:"20px 0"}}>
+        <Alert message="确认模板参数" description="以下参数将用于创建评测任务，确认后直接运行" type="info" showIcon style={{marginBottom:24}}/>
+        <Card style={{marginBottom:16, borderLeft:"3px solid #1890ff"}}>
+          <Space align="start">
+            <div style={{fontSize:36, color:"#1890ff"}}>{DIMENSION_ICONS[dim] || <AppstoreOutlined/>}</div>
+            <div>
+              <Text strong style={{fontSize:18}}>{selectedTemplate.name}</Text>
+              {selectedTemplate.isSystem && <Tag color="purple" style={{marginLeft:8}}>📦 系统预置</Tag>}
+              <br/>
+              <Text type="secondary">{selectedTemplate.description}</Text>
+            </div>
+          </Space>
+        </Card>
+        <Descriptions bordered column={2} size="small" style={{marginBottom:16}}>
+          <Descriptions.Item label="评测类型"><Tag color="blue">{EVAL_TYPES[selectedTemplate.evalType] || selectedTemplate.evalType}</Tag></Descriptions.Item>
+          <Descriptions.Item label="评测维度"><Tag>{EVAL_DIMENSIONS[dim] || dim || "-"}</Tag></Descriptions.Item>
+          <Descriptions.Item label="优先级"><Tag color={PRIORITY_COLORS[config.priority]}>{PRIORITIES[config.priority] || config.priority || "中"}</Tag></Descriptions.Item>
+          <Descriptions.Item label="标签">{config.tags ? config.tags.split(",").map(t=><Tag key={t}>{t}</Tag>) : "-"}</Descriptions.Item>
+        </Descriptions>
+        <Card title="执行配置参数" size="small" style={{marginBottom:16}}>
+          <div style={{display:"flex", flexWrap:"wrap", gap:8}}>
+            {Object.entries(config).filter(([k])=>!["evalDimension","evalObject","priority","tags"].includes(k)).map(([key, value])=>(
+              <Tag key={key} color="geekblue" style={{padding:"4px 8px", marginBottom:4}}>
+                <Text strong style={{fontSize:12, color:"#fff"}}>{key}: </Text>
+                <Text style={{fontSize:12, color:"#fff"}}>{Array.isArray(value) ? value.join(", ") : String(value)}</Text>
+              </Tag>
+            ))}
+          </div>
+        </Card>
+        <div style={{textAlign:"center", marginTop:24}}>
+          <Space size={16}>
+            <Button size="large" onClick={() => { setTemplateConfirmMode(false); setSelectedTemplate(null); }}>返回选择</Button>
+            <Button size="large" onClick={() => {
+              const config2 = parseConfig(selectedTemplate.configJson);
+              const dim2 = config2.evalDimension || config2.evalObject || "OPERATOR";
+              setTemplateConfirmMode(false);
+              setCreateStep(1);
+              form.setFieldsValue({
+                name: selectedTemplate.name,
+                evalType: selectedTemplate.evalType,
+                evalObject: dim2,
+                targetModel: (config2.operators || config2.models || [])[0] || "",
+                priority: config2.priority || "MEDIUM",
+                description: selectedTemplate.description,
+              });
+            }}>修改参数</Button>
+            <Button type="primary" size="large" icon={<RocketOutlined/>} onClick={() => handleTemplateRun(selectedTemplate)}>
+              确认并运行
+            </Button>
+          </Space>
+        </div>
+      </div>
+    );
+  };
 
   const renderModeSelect = () => (
     <div style={{padding:"20px 0"}}>
@@ -119,27 +230,108 @@ export default function Tasks() {
         <Col span={12}><Card hoverable style={{textAlign:"center",border:createMode==="template"?"2px solid #1890ff":"1px solid #f0f0f0",minHeight:160}} onClick={()=>setCreateMode("template")}><AppstoreOutlined style={{fontSize:40,color:"#1890ff",marginBottom:12}}/><h3>模板化创建</h3><Text type="secondary">选择预置评测模板，快速创建任务</Text></Card></Col>
         <Col span={12}><Card hoverable style={{textAlign:"center",border:createMode==="custom"?"2px solid #1890ff":"1px solid #f0f0f0",minHeight:160}} onClick={()=>setCreateMode("custom")}><SettingOutlined style={{fontSize:40,color:"#722ed1",marginBottom:12}}/><h3>自定义创建</h3><Text type="secondary">灵活配置评测参数，定制化评测</Text></Card></Col>
       </Row>
-      {createMode==="template" && <div style={{marginTop:24}}><Divider>选择评测模板</Divider><Row gutter={[16,16]}>
-        {PRESET_TEMPLATES.map(t=>(<Col span={8} key={t.id}><Card size="small" hoverable style={{border:selectedTemplate?.id===t.id?"2px solid #1890ff":"1px solid #f0f0f0"}} onClick={()=>{setSelectedTemplate(t);form.setFieldsValue({evalType:t.evalType,evalObject:t.evalObject,metrics:t.metrics});}}><div style={{textAlign:"center",marginBottom:8}}>{React.cloneElement(t.icon,{style:{fontSize:28,color:"#1890ff"}})}</div><h4 style={{margin:0,textAlign:"center"}}>{t.name}</h4><Text type="secondary" style={{fontSize:12,display:"block",textAlign:"center"}}>{t.desc}</Text></Card></Col>))}
-      </Row></div>}
+      {createMode==="template" && <div style={{marginTop:24}}>
+        <Divider>选择评测模板</Divider>
+        {/* Backend templates (real) */}
+        {backendTemplates.length > 0 && <>
+          <Text type="secondary" style={{display:"block", marginBottom:12}}>📦 平台模板（点击即可一键运行）</Text>
+          <Row gutter={[16,16]} style={{marginBottom:24}}>
+            {backendTemplates.map(t => {
+              const config = parseConfig(t.configJson);
+              const dim = config.evalDimension || config.evalObject;
+              const isSelected = selectedTemplate && selectedTemplate._backend && selectedTemplate.id === t.id;
+              return (
+                <Col span={8} key={"bt-"+t.id}>
+                  <Card size="small" hoverable style={{border: isSelected ? "2px solid #1890ff" : "1px solid #f0f0f0", minHeight:140}}
+                    onClick={() => { setSelectedTemplate({...t, _backend: true}); setTemplateConfirmMode(true); }}>
+                    <div style={{textAlign:"center", marginBottom:8}}>
+                      {React.cloneElement(DIMENSION_ICONS[dim] || <AppstoreOutlined/>, {style:{fontSize:28, color:"#1890ff"}})}
+                    </div>
+                    <h4 style={{margin:0, textAlign:"center"}}>{t.name}</h4>
+                    <Text type="secondary" style={{fontSize:12, display:"block", textAlign:"center"}}>{t.description}</Text>
+                    <div style={{textAlign:"center", marginTop:8}}>
+                      <Space size={4}>
+                        {t.isSystem && <Tag color="purple" style={{fontSize:10}}>系统</Tag>}
+                        <Tag color="blue" style={{fontSize:10}}>{EVAL_TYPES[t.evalType] || t.evalType}</Tag>
+                        {config.operators && <Tag color="cyan" style={{fontSize:10}}>{config.operators.length}算子</Tag>}
+                        {config.models && <Tag color="green" style={{fontSize:10}}>{config.models.length}模型</Tag>}
+                      </Space>
+                    </div>
+                  </Card>
+                </Col>
+              );
+            })}
+          </Row>
+        </>}
+        {/* Legacy preset templates */}
+        <Text type="secondary" style={{display:"block", marginBottom:12}}>🔧 通用评测模板</Text>
+        <Row gutter={[16,16]}>
+          {PRESET_TEMPLATES.map(t=>(
+            <Col span={8} key={t.id}>
+              <Card size="small" hoverable style={{border:selectedTemplate?.id===t.id && !selectedTemplate._backend?"2px solid #1890ff":"1px solid #f0f0f0"}}
+                onClick={()=>{setSelectedTemplate(t);form.setFieldsValue({evalType:t.evalType,evalObject:t.evalObject,metrics:t.metrics});}}>
+                <div style={{textAlign:"center",marginBottom:8}}>{React.cloneElement(t.icon,{style:{fontSize:28,color:"#1890ff"}})}</div>
+                <h4 style={{margin:0,textAlign:"center"}}>{t.name}</h4>
+                <Text type="secondary" style={{fontSize:12,display:"block",textAlign:"center"}}>{t.desc}</Text>
+              </Card>
+            </Col>
+          ))}
+        </Row>
+      </div>}
     </div>
   );
 
-  const renderBasicInfo = () => (
+  const [evalObjects, setEvalObjects] = useState([]);
+  const [evalObjectsLoading, setEvalObjectsLoading] = useState(false);
+  
+  const fetchEvalObjects = async (dimension) => {
+    setEvalObjectsLoading(true);
+    try {
+      const r = await api.get("/eval-objects", {params:{type:dimension,size:100}});
+      if(r.data.code===0) setEvalObjects(r.data.data||[]);
+      else setEvalObjects([]);
+    } catch(e){ setEvalObjects([]); } finally { setEvalObjectsLoading(false); }
+  };
+
+  const handleDimensionChange = (dimension) => {
+    form.setFieldsValue({evalType:undefined, targetModel:undefined});
+    setEvalObjects([]);
+    if(dimension) {
+      const allowedTypes = DIMENSION_TYPE_MAP[dimension] || [];
+      if(allowedTypes.length === 1) {
+        form.setFieldsValue({evalType:allowedTypes[0]});
+      }
+      fetchEvalObjects(dimension);
+    }
+  };
+
+  const renderBasicInfo = () => {
+    const currentDimension = form.getFieldValue("evalObject");
+    const allowedTypes = currentDimension ? (DIMENSION_TYPE_MAP[currentDimension] || []) : [];
+    const typeOptions = allowedTypes.map(k=>({value:k,label:EVAL_TYPES[k]||k}));
+    const singleType = allowedTypes.length === 1;
+
+    return (
     <div style={{maxWidth:700,margin:"0 auto",padding:"20px 0"}}>
       <Form.Item name="name" label="任务名称" rules={[{required:true,message:"请输入任务名称"}]}><Input placeholder="例：华为昇腾910B ResNet50 推理性能评测" maxLength={100} showCount/></Form.Item>
       <Row gutter={16}>
-        <Col span={12}><Form.Item name="evalType" label="评测类型" rules={[{required:true}]}><Select options={Object.entries(EVAL_TYPES).map(([k,v])=>({value:k,label:v}))} placeholder="选择评测类型"/></Form.Item></Col>
-        <Col span={12}><Form.Item name="evalObject" label="评测维度" rules={[{required:true}]}><Select options={Object.entries(EVAL_OBJECTS).map(([k,v])=>({value:k,label:v}))} placeholder="选择评测维度"/></Form.Item></Col>
+        <Col span={8}><Form.Item name="evalObject" label="评测维度" rules={[{required:true,message:"请选择评测维度"}]}><Select options={Object.entries(EVAL_DIMENSIONS).map(([k,v])=>({value:k,label:v}))} placeholder="选择评测维度" onChange={handleDimensionChange}/></Form.Item></Col>
+        <Col span={8}><Form.Item name="evalType" label="评测类型" rules={[{required:true,message:"请选择评测类型"}]}><Select options={typeOptions} placeholder={currentDimension?"选择评测类型":"请先选择评测维度"} disabled={!currentDimension||singleType}/></Form.Item></Col>
+        <Col span={8}><Form.Item name="targetModel" label="评测对象" rules={[{required:true,message:"请选择或输入评测对象"}]}>
+          {evalObjects.length > 0 ? (
+            <Select placeholder="从评测对象库选择" loading={evalObjectsLoading} showSearch optionFilterProp="label" options={evalObjects.map(o=>({value:o.name,label:o.name+(o.framework?" ("+o.framework+")":"")}))} allowClear/>
+          ) : (
+            <Input placeholder={evalObjectsLoading?"加载中...":"输入评测对象名称（评测对象库为空）"}/>
+          )}
+        </Form.Item></Col>
       </Row>
-      <Form.Item name="targetModel" label="评测对象（模型/芯片/框架名称）" rules={[{required:true}]}><Input placeholder="例：ResNet50 / 华为昇腾910B / PyTorch 2.1"/></Form.Item>
       <Row gutter={16}>
         <Col span={12}><Form.Item name="priority" label="优先级" initialValue="MEDIUM"><Select options={Object.entries(PRIORITIES).map(([k,v])=>({value:k,label:v}))}/></Form.Item></Col>
         <Col span={12}><Form.Item name="tags" label="标签"><Select mode="tags" placeholder="输入标签后回车" tokenSeparators={[","]}/></Form.Item></Col>
       </Row>
       <Form.Item name="description" label="任务描述"><TextArea rows={3} placeholder="详细描述评测目的、关注点" maxLength={500} showCount/></Form.Item>
     </div>
-  );
+  );};
 
   const renderEvalConfig = () => (
     <div style={{maxWidth:700,margin:"0 auto",padding:"20px 0"}}>
@@ -206,7 +398,7 @@ export default function Tasks() {
           {selectedTemplate && <Descriptions.Item label="使用模板">{selectedTemplate.name}</Descriptions.Item>}
           <Descriptions.Item label="任务名称" span={2}>{vals.name||"-"}</Descriptions.Item>
           <Descriptions.Item label="评测类型">{EVAL_TYPES[vals.evalType]||"-"}</Descriptions.Item>
-          <Descriptions.Item label="评测维度">{EVAL_OBJECTS[vals.evalObject]||"-"}</Descriptions.Item>
+          <Descriptions.Item label="评测维度">{EVAL_DIMENSIONS[vals.evalObject]||EVAL_OBJECTS[vals.evalObject]||"-"}</Descriptions.Item>
           <Descriptions.Item label="评测对象" span={2}>{vals.targetModel||"-"}</Descriptions.Item>
           <Descriptions.Item label="优先级"><Tag color={PRIORITY_COLORS[vals.priority]}>{PRIORITIES[vals.priority]||"中"}</Tag></Descriptions.Item>
           <Descriptions.Item label="目标节点">
@@ -225,7 +417,7 @@ export default function Tasks() {
   };
 
   const stepContents = [renderModeSelect, renderBasicInfo, renderEvalConfig, renderConfirm];
-  const canNext = () => { if(createStep===0) return createMode==="custom"||(createMode==="template"&&selectedTemplate); return true; };
+  const canNext = () => { if(createStep===0) return createMode==="custom"||(createMode==="template"&&selectedTemplate&&!selectedTemplate._backend); return true; };
   const handleNext = async () => {
     if (createStep === 0) {
       if (canNext()) setCreateStep(s => s + 1);
@@ -248,7 +440,7 @@ export default function Tasks() {
   return (
     <div>
       <Row gutter={16} style={{marginBottom:24}}>
-        {[["总任务","total",<ProjectOutlined/>,null],["排队中","queued",null,"#faad14"],["执行中","running",null,"#1890ff"],["已完成","completed",null,"#52c41a"],["失败","failed",null,"#ff4d4f"],["已取消","cancelled",null,null]].map(([t,k,icon,color],i)=>(
+        {[["总任务","total",<ProjectOutlined/>,null],["排队中","queued",null,"#faad14"],["执行中","running",null,"#1890ff"],["已暂停","paused",null,"#fa8c16"],["已完成","completed",null,"#52c41a"],["失败","failed",null,"#ff4d4f"]].map(([t,k,icon,color],i)=>(
           <Col span={4} key={k}><Card hoverable size="small"><Statistic title={t} value={stats[k]||0} prefix={icon} valueStyle={color?{color}:{}}/></Card></Col>
         ))}
       </Row>
@@ -257,22 +449,24 @@ export default function Tasks() {
         <Select placeholder="状态筛选" allowClear style={{width:110}} value={statusFilter} onChange={setStatusFilter} options={Object.entries(STATUS_MAP).map(([k,v])=>({value:k,label:v}))}/>
         <Button onClick={()=>{fetchTasks();fetchStats();}} icon={<ReloadOutlined/>}>刷新</Button>
         {selectedKeys.length>0&&<><Button danger onClick={handleBatchCancel}>批量取消</Button><Button danger type="primary" onClick={handleBatchDelete}>批量删除</Button></>}
-        <Button type="primary" icon={<PlusOutlined/>} size="large" onClick={()=>{setCreateVisible(true);fetchNodes();}}>创建评测任务</Button>
+        <Button type="primary" icon={<PlusOutlined/>} size="large" onClick={()=>{setCreateVisible(true);fetchNodes();fetchBackendTemplates();}}>创建评测任务</Button>
       </Space>}>
         <Table columns={columns} dataSource={tasks} rowKey="id" loading={loading} scroll={{x:1500}} pagination={{pageSize:15,showTotal:t=>"共 "+t+" 条",showSizeChanger:true}} rowSelection={{selectedRowKeys:selectedKeys,onChange:setSelectedKeys}}/>
       </Card>
 
       <Modal title="创建评测任务" open={createVisible} onCancel={resetCreate} footer={null} width={900} destroyOnClose>
-        <Steps current={createStep} style={{marginBottom:24}} items={[{title:"选择模式",icon:<AppstoreOutlined/>},{title:"基础信息",icon:<ProjectOutlined/>},{title:"评测配置",icon:<SettingOutlined/>},{title:"确认提交",icon:<CheckCircleOutlined/>}]}/>
-        <Form form={form} onFinish={handleCreate} layout="vertical" initialValues={{priority:"MEDIUM",precision:"FP16",batchSize:32,timeout:60,retryCount:0,retryInterval:10,enableAlert:true,datasetSource:"preset"}}>
-          {stepContents[createStep]()}
-          <Divider/>
-          <div style={{textAlign:"right"}}>
-            {createStep>0 && <Button style={{marginRight:8}} onClick={()=>setCreateStep(s=>s-1)}>上一步</Button>}
-            {createStep<3 && <Button type="primary" disabled={!canNext()} onClick={handleNext}>下一步</Button>}
-            {createStep===3 && <Button type="primary" size="large" onClick={handleSubmit} icon={<RocketOutlined/>}>提交任务</Button>}
-          </div>
-        </Form>
+        {templateConfirmMode ? renderTemplateConfirm() : <>
+          <Steps current={createStep} style={{marginBottom:24}} items={[{title:"选择模式",icon:<AppstoreOutlined/>},{title:"基础信息",icon:<ProjectOutlined/>},{title:"评测配置",icon:<SettingOutlined/>},{title:"确认提交",icon:<CheckCircleOutlined/>}]}/>
+          <Form form={form} onFinish={handleCreate} layout="vertical" initialValues={{priority:"MEDIUM",precision:"FP16",batchSize:32,timeout:60,retryCount:0,retryInterval:10,enableAlert:true,datasetSource:"preset"}}>
+            {stepContents[createStep]()}
+            <Divider/>
+            <div style={{textAlign:"right"}}>
+              {createStep>0 && <Button style={{marginRight:8}} onClick={()=>setCreateStep(s=>s-1)}>上一步</Button>}
+              {createStep<3 && <Button type="primary" disabled={!canNext()} onClick={handleNext}>下一步</Button>}
+              {createStep===3 && <Button type="primary" size="large" onClick={handleSubmit} icon={<RocketOutlined/>}>提交任务</Button>}
+            </div>
+          </Form>
+        </>}
       </Modal>
 
       <Modal title="任务详情" open={detailVisible} onCancel={()=>{setDetailVisible(false);setExecutions([]);}} width={800} footer={null}>
@@ -282,7 +476,7 @@ export default function Tasks() {
             <Descriptions.Item label="状态"><Badge status={STATUS_COLORS[selected.status]} text={STATUS_MAP[selected.status]}/></Descriptions.Item>
             <Descriptions.Item label="名称" span={2}>{selected.name}</Descriptions.Item>
             <Descriptions.Item label="评测类型"><Tag color="blue">{EVAL_TYPES[selected.evalType]||selected.evalType}</Tag></Descriptions.Item>
-            <Descriptions.Item label="评测维度"><Tag>{EVAL_OBJECTS[selected.evalObject]||selected.evalObject||"-"}</Tag></Descriptions.Item>
+            <Descriptions.Item label="评测维度"><Tag>{EVAL_DIMENSIONS[selected.evalObject]||EVAL_OBJECTS[selected.evalObject]||selected.evalObject||"-"}</Tag></Descriptions.Item>
             <Descriptions.Item label="优先级"><Tag color={PRIORITY_COLORS[selected.priority]}>{PRIORITIES[selected.priority]||selected.priority}</Tag></Descriptions.Item>
             <Descriptions.Item label="评测对象">{selected.targetModel||"-"}</Descriptions.Item>
             <Descriptions.Item label="进度" span={2}><Progress percent={selected.progress||0} style={{maxWidth:300}}/></Descriptions.Item>
