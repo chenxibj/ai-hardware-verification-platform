@@ -33,6 +33,18 @@ public class EvaluationPlanService {
         if (plan.getStatus() == null) {
             plan.setStatus(EvaluationPlan.PlanStatus.DRAFT);
         }
+        // 将 preset 保存到 evalConfig 中
+        String preset = plan.getPreset();
+        if (preset != null && !preset.isBlank()) {
+            String config = plan.getEvalConfig();
+            if (config == null || config.isBlank() || config.equals("{}") || config.equals("null")) {
+                plan.setEvalConfig("{\"preset\":\"" + preset.toUpperCase() + "\"}");
+            } else if (!config.contains("\"preset\"")) {
+                // 在已有 JSON 中注入 preset
+                plan.setEvalConfig(config.substring(0, config.lastIndexOf('}'))
+                    + ",\"preset\":\"" + preset.toUpperCase() + "\"}");
+            }
+        }
         EvaluationPlan saved = planRepository.save(plan);
         log.info("Created plan: {} ({})", saved.getPlanNo(), saved.getName());
 

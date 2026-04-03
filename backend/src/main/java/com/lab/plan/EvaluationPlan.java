@@ -73,6 +73,9 @@ public class EvaluationPlan {
     @Column(name = "completed_at")
     private Instant completedAt;
 
+    @Transient
+    private String preset;
+
     public enum PlanStatus {
         DRAFT, RUNNING, PAUSED, COMPLETED, FAILED, CANCELLED
     }
