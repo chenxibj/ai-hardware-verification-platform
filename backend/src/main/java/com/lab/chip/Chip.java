@@ -1,6 +1,8 @@
 package com.lab.chip;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
@@ -36,9 +38,11 @@ public class Chip {
     @Column(name = "chip_type", nullable = false, length = 16)
     private ChipType chipType;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "tech_spec", columnDefinition = "jsonb")
     private String techSpec;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "software_stack", columnDefinition = "jsonb")
     private String softwareStack;
 
@@ -46,6 +50,7 @@ public class Chip {
     @Column(nullable = false, length = 16)
     private ChipStatus status;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "capability_profile", columnDefinition = "jsonb")
     private String capabilityProfile;
 

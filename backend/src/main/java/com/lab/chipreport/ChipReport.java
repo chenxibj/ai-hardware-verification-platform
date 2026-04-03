@@ -1,6 +1,8 @@
 package com.lab.chipreport;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
@@ -26,18 +28,22 @@ public class ChipReport {
     @Column(name = "overall_score")
     private Double overallScore;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "dimension_scores", columnDefinition = "jsonb")
     private String dimensionScores;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "radar_data", columnDefinition = "jsonb")
     private String radarData;
 
     @Column(name = "bottleneck_analysis", columnDefinition = "text")
     private String bottleneckAnalysis;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "scenario_recommendations", columnDefinition = "jsonb")
     private String scenarioRecommendations;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "operator_ranking", columnDefinition = "jsonb")
     private String operatorRanking;
 

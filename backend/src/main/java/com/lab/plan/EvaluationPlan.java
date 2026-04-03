@@ -1,6 +1,8 @@
 package com.lab.plan;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
@@ -34,6 +36,7 @@ public class EvaluationPlan {
     @Column(name = "chip_id", nullable = false)
     private Long chipId;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "eval_config", columnDefinition = "jsonb")
     private String evalConfig;
 

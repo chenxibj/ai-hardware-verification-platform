@@ -1,6 +1,8 @@
 package com.lab.result;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
@@ -21,9 +23,11 @@ public class EvaluationResult {
     @Column(name = "chip_id", nullable = false)
     private Long chipId;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "raw_data", columnDefinition = "jsonb")
     private String rawData;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metrics_summary", columnDefinition = "jsonb")
     private String metricsSummary;
 

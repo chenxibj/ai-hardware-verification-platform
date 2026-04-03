@@ -1,6 +1,8 @@
 package com.lab.task;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
@@ -43,15 +45,18 @@ public class EvaluationTask {
     @Enumerated(EnumType.STRING)
     private Priority priority; // HIGH, MEDIUM, LOW
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "eval_config", nullable = false, columnDefinition = "jsonb")
     private String evalConfig;
 
     @Column(name = "dataset_ids", columnDefinition = "bigint[]")
     private String datasetIds;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "resource_spec", columnDefinition = "jsonb")
     private String resourceSpec;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "allocated_resources", columnDefinition = "jsonb")
     private String allocatedResources;
 
