@@ -1,6 +1,8 @@
 package com.lab.chip;
 
 import jakarta.persistence.*;
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import lombok.Data;
@@ -31,6 +33,7 @@ public class Chip {
     @Column(nullable = false)
     private String name;
 
+    @JsonAlias({"vendor"})
     @Column(nullable = false)
     private String manufacturer;
 
@@ -38,10 +41,12 @@ public class Chip {
     @Column(name = "chip_type", nullable = false, length = 16)
     private ChipType chipType;
 
+    @JsonAlias({"specs"})
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "tech_spec", columnDefinition = "jsonb")
     private String techSpec;
 
+    @JsonAlias({"softwareEnv"})
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "software_stack", columnDefinition = "jsonb")
     private String softwareStack;
