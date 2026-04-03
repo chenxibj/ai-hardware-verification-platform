@@ -1,18 +1,16 @@
 /**
  * @file MainLayout.js
  * @description 主布局组件：侧边栏 + 顶栏 + 内容区 + Footer
- * @param {Object} props
- * @param {string}   props.currentPage - 当前页面 key
- * @param {Function} props.setCurrentPage - 切换页面
- * @param {React.ReactNode} props.children - 页面内容
+ * @refactor #128 导航结构重组 - 从13模块精简为4+1导航
  */
 import React, { useState } from "react";
 import { Layout, Menu, Button, Badge, Dropdown, Avatar, Typography } from "antd";
 import {
-  DashboardOutlined, ProjectOutlined, ApartmentOutlined, FileTextOutlined,
-  DiffOutlined, FileSearchOutlined, DatabaseOutlined, CloudServerOutlined,
-  CommentOutlined, TeamOutlined, AuditOutlined, SettingOutlined,
-  BellOutlined, UserOutlined, LogoutOutlined, AppstoreOutlined,
+  DashboardOutlined, ExperimentOutlined, FileSearchOutlined,
+  ClusterOutlined, SettingOutlined,
+  BellOutlined, UserOutlined, LogoutOutlined,
+  UnorderedListOutlined, SwapOutlined, PlusCircleOutlined,
+  TeamOutlined, AuditOutlined,
 } from "@ant-design/icons";
 import useAuthStore from "../stores/useAuthStore";
 import useNotificationStore from "../stores/useNotificationStore";
@@ -20,33 +18,65 @@ import useNotificationStore from "../stores/useNotificationStore";
 const { Header, Sider, Content, Footer } = Layout;
 
 const PAGE_TITLES = {
-  dashboard: "工作台", tasks: "评测任务管理", templates: "评测模板管理",
-  workflows: "评测编排工作流", reports: "评测报告管理", comparisons: "报告对比分析",
-  logs: "评测日志", assets: "数字资产管理", resources: "计算资源管理",
-  community: "验证平台社区", users: "用户管理", audit: "操作审计", settings: "系统设置",
+  dashboard: "工作台",
+  chips: "芯片列表",
+  "chip-compare": "芯片对比",
+  plans: "评测计划列表",
+  "plans-create": "创建评测计划",
+  nodes: "节点管理",
+  users: "用户管理",
+  audit: "操作审计",
+  // 保留旧页面标题（隐藏导航但路由仍可用）
+  tasks: "评测任务管理",
+  templates: "评测模板管理",
+  reports: "评测报告管理",
+  resources: "计算资源管理",
+  settings: "系统设置",
+  workflows: "评测编排工作流",
+  comparisons: "报告对比分析",
+  logs: "评测日志",
+  assets: "数字资产管理",
+  community: "验证平台社区",
 };
 
 const menuItems = [
-  { key: "dashboard", icon: <DashboardOutlined />, label: "工作台" },
-  { type: "divider" },
-  { key: "g1", label: "评测管理", type: "group", children: [
-    { key: "tasks", icon: <ProjectOutlined />, label: "评测任务" },
-    { key: "templates", icon: <AppstoreOutlined />, label: "评测模板" },
-    { key: "workflows", icon: <ApartmentOutlined />, label: "评测编排" },
-    { key: "reports", icon: <FileTextOutlined />, label: "评测报告" },
-    { key: "comparisons", icon: <DiffOutlined />, label: "报告对比" },
-    { key: "logs", icon: <FileSearchOutlined />, label: "评测日志" },
-  ]},
-  { key: "g2", label: "资源管理", type: "group", children: [
-    { key: "assets", icon: <DatabaseOutlined />, label: "数字资产" },
-    { key: "resources", icon: <CloudServerOutlined />, label: "计算资源" },
-  ]},
-  { key: "g3", label: "社区与系统", type: "group", children: [
-    { key: "community", icon: <CommentOutlined />, label: "社区" },
-    { key: "users", icon: <TeamOutlined />, label: "用户管理" },
-    { key: "audit", icon: <AuditOutlined />, label: "操作审计" },
-    { key: "settings", icon: <SettingOutlined />, label: "系统设置" },
-  ]},
+  {
+    key: "dashboard",
+    icon: <DashboardOutlined />,
+    label: "工作台",
+  },
+  {
+    key: "chip-mgmt",
+    icon: <ExperimentOutlined />,
+    label: "芯片管理",
+    children: [
+      { key: "chips", icon: <UnorderedListOutlined />, label: "芯片列表" },
+      { key: "chip-compare", icon: <SwapOutlined />, label: "芯片对比" },
+    ],
+  },
+  {
+    key: "plan-mgmt",
+    icon: <FileSearchOutlined />,
+    label: "评测计划",
+    children: [
+      { key: "plans", icon: <UnorderedListOutlined />, label: "计划列表" },
+      { key: "plans-create", icon: <PlusCircleOutlined />, label: "创建计划" },
+    ],
+  },
+  {
+    key: "nodes",
+    icon: <ClusterOutlined />,
+    label: "节点管理",
+  },
+  {
+    key: "sys-mgmt",
+    icon: <SettingOutlined />,
+    label: "系统设置",
+    children: [
+      { key: "users", icon: <TeamOutlined />, label: "用户管理" },
+      { key: "audit", icon: <AuditOutlined />, label: "操作审计" },
+    ],
+  },
 ];
 
 export default function MainLayout({ currentPage, setCurrentPage, children }) {
@@ -64,6 +94,17 @@ export default function MainLayout({ currentPage, setCurrentPage, children }) {
     onClick: ({ key }) => { if (key === "logout") logout(); },
   };
 
+  /* 计算 SubMenu 的 openKeys，让当前页的父菜单自动展开 */
+  const getDefaultOpenKeys = () => {
+    const parentMap = {
+      chips: "chip-mgmt", "chip-compare": "chip-mgmt",
+      plans: "plan-mgmt", "plans-create": "plan-mgmt",
+      users: "sys-mgmt", audit: "sys-mgmt",
+    };
+    const parent = parentMap[currentPage];
+    return parent ? [parent] : [];
+  };
+
   return (
     <Layout style={{ minHeight: "100vh" }}>
       <Sider collapsible collapsed={collapsed} onCollapse={setCollapsed} theme="light"
@@ -74,8 +115,11 @@ export default function MainLayout({ currentPage, setCurrentPage, children }) {
           borderBottom: "1px solid #f0f0f0", fontWeight: "bold", fontSize: collapsed ? 14 : 16 }}>
           {collapsed ? "AI" : <strong>AI软硬件验证平台</strong>}
         </div>
-        <Menu mode="inline" selectedKeys={[currentPage]} items={menuItems}
-          onClick={({ key }) => setCurrentPage(key)} style={{ borderRight: 0 }} />
+        <Menu mode="inline" selectedKeys={[currentPage]}
+          defaultOpenKeys={getDefaultOpenKeys()}
+          items={menuItems}
+          onClick={({ key }) => setCurrentPage(key)}
+          style={{ borderRight: 0 }} />
       </Sider>
       <Layout>
         <Header style={{ background: "#fff", padding: "0 24px", display: "flex",
