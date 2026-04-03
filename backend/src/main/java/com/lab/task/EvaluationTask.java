@@ -100,6 +100,9 @@ public class EvaluationTask {
     @Column(name = "test_item", length = 64)
     private String testItem;
 
+    @Column(name = "dimension", length = 32)
+    private String dimension;
+
     public enum TaskType {
         TEMPLATE, CUSTOM
     }

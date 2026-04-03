@@ -267,6 +267,7 @@ public class PlanTaskSplitter {
         task.setPriority(EvaluationTask.Priority.MEDIUM);
         task.setProgress(0);
         task.setCreatedBy(plan.getCreatedBy());
+        task.setDimension(classifyDimension(testItem));
         return task;
     }
 
