@@ -18,6 +18,7 @@ import useNotificationStore from "../stores/useNotificationStore";
 const { Header, Sider, Content, Footer } = Layout;
 
 const PAGE_TITLES = {
+  // 主导航 4+1
   dashboard: "工作台",
   chips: "芯片列表",
   "chip-compare": "芯片对比",
@@ -26,17 +27,10 @@ const PAGE_TITLES = {
   nodes: "节点管理",
   users: "用户管理",
   audit: "操作审计",
-  // 保留旧页面标题（隐藏导航但路由仍可用）
-  tasks: "评测任务管理",
-  templates: "评测模板管理",
-  reports: "评测报告管理",
-  resources: "计算资源管理",
+  // 内部跳转页面（不在侧边栏显示）
+  tasks: "评测任务",
+  resources: "计算资源",
   settings: "系统设置",
-  workflows: "评测编排工作流",
-  comparisons: "报告对比分析",
-  logs: "评测日志",
-  assets: "数字资产管理",
-  community: "验证平台社区",
 };
 
 const menuItems = [
