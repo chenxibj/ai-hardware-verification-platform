@@ -51,7 +51,7 @@ class EvaluationTaskServiceTest {
         sampleRequest.setEvalType(EvaluationTask.EvalType.OPERATOR);
         sampleRequest.setPriority(EvaluationTask.Priority.MEDIUM);
         sampleRequest.setEvalConfig("{\"type\":\"operator\"}");
-        sampleRequest.setDatasetIds(Arrays.asList(1L, 2L));
+        sampleRequest.setDatasetIds(new Long[]{1L, 2L});
         sampleRequest.setResourceSpec("{\"cpu\":4}");
     }
 
@@ -352,7 +352,7 @@ class EvaluationTaskServiceTest {
         Page<EvaluationTask> page = new PageImpl<>(List.of(sampleTask));
         when(taskRepository.findByUserIdAndStatus(100L, EvaluationTask.TaskStatus.PENDING, pageable)).thenReturn(page);
 
-        Page<EvaluationTask> result = taskService.listTasks(100L, EvaluationTask.TaskStatus.PENDING, pageable);
+        Page<EvaluationTask> result = taskService.listTasks(100L, null, EvaluationTask.TaskStatus.PENDING, pageable);
 
         assertEquals(1, result.getTotalElements());
     }
@@ -364,7 +364,7 @@ class EvaluationTaskServiceTest {
         Page<EvaluationTask> page = new PageImpl<>(List.of(sampleTask));
         when(taskRepository.findByCreatedBy(100L, pageable)).thenReturn(page);
 
-        Page<EvaluationTask> result = taskService.listTasks(100L, null, pageable);
+        Page<EvaluationTask> result = taskService.listTasks(100L, null, null, pageable);
 
         assertEquals(1, result.getTotalElements());
     }
@@ -376,7 +376,7 @@ class EvaluationTaskServiceTest {
         Page<EvaluationTask> page = new PageImpl<>(List.of(sampleTask));
         when(taskRepository.findByStatus(EvaluationTask.TaskStatus.PENDING, pageable)).thenReturn(page);
 
-        Page<EvaluationTask> result = taskService.listTasks(null, EvaluationTask.TaskStatus.PENDING, pageable);
+        Page<EvaluationTask> result = taskService.listTasks(null, null, EvaluationTask.TaskStatus.PENDING, pageable);
 
         assertEquals(1, result.getTotalElements());
     }
@@ -388,7 +388,7 @@ class EvaluationTaskServiceTest {
         Page<EvaluationTask> page = new PageImpl<>(List.of(sampleTask));
         when(taskRepository.findAll(pageable)).thenReturn(page);
 
-        Page<EvaluationTask> result = taskService.listTasks(null, null, pageable);
+        Page<EvaluationTask> result = taskService.listTasks(null, null, null, pageable);
 
         assertEquals(1, result.getTotalElements());
     }

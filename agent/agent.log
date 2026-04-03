@@ -2814,3 +2814,7 @@
 2026-04-03 20:59:00 [heartbeat] WARNING - 心跳响应异常: 404 {"timestamp":"2026-04-03T12:59:00.129+00:00","status":404,"error":"Not Found","path":"/api/nodes/1/heartbeat"}
 2026-04-03 20:59:31 [heartbeat] WARNING - 心跳响应异常: 404 {"timestamp":"2026-04-03T12:59:31.138+00:00","status":404,"error":"Not Found","path":"/api/nodes/1/heartbeat"}
 2026-04-03 21:00:02 [heartbeat] WARNING - 心跳响应异常: 404 {"timestamp":"2026-04-03T13:00:02.147+00:00","status":404,"error":"Not Found","path":"/api/nodes/1/heartbeat"}
+2026-04-03 21:00:33 [heartbeat] WARNING - 心跳响应异常: 404 {"timestamp":"2026-04-03T13:00:33.155+00:00","status":404,"error":"Not Found","path":"/api/nodes/1/heartbeat"}
+2026-04-03 21:01:04 [heartbeat] WARNING - 心跳响应异常: 404 {"timestamp":"2026-04-03T13:01:04.164+00:00","status":404,"error":"Not Found","path":"/api/nodes/1/heartbeat"}
+2026-04-03 21:01:35 [heartbeat] WARNING - 心跳响应异常: 404 {"timestamp":"2026-04-03T13:01:35.172+00:00","status":404,"error":"Not Found","path":"/api/nodes/1/heartbeat"}
+2026-04-03 21:02:06 [heartbeat] WARNING - 心跳响应异常: 404 {"timestamp":"2026-04-03T13:02:06.180+00:00","status":404,"error":"Not Found","path":"/api/nodes/1/heartbeat"}
