@@ -25,7 +25,7 @@ public class CreateTaskRequest {
     @NotNull(message = "评测配置不能为空")
     private String evalConfig;
 
-    private String datasetIds;
+    private Long[] datasetIds;
 
     private String resourceSpec;
 }

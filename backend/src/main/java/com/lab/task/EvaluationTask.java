@@ -38,7 +38,7 @@ public class EvaluationTask {
 
     @Column(name = "eval_type", nullable = false, length = 32)
     @Enumerated(EnumType.STRING)
-    private EvalType evalType; // MODEL, CHIP, FRAMEWORK, OPERATOR
+    private EvalType evalType; // MODEL, CHIP, FRAMEWORK, OPERATOR, PERFORMANCE, ACCURACY, COMPATIBILITY, GENERAL
 
     @Column(name = "status", nullable = false, length = 32)
     @Enumerated(EnumType.STRING)
@@ -52,8 +52,9 @@ public class EvaluationTask {
     @Column(name = "eval_config", nullable = false, columnDefinition = "jsonb")
     private String evalConfig;
 
+    @JdbcTypeCode(SqlTypes.ARRAY)
     @Column(name = "dataset_ids", columnDefinition = "bigint[]")
-    private String datasetIds;
+    private Long[] datasetIds;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "resource_spec", columnDefinition = "jsonb")
@@ -104,7 +105,7 @@ public class EvaluationTask {
     }
 
     public enum EvalType {
-        MODEL, CHIP, FRAMEWORK, OPERATOR
+        MODEL, CHIP, FRAMEWORK, OPERATOR, PERFORMANCE, ACCURACY, COMPATIBILITY, GENERAL
     }
 
     public enum TaskStatus {
