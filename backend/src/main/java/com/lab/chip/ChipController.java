@@ -41,12 +41,13 @@ public class ChipController {
     public ResponseEntity<Map<String, Object>> listChips(
             @RequestParam(required = false) String chipType,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         Pageable pageable = PageRequest.of(page, size);
         Chip.ChipType type = chipType != null ? Chip.ChipType.valueOf(chipType) : null;
         Chip.ChipStatus st = status != null ? Chip.ChipStatus.valueOf(status) : null;
-        Page<Chip> chips = chipService.listChips(type, st, pageable);
+        Page<Chip> chips = chipService.listChips(type, st, search, pageable);
         Map<String, Object> resp = success(chips.getContent());
         resp.put("total", chips.getTotalElements());
         resp.put("page", page);

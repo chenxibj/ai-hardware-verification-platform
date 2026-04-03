@@ -40,7 +40,10 @@ public class ChipService {
      * 查询芯片列表
      */
     @Transactional(readOnly = true)
-    public Page<Chip> listChips(Chip.ChipType chipType, Chip.ChipStatus status, Pageable pageable) {
+    public Page<Chip> listChips(Chip.ChipType chipType, Chip.ChipStatus status, String search, Pageable pageable) {
+        if (search != null && !search.isBlank()) {
+            return chipRepository.searchByNameOrManufacturer(search.trim(), pageable);
+        }
         if (chipType != null && status != null) {
             return chipRepository.findByChipTypeAndStatus(chipType, status, pageable);
         } else if (chipType != null) {
