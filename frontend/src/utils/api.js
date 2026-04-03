@@ -38,6 +38,7 @@ export const taskApi = {
   create: (data) => api.post("/tasks", data),
   cancel: (id) => api.post("/tasks/" + id + "/cancel"),
   retry: (id) => api.post("/tasks/" + id + "/retry"),
+  complete: (id, data) => api.post("/tasks/" + id + "/complete", data),
 };
 
 export const reportApi = {
@@ -49,6 +50,13 @@ export const reportApi = {
   review: (id) => api.post("/reports/" + id + "/review"),
   delete: (id) => api.delete("/reports/" + id),
   stats: () => api.get("/reports/stats"),
+};
+
+export const chipReportApi = {
+  list: (params) => api.get("/chip-reports", { params }),
+  get: (id) => api.get("/chip-reports/" + id),
+  getByChip: (chipId) => api.get("/chip-reports/chip/" + chipId),
+  getByPlan: (planId) => api.get("/chip-reports/plan/" + planId),
 };
 
 export const userApi = {

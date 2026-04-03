@@ -1,6 +1,7 @@
 /**
  * @file App.js
  * @description 应用入口，组合布局和路由
+ * @feat #136 添加 chipReportId 状态管理
  */
 import React, { useState, useEffect } from "react";
 import api from "./utils/api";
@@ -16,6 +17,7 @@ function App() {
   const setUnreadCount = useNotificationStore(s => s.setUnreadCount);
   const [currentPage, setCurrentPage] = useState("dashboard");
   const [planMonitorId, setPlanMonitorId] = useState(null);
+  const [chipReportId, setChipReportId] = useState(null);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -28,21 +30,24 @@ function App() {
     }
   }, [isAuthenticated, currentPage, setUnreadCount]);
 
-  // 切换页面时清除监控状态
+  // 切换页面时清除监控和报告状态
   const handleSetCurrentPage = (page) => {
     setPlanMonitorId(null);
+    setChipReportId(null);
     setCurrentPage(page);
   };
 
   if (!isAuthenticated || !user) return <Login />;
 
   return (
-    <MainLayout currentPage={planMonitorId ? "plans" : currentPage} setCurrentPage={handleSetCurrentPage}>
+    <MainLayout currentPage={chipReportId ? "reports" : (planMonitorId ? "plans" : currentPage)} setCurrentPage={handleSetCurrentPage}>
       <AppRoutes
         currentPage={currentPage}
         planMonitorId={planMonitorId}
+        chipReportId={chipReportId}
         setCurrentPage={setCurrentPage}
         setPlanMonitorId={setPlanMonitorId}
+        setChipReportId={setChipReportId}
       />
     </MainLayout>
   );

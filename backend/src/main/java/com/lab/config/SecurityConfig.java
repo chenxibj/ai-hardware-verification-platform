@@ -60,6 +60,7 @@ public class SecurityConfig {
                 .requestMatchers("/nodes/*/heartbeat").permitAll()
                 .requestMatchers("/tasks/*/result").permitAll()
                 .requestMatchers("/tasks/*/failure").permitAll()
+                .requestMatchers("/tasks/*/complete").permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .anyRequest().authenticated()
             )
