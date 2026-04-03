@@ -1,42 +1,37 @@
-name: Deploy
+name: Deploy Frontend & Smoke Test
 
 on:
-  workflow_run:
-    workflows: ["CI Pipeline"]
-    types: [completed]
+  push:
     branches: [main]
 
 jobs:
-  deploy:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+  deploy-frontend:
     runs-on: self-hosted
-    timeout-minutes: 10
+    env:
+      CI: false
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy frontend
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Build frontend
+        run: cd frontend && npm run build
+
+      - name: Deploy to nginx container
         run: |
-          cd frontend
-          npm ci
-          npm run build
-          docker cp build/. ahvp-frontend:/usr/share/nginx/html/
+          docker cp frontend/build/. ahvp-frontend:/usr/share/nginx/html/
           docker exec ahvp-frontend nginx -s reload
-          echo "Frontend deployed ✅"
 
-      - name: Deploy backend (if changed)
+      - name: Run smoke tests
         run: |
-          BACKEND_CHANGED=$(git diff HEAD~1 --name-only -- backend/ 2>/dev/null | wc -l)
-          if [ "$BACKEND_CHANGED" -gt 0 ]; then
-            cd /opt/ai-hardware-verification-platform
-            docker compose up -d --build backend
-            echo "Backend rebuilt and restarted ✅"
-          else
-            echo "No backend changes, skipping"
-          fi
-
-      - name: Smoke test
-        run: |
-          sleep 5
           chmod +x deploy/smoke-test.sh
           bash deploy/smoke-test.sh
