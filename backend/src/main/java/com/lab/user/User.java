@@ -28,10 +28,10 @@ public class User {
 
     private String phone;
 
-    @Column(nullable = false)
+    @Column(name = "password_hash", nullable = false)
     private String password;
 
-    @Column(nullable = false)
+    @Column(name = "user_type", nullable = false)
     private String role;
 
     private String avatarUrl;

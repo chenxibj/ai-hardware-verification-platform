@@ -23,7 +23,7 @@ public class CreateTaskRequest {
     @NotNull(message = "评测配置不能为空")
     private String evalConfig;
 
-    private List<Long> datasetIds;
+    private String datasetIds;
 
     private String resourceSpec;
 }

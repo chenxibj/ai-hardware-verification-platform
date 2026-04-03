@@ -47,7 +47,7 @@ public class EvaluationTask {
     private String evalConfig;
 
     @Column(name = "dataset_ids", columnDefinition = "bigint[]")
-    private List<Long> datasetIds;
+    private String datasetIds;
 
     @Column(name = "resource_spec", columnDefinition = "jsonb")
     private String resourceSpec;
