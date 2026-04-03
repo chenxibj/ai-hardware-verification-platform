@@ -78,6 +78,19 @@ public class EvaluationTask {
     @Column(name = "updated_at")
     private Instant updatedAt;
 
+    @Column(name = "plan_id")
+    private Long planId;
+
+    @Column(name = "chip_id")
+    private Long chipId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "test_subject", length = 16)
+    private TestSubject testSubject;
+
+    @Column(name = "test_item", length = 64)
+    private String testItem;
+
     public enum TaskType {
         TEMPLATE, CUSTOM
     }
@@ -88,6 +101,10 @@ public class EvaluationTask {
 
     public enum TaskStatus {
         PENDING, QUEUED, RUNNING, PAUSED, COMPLETED, FAILED, CANCELLED
+    }
+
+    public enum TestSubject {
+        OPERATOR, MODEL
     }
 
     public enum Priority {

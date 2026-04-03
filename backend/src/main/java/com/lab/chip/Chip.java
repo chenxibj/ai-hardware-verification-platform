@@ -1,0 +1,73 @@
+package com.lab.chip;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import java.time.Instant;
+
+/**
+ * 芯片实体类
+ */
+@Data
+@Entity
+@Table(name = "chips")
+@NoArgsConstructor
+@AllArgsConstructor
+public class Chip {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "chip_no", unique = true, nullable = false, length = 32)
+    private String chipNo;
+
+    @Column(nullable = false)
+    private String name;
+
+    @Column(nullable = false)
+    private String manufacturer;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "chip_type", nullable = false, length = 16)
+    private ChipType chipType;
+
+    @Column(name = "tech_spec", columnDefinition = "jsonb")
+    private String techSpec;
+
+    @Column(name = "software_stack", columnDefinition = "jsonb")
+    private String softwareStack;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    private ChipStatus status;
+
+    @Column(name = "capability_profile", columnDefinition = "jsonb")
+    private String capabilityProfile;
+
+    private String tags;
+    private String remark;
+
+    @Column(name = "created_by", nullable = false)
+    private Long createdBy;
+
+    @CreationTimestamp
+    @Column(name = "created_at", updatable = false)
+    private Instant createdAt;
+
+    @UpdateTimestamp
+    @Column(name = "updated_at")
+    private Instant updatedAt;
+
+    public enum ChipType {
+        GPU, NPU, TPU, CPU, OTHER
+    }
+
+    public enum ChipStatus {
+        UNEVALUATED, EVALUATING, EVALUATED
+    }
+}
