@@ -124,54 +124,20 @@
 
 **Step 2.1 - 选择评测范围**
 
-张工看到评测项的分类树(对齐 DeepLink 算子分类体系,参考 [DeepLink 算子图谱](https://deeplink.readthedocs.io/zh_CN/latest/doc/Operators/op_classification.html)):
+张工看到 **3 个评测预设方案**（一键选择，降低操作门槛）：
 
-```
-评测项目
-├── 基本技术规格(Phase 2/3: 由芯片注册时填写 + 自动检测)
-│   ├── 算力(FP16/FP32/BF16 TFLOPS、INT8 TOPS)
-│   ├── 内存规格(显存容量、显存带宽)
-│   ├── 通信带宽(跨卡/跨机数据传输)
-│   └── 能耗比(算力/TDP)
-│
-├── 算子功能测试(精度验证)
-│   ├── BLAS 类(mm, bmm, addmm, linear, matmul, dot, mv, ger, bilinear)
-│   ├── Convolution 类(conv2d, ConvTranspose2d)
-│   ├── Norm 类(batchnorm2d, layernorm, groupnorm, instance_norm2d)
-│   ├── Activation 类(relu, elu, leaky_relu, prelu, sigmoid, softmax, log_softmax, threshold)
-│   ├── Pooling 类(adaptive_avg_pool2d, adaptive_max_pool2d, avgpool2d, maxpool2d, max_unpool2d)
-│   ├── Loss 类(cross_entropy, binary_cross_entropy, mse_loss, kl_div, l1_loss, ctc_loss, nll_loss)
-│   ├── Element-wise 类(add, sub, mul, div, abs, exp, log, sqrt, sin, cos, pow, clamp...)
-│   ├── Reduce 类(max, min, mean, sum, prod, std, var, median)
-│   ├── View/Permute 类(transpose, split, cat, stack, flip, narrow, fold, unfold, select)
-│   ├── Advanced Indexing 类(scatter_add, index_copy, index_fill, masked_fill, masked_select)
-│   ├── Linalg 类(det, svd, inverse, vector_norm, matrix_norm, eig)
-│   ├── Interpolate 类(interpolate, grid_sample, affine_grid, pad)
-│   └── Distribution/Sort/MISC(topk, sort, nonzero, unique, dropout2d, where)
-│
-├── 算子性能测试
-│   ├── 计算密集型算子(GEMM FP16/FP32, Conv2d FP16/FP32)
-│   ├── 长尾算子性能(LongTail-Bench: 60+ 常见组合算子)
-│   ├── Transformer Block 性能(Phase 2/3: FlashAttention, RMSNorm, SwiGLU)
-│   └── 通信算子性能(Phase 2/3: AllReduce, AllGather - OSU/NCCL-test)
-│
-├── 基础模型评测
-│   ├── 分类模型(resnet50, vgg16, mobilenetv2, senet50, inceptionv3, densenet121,
-│   │            shufflenetv2, efficientnet-b2, swintransformer)
-│   ├── 检测模型(faster_rcnn_r50, mask_rcnn_r50, yolo_v3, ssd300, retinanet,
-│   │            fcos_r50, cascade_rcnn_r50, centernet_r18, solo, swin)
-│   ├── 分割模型(FCN-R50, PSPNet-R50, DeeplabV3-R50, apcnet, nnunet)
-│   └── MVP 阶段: MLP(Small / Medium / Large)推理评测
-│
-└── 大模型评测(Phase 2/3)
-    ├── 大模型训练(功能 + 性能 + 稳定性)
-    ├── 大模型微调(功能 + 性能 + 稳定性)
-    └── 大模型推理(性能 + 成本指标: TTFT, TPOT, throughput, $/token)
-```
+| 预设方案 | 适用场景 | 包含内容 | 预估耗时 |
+|---------|---------|---------|--------|
+| 🚀 **快速验证** | 首次接入、日常冒烟 | 核心算子(MatMul/Conv2D/Softmax等13个) + MLP推理 | ~15分钟 |
+| 📋 **标准评测** | 版本迭代、常规评测 | DeepLink 核心算子集(50+算子功能+性能) + MLP推理(多Batch) | ~1小时 |
+| 🔬 **全量评测** | 季度评测、芯片定级 | DeepLink 完整算子集(100+) + 基础模型(24个) + 性能测试 | ~4小时 |
 
-张工操作:
-- 展开"算子评测"分类,勾选要测试的算子(可全选某个分类)
-- 展开"模型评测 > 推理评测",勾选 MLP-Medium
+张工操作：
+- **大多数情况：直接选一个预设方案，点击下一步**（零配置）
+- 如需微调：点击"自定义"展开评测项列表，在预设基础上增减
+- 评测项列表按 DeepLink 分类体系组织（BLAS/Convolution/Norm/Activation/Pooling/Loss 等 13 大类，参考 [DeepLink 算子图谱](https://deeplink.readthedocs.io/zh_CN/latest/doc/Operators/op_classification.html)），但用户无需逐个了解 — 预设方案已经替用户做好了选择
+
+**为什么用预设方案而不是分类树？** 分类树展开 100+ 算子会让用户淹没在选项中。80% 的用户只需要选一个预设方案。高级用户仍可展开自定义。这个设计参考了 AWS FMBench 的 YAML 配置模板思路 — 提供合理默认值，允许按需覆盖。
 - 页面右侧实时显示已选项汇总:已选 13 个算子 + 1 个模型推理
 
 **为什么用分类树而不是平铺列表?** 因为完整芯片评测可能涉及 200+ 算子,平铺列表会让用户淹没在选项中。分类树让用户可以快速按类选择,也可以展开细选。
@@ -1545,464 +1511,57 @@ Dashboard (L0 总览)
 
 ---
 
-## 第六部分:数据模型设计
+## 第六部分：数据模型与技术方案
 
-### 6.1 核心实体详细定义
+> **注意：本部分仅描述产品层面的核心实体和关系，具体数据模型设计、表结构、技术重构方案由开发团队自行决定。**
 
-#### Chip(芯片)
+### 6.1 核心实体（产品视角）
 
-```sql
-CREATE TABLE chips (
-    id              BIGSERIAL PRIMARY KEY,
-    chip_no         VARCHAR(64) NOT NULL UNIQUE,    -- 自动生成: CHIP-yyyyMMdd-NNN
-    name            VARCHAR(200) NOT NULL,           -- 芯片名称
-    vendor          VARCHAR(200) NOT NULL,           -- 厂商
-    chip_type       VARCHAR(20) NOT NULL,            -- GPU / NPU / TPU / CPU / OTHER
-    specs           JSONB DEFAULT '{}',              -- 技术规格
-    -- specs 结构示例:
-    -- {
-    --   "compute": {"fp16_tflops": 200, "fp32_tflops": 100, "bf16_tflops": 180, "int8_tops": 400},
-    --   "memory": {"capacity_gb": 64, "bandwidth_tbs": 2.0, "type": "HBM2e"},
-    --   "power": {"tdp_watts": 300}
-    -- }
-    software_env    JSONB DEFAULT '{}',              -- 软件栈信息
-    -- {
-    --   "driver_version": "v2.1.0",
-    --   "sdk_version": "SenseSDK 3.0",
-    --   "frameworks": ["PyTorch", "MindSpore"]
-    -- }
-    status          VARCHAR(20) NOT NULL DEFAULT 'REGISTERED',  -- REGISTERED / EVALUATING / EVALUATED
-    profile_data    JSONB DEFAULT '{}',              -- 能力画像(评测后自动更新)
-    -- {
-    --   "overall_score": 78,
-    --   "dimension_scores": {"compute": 82, "memory_access": 65, "math": 90, "attention": 72, "normalization": 78, "model_inference": 75},
-    --   "last_evaluated_at": "2026-04-03T15:30:00Z",
-    --   "evaluation_count": 2
-    -- }
-    tags            VARCHAR(500),                    -- 标签(逗号分隔)
-    description     TEXT,
-    created_by      BIGINT NOT NULL,
-    created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
-);
-```
+产品设计涉及以下 5 个核心业务对象：
 
-#### EvaluationPlan(评测计划)
-
-```sql
-CREATE TABLE evaluation_plans (
-    id              BIGSERIAL PRIMARY KEY,
-    plan_no         VARCHAR(64) NOT NULL UNIQUE,     -- 自动生成: PLAN-yyyyMMdd-NNN
-    chip_id         BIGINT NOT NULL REFERENCES chips(id),
-    name            VARCHAR(200) NOT NULL,
-    description     TEXT,
-    plan_config     JSONB NOT NULL,                  -- 评测配置
-    -- {
-    --   "preset": "standard",          -- quick / standard / full / custom
-    --   "operator_tests": [
-    --     {"name": "MatMul", "category": "compute_intensive", "shapes": ["medium"], "dtypes": ["fp32"], "warmup": 10, "iterations": 100},
-    --     ...
-    --   ],
-    --   "model_tests": [
-    --     {"name": "MLP-Medium", "batch_sizes": [1, 4, 8, 16], "iterations": 50},
-    --     ...
-    --   ],
-    --   "timeout_per_task": 300
-    -- }
-    status          VARCHAR(20) NOT NULL DEFAULT 'DRAFT',  -- DRAFT / RUNNING / COMPLETED / FAILED / CANCELLED
-    node_id         BIGINT,                          -- 执行节点
-    progress        INTEGER NOT NULL DEFAULT 0,      -- 0-100
-    total_tasks     INTEGER NOT NULL DEFAULT 0,
-    completed_tasks INTEGER NOT NULL DEFAULT 0,
-    failed_tasks    INTEGER NOT NULL DEFAULT 0,
-    started_at      TIMESTAMP,
-    completed_at    TIMESTAMP,
-    created_by      BIGINT NOT NULL,
-    created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX idx_plans_chip_id ON evaluation_plans(chip_id);
-CREATE INDEX idx_plans_status ON evaluation_plans(status);
-```
-
-#### EvaluationTask(评测任务)
-
-```sql
-CREATE TABLE evaluation_tasks (
-    id              BIGSERIAL PRIMARY KEY,
-    task_no         VARCHAR(64) NOT NULL UNIQUE,     -- 自动生成: TASK-yyyyMMdd-NNNNN
-    plan_id         BIGINT NOT NULL REFERENCES evaluation_plans(id),
-    chip_id         BIGINT NOT NULL REFERENCES chips(id),  -- 冗余存储
-    test_subject    VARCHAR(20) NOT NULL,            -- OPERATOR / MODEL
-    test_item       VARCHAR(100) NOT NULL,           -- 具体评测项: "MatMul", "MLP-Medium" 等
-    test_config     JSONB NOT NULL,                  -- 任务级配置
-    -- 算子: {"shape": [1024, 1024], "dtype": "fp32", "warmup": 10, "iterations": 100}
-    -- 模型: {"batch_size": 4, "model_size": "medium", "iterations": 50}
-    status          VARCHAR(20) NOT NULL DEFAULT 'PENDING',  -- PENDING / RUNNING / COMPLETED / FAILED / CANCELLED
-    priority        VARCHAR(10) NOT NULL DEFAULT 'MEDIUM',   -- HIGH / MEDIUM / LOW
-    progress        INTEGER NOT NULL DEFAULT 0,
-    error_message   TEXT,
-    started_at      TIMESTAMP,
-    completed_at    TIMESTAMP,
-    created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX idx_tasks_plan_id ON evaluation_tasks(plan_id);
-CREATE INDEX idx_tasks_chip_id ON evaluation_tasks(chip_id);
-CREATE INDEX idx_tasks_status ON evaluation_tasks(status);
-```
-
-#### EvaluationResult(评测结果)
-
-```sql
-CREATE TABLE evaluation_results (
-    id              BIGSERIAL PRIMARY KEY,
-    task_id         BIGINT NOT NULL UNIQUE REFERENCES evaluation_tasks(id),
-    plan_id         BIGINT NOT NULL REFERENCES evaluation_plans(id),  -- 冗余
-    chip_id         BIGINT NOT NULL REFERENCES chips(id),             -- 冗余
-    result_data     JSONB NOT NULL,                  -- 完整结果数据
-    -- 算子结果示例:
-    -- {
-    --   "operator": "MatMul",
-    --   "shape": [1024, 1024],
-    --   "dtype": "fp32",
-    --   "latency": {"mean_ms": 2.31, "p50_ms": 2.18, "p95_ms": 3.05, "p99_ms": 3.42, "min_ms": 1.92, "max_ms": 4.15},
-    --   "throughput_ops": 434,
-    --   "cpu_util_percent": 78
-    -- }
-    metrics_summary JSONB NOT NULL,                  -- 指标摘要(便于查询和对比)
-    -- {"latency_mean_ms": 2.31, "latency_p95_ms": 3.05, "throughput": 434}
-    status          VARCHAR(20) NOT NULL,            -- PASS / FAIL / WARNING
-    raw_log_path    VARCHAR(500),                    -- 原始日志路径
-    created_at      TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX idx_results_chip_id ON evaluation_results(chip_id);
-CREATE INDEX idx_results_plan_id ON evaluation_results(plan_id);
-```
-
-#### ChipReport(芯片评价报告)
-
-```sql
-CREATE TABLE chip_reports (
-    id              BIGSERIAL PRIMARY KEY,
-    report_no       VARCHAR(64) NOT NULL UNIQUE,     -- 自动生成: RPT-yyyyMMdd-NNN
-    chip_id         BIGINT NOT NULL REFERENCES chips(id),
-    plan_id         BIGINT NOT NULL REFERENCES evaluation_plans(id),
-    overall_score   INTEGER,                         -- 综合评分 0-100
-    dimension_scores JSONB,                          -- 各维度评分
-    -- {"compute": 82, "memory_access": 65, "math": 90, "attention": 72, "normalization": 78, "model_inference": 75}
-    radar_data      JSONB,                           -- 雷达图数据
-    bottleneck_analysis JSONB,                       -- 瓶颈分析
-    -- {"top_bottlenecks": [...], "volatility_analysis": [...]}
-    recommendations JSONB,                           -- 推荐和建议
-    -- {"suitable_scenarios": [...], "caution_scenarios": [...], "optimization_suggestions": [...]}
-    report_data     JSONB,                           -- 完整报告数据(含所有图表数据)
-    status          VARCHAR(20) NOT NULL DEFAULT 'DRAFT',  -- DRAFT / PUBLISHED
-    generated_at    TIMESTAMP NOT NULL DEFAULT NOW(),
-    published_at    TIMESTAMP
-);
-
-CREATE INDEX idx_reports_chip_id ON chip_reports(chip_id);
-```
+| 实体 | 说明 | 核心关系 |
+|------|------|---------|
+| **芯片 (Chip)** | 平台的核心管理对象 | 一颗芯片可以有多个评测计划 |
+| **评测计划 (EvaluationPlan)** | 一次完整的评测活动 | 属于一颗芯片，包含多个评测任务 |
+| **评测任务 (EvaluationTask)** | 最小执行单元 | 属于一个评测计划，产出一条评测结果 |
+| **评测结果 (EvaluationResult)** | 单个任务的输出数据 | 关联到任务和芯片 |
+| **芯片评价报告 (ChipReport)** | 聚合报告，最终交付物 | 关联到芯片和评测计划 |
 
 ### 6.2 实体关系
 
-```
-Chip (1) ──── (N) EvaluationPlan
-                    │
-EvaluationPlan (1) ── (N) EvaluationTask
-                    │
-EvaluationPlan (1) ── (1) ChipReport
 
-EvaluationTask (1) ── (1) EvaluationResult
 
-冗余关系(便于查询):
-Chip (1) ──── (N) EvaluationTask(通过 chip_id 直接关联)
-Chip (1) ──── (N) EvaluationResult(通过 chip_id 直接关联)
-Chip (1) ──── (N) ChipReport(通过 chip_id 直接关联)
-```
+### 6.3 关键设计约束（产品层面）
 
-### 6.3 评分算法详细设计
-
-#### 维度划分(对齐 DeepLink《AI芯片评测实施方案》五大测试维度)
-
-DeepLink 评测体系将芯片评测分为 5 个测试大项:基本技术规格、软件生态、功能测试(算子功能+模型功能)、性能测试(算子性能+模型性能+通信性能)。AHVP 在报告中映射为以下评分维度:
-
-| 维度 | 英文 Key | 对应 DeepLink 测试项 | 包含的评测项 | MVP | Phase 2/3 |
-|------|---------|-----------------|-------------|-----|----------|
-| 基本技术规格 | tech_specs | 基本技术规格 (算力/内存/通信/能耗比) | 由芯片注册时填写 | ✅ 手动填写 | 自动检测 |
-| 软件生态 | software_eco | 软件生态 (软件栈/开放性) | 框架支持、算子库完整性 | ✅ 手动填写 | 自动检测 |
-| 算子功能 | op_accuracy | 功能测试-算子功能 | 100+ 算子 FP32/FP16 精度验证 | ✅ | 扩展算子 |
-| 算子性能 | op_speed | 性能测试-算子性能 | GEMM, Conv2d, 长尾算子 | ✅ CPU 模拟 | GPU 实测 |
-| 通信性能 | comm_perf | 性能测试-通信性能 | AllReduce 带宽/时延 (OSU/NCCL-test) | ❌ | Phase 2/3 |
-| 模型功能 | model_accuracy | 功能测试-模型功能 | 基础模型训练收敛验证 | ✅ MLP | 24个模型 |
-| 模型性能 | model_speed | 性能测试-模型性能 | 基础模型训练 samples/sec | ✅ 推理 | 训练性能 |
-| 大模型能力 | llm_capability | 大模型评测方案 | LLM 训练/微调/推理 | ❌ | Phase 3 |
-
-MVP 阶段雷达图展示 6 个可用维度(tech_specs, software_eco, op_accuracy, op_speed, model_accuracy, model_speed),通信性能和大模型能力在 Phase 2/3 启用后扩展为 8 维雷达图。
-
-#### 评分公式(参考 DeepLink 基准值对比方式)
-
-**DeepLink 的评分逻辑:** DeepLink 以 NVIDIA A100/H100 的测试数据作为基准值 (baseline),待测芯片的性能与基准值做比值得到得分 (score = baseline_time / test_time)。这种方式简单直观,score > 1.0 表示优于基准。
-
-AHVP 分两个阶段实现:
-
-**MVP 阶段(CPU-only,无基准值):**
-```
-功能测试评分:
-  算子功能得分 = 通过的算子数 / 总测试算子数 × 100
-  (每个算子: PASS = FP32通过 AND FP16通过,对齐 DeepLink 精度阈值)
-
-性能测试评分:
-  单算子评分 = normalize(1 / latency_mean_ms, 0, max_across_all_operators) × 100
-  → 延迟越低,评分越高
-  → 归一化到 0-100 范围
-
-维度评分 = weighted_average(该维度下所有评测项评分)
-
-综合评分 = weighted_average(所有维度评分)
-→ 默认权重: tech_specs=0.05, software_eco=0.05, op_accuracy=0.25, op_speed=0.25, model_accuracy=0.20, model_speed=0.20
-→ 权重可配置(系统设置)
-```
-
-**Phase 2/3(GPU,有基准值):**
-```
-性能评分切换为 DeepLink 基准对比模式:
-  算子性能得分 = A100_time / chip_time
-  → score > 1.0: 优于 A100
-  → score = 1.0: 与 A100 持平
-  → score < 1.0: 弱于 A100
-  → 转换为百分制: ×100 并 cap 在 0-150 范围
-
-基准值数据来源:
-  → DeepLink AIChipBenchmark 提供的 A100 log 日志
-  → AHVP 自行在 A100/H100 上跑出的基准值
-  → 基准值存储在 baseline_data 表中,按季度更新
-```
-
-**为什么选择 1/latency 作为 MVP 基础?** 因为延迟是最通用的性能指标,所有算子都有。吞吐量的单位不统一(ops/s vs QPS),不适合跨算子比较。延迟的倒数本质上就是"单位时间处理能力",和吞吐量正相关。
-
-**为什么 MVP 不做基准值对比?** CPU 模式下没有有意义的基准值。Phase 2/3 GPU 支持后切换为 DeepLink 基准对比模式,以 A100/H100 数据为基准,这也是 DeepLink 季度评测报告的标准做法。
-
-#### 状态判定规则(对齐 DeepLink 精度标准)
-
-```
-算子功能测试(精度)状态判定(对齐 DeepLink AIChipBenchmark):
-- PASS: FP32 和 FP16 均通过精度验证
-  - FP32: |output - baseline| <= 1e-5 + 1e-4 * |baseline|,且失败元素比例 < 0.1%
-  - FP16: |output - baseline| <= 1e-3 + 1e-3 * |baseline|,且失败元素比例 < 0.1%
-  - 同时验证前向输出精度 + 反向梯度精度 + 参数梯度精度
-- WARNING: FP32 通过但 FP16 失败(或反之)
-- FAIL: FP32 和 FP16 均失败,或执行报错
-- NOT_SUPPORTED: 算子在该芯片上未实现
-
-算子性能测试状态判定:
-- PASS: P95/Mean < 1.5x (波动可控) 且 score >= 0.5 (基准的 50% 以上)
-- WARNING: P95/Mean >= 1.5x (波动较大) 或 score < 0.5
-- FAIL: 执行失败或超时
-
-模型功能测试状态判定:
-- PASS: 训练收敛,且与基准 loss 曲线的 cosine_similarity > 0.99
-- WARNING: 训练收敛但 cosine_similarity 在 0.95-0.99 之间
-- FAIL: 训练不收敛或 cosine_similarity < 0.95
-
-报告瓶颈识别:
-- TOP N 瓶颈: 按延迟降序排列,取延迟最高的 3 个算子
-- 波动分析: 按 P99/P50 比值降序排列,标出比值 > 2x 的算子
-- 精度失败分析: 列出所有功能测试失败的算子,并显示失败的精度级别
-  (如"在 relative_thresh=1e-2 级别通过,但在 relative_thresh=1e-4 级别失败")
-```
+1. **评测任务必须属于评测计划**，不允许创建无归属的孤立任务
+2. **评测计划必须关联芯片**，所有评测数据最终沉淀到芯片档案
+3. **评测对象 (test_subject)** 和 **评测项 (test_item)** 分离，解决现有 eval_type 混用问题
+4. **芯片评价报告自动生成**，评测计划完成后触发
+5. **能力画像自动更新**，每次评测完成后更新芯片的 profile_data
 
 ---
 
-## 第七部分:从现状到目标的改造路径
+## 第七部分：技术实现（由开发团队决定）
 
-### 7.1 可复用的部分
+> **本部分由开发团队根据产品设计自行决定技术方案，包括但不限于：**
+> - 数据库表结构设计和迁移方案
+> - 前后端代码重构方式和优先级
+> - 现有代码的复用、改造或重写决策
+> - MVP 功能拆分和开发排期
+> - API 设计和接口规范
 
-| 现有资产 | 复用方式 | 复用度 |
-|---------|---------|--------|
-| **cpu_operator_benchmark.py** | 直接复用,作为算子评测的执行脚本。13 种算子、两种模式(方阵/test_cases)、详细指标都可以直接用 | **高 90%** |
-| **cpu_model_inference.py** | 直接复用,MLP Small/Medium/Large 推理评测。ONNX Runtime 支持也保留 | **高 85%** |
-| **run_test_cases.py** | 复用测试用例定义,转化为评测计划的预设配置 | **中 60%** |
-| **Agent 架构** | 注册-心跳-执行-回调的架构完全复用。executor.py 的脚本路由逻辑需微调 | **高 80%** |
-| **任务生命周期状态机** | PENDING→RUNNING→COMPLETED/FAILED/CANCELLED 状态机复用 | **高 90%** |
-| **前端 UI 组件** | Ant Design 组件、ECharts 图表组件、表格/表单/卡片等基础组件全部复用 | **高 85%** |
-| **报告可视化** | 柱状图、雷达图、散点图等 ECharts 图表配置可复用 | **高 80%** |
-| **认证/权限系统** | JWT 认证、用户管理完全复用 | **高 95%** |
-| **数据库/缓存/存储** | PostgreSQL + Redis + MinIO 基础设施不变 | **高 100%** |
-| **Docker Compose 部署** | 部署架构不变 | **高 95%** |
+### 7.1 现有资产参考
 
-### 7.2 需要重构的部分
+以下现有资产可供开发团队参考（复用方式由开发团队决定）：
 
-| 现有代码 | 重构内容 | 工作量 |
-|---------|---------|--------|
-| **evaluation_tasks 表** | 增加 plan_id、chip_id、test_subject、test_item 字段;eval_type 改为 test_subject | **中(数据库迁移 + JPA Entity 修改)** |
-| **EvaluationTaskService** | 任务创建逻辑从"用户直接创建"改为"从评测计划自动拆分";新增 Plan→Task 拆分逻辑 | **中** |
-| **executor.py 路由** | SCRIPT_MAP 改为基于 test_subject + test_item 的路由,更灵活 | **小** |
-| **前端导航** | 从 13 模块改为 4+1 结构,路由表重写 | **中** |
-| **前端任务列表页** | 从独立的"评测任务"页改为"评测计划 > 任务列表",嵌套在计划下 | **中** |
-| **Dashboard** | 从任务统计改为芯片统计;从 mock 趋势图改为真实数据 | **中** |
+- **算子评测脚本** (cpu_operator_benchmark.py) — 13 种算子 benchmark
+- **模型推理脚本** (cpu_model_inference.py) — MLP 推理 benchmark  
+- **Agent 架构** — 注册→心跳→任务执行→结果回报
+- **前端 UI 框架** — React + Ant Design + ECharts
+- **报告可视化组件** — 6 种图表类型
+- **任务生命周期管理** — 状态机（PENDING→RUNNING→COMPLETED/FAILED）
+- **认证系统** — JWT Token
 
-### 7.3 需要新增的部分
-
-| 新增内容 | 描述 | 工作量 |
-|---------|------|--------|
-| **Chip 实体 + API** | chips 表、ChipController、ChipService | **中 (2-3 天)** |
-| **EvaluationPlan 实体 + API** | evaluation_plans 表、PlanController、PlanService(含任务拆分逻辑) | **中 (3-4 天)** |
-| **EvaluationResult 实体 + API** | evaluation_results 表、ResultController、ResultService | **小 (1-2 天)** |
-| **ChipReport 实体 + API** | chip_reports 表、ReportController、ReportService(含报告生成逻辑) | **大 (4-5 天)** |
-| **ScoringService** | 评分算法:维度评分 + 综合评分 + 状态判定 | **中 (2-3 天)** |
-| **前端:芯片列表页** | 卡片式列表、搜索筛选 | **中 (2-3 天)** |
-| **前端:芯片注册页** | 表单页 | **小 (1 天)** |
-| **前端:芯片档案页** | 4 个 Tab + 雷达图 | **大 (3-4 天)** |
-| **前端:创建评测计划(5步向导)** | 分步表单、评测项树、参数配置 | **大 (4-5 天)** |
-| **前端:执行监控页** | 实时进度、分组任务列表、日志流 | **大 (3-4 天)** |
-| **前端:芯片评价报告** | 综合评分 + 雷达图 + 算子排行 + 瓶颈分析 | **大 (4-5 天)** |
-| **前端:Dashboard 重设计** | 芯片统计 + 评测动态 + 快速操作 | **中 (2-3 天)** |
-| **计划→任务拆分逻辑** | 根据 plan_config 自动生成 N 个 EvaluationTask | **中 (2-3 天)** |
-| **报告自动生成逻辑** | 聚合所有 Result → 计算评分 → 生成雷达图数据 → 瓶颈分析 → 推荐建议 | **大 (3-4 天)** |
-| **前端:芯片对比页** | 多芯片雷达图叠加 + 对比表 | **中 (2-3 天,Phase 1 可简化)** |
-| **报告 PDF 导出** | 将报告页面渲染为 PDF 文件 | **中 (2 天)** |
-
-### 7.4 改造优先级和路线图
-
-```
-Week 1-2: 数据模型 + 后端基础
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-├── Day 1-2: 数据库迁移(新增 chips、evaluation_plans、evaluation_results、chip_reports 表)
-├── Day 3-4: Chip CRUD API(ChipController + ChipService)
-├── Day 5-6: EvaluationPlan API + 计划→任务拆分逻辑
-├── Day 7-8: EvaluationResult API + Agent 回调改造
-└── Day 9-10: ChipReport API + 评分算法(ScoringService)
-
-Week 3-4: 前端核心页面
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-├── Day 1: 前端导航重构(13 模块 → 4+1 结构)
-├── Day 2-3: 芯片列表页 + 芯片注册页
-├── Day 4-6: 创建评测计划(5步向导)- 最复杂的前端页面
-├── Day 7-8: 执行监控页(实时进度 + 任务列表 + 日志)
-└── Day 9-10: 芯片档案页(4 Tab + 雷达图)
-
-Week 5-6: 报告 + Dashboard + 联调
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-├── Day 1-4: 芯片评价报告页(最重要的交付页面)
-├── Day 5-6: Dashboard 重设计
-├── Day 7-8: 端到端联调(注册芯片→创建计划→执行→生成报告)
-├── Day 9: Bug 修复 + 细节打磨
-└── Day 10: MVP 验收
-```
-
-**每个阶段的开发重心:**
-
-| 阶段 | 后端重心 | 前端重心 | 风险点 |
-|------|---------|---------|--------|
-| Week 1-2 | 数据模型 + API | - | 数据迁移兼容性;评分算法设计 |
-| Week 3-4 | - | 核心页面 | 5步向导交互复杂度;实时进度的 WebSocket/轮询 |
-| Week 5-6 | 报告生成逻辑 | 报告页 + Dashboard | 报告数据聚合逻辑;ECharts 雷达图配置 |
-
-### 7.5 现有代码的具体改造点
-
-#### 后端改造清单
-
-```
-java/com/ahvp/
-├── entity/
-│   ├── Chip.java                    ← 新增
-│   ├── EvaluationPlan.java          ← 新增
-│   ├── EvaluationTask.java          ← 改造: 增加 plan_id, chip_id, test_subject, test_item
-│   ├── EvaluationResult.java        ← 新增
-│   └── ChipReport.java              ← 新增
-├── repository/
-│   ├── ChipRepository.java          ← 新增
-│   ├── EvaluationPlanRepository.java ← 新增
-│   ├── EvaluationResultRepository.java ← 新增
-│   └── ChipReportRepository.java    ← 新增
-├── service/
-│   ├── ChipService.java             ← 新增
-│   ├── EvaluationPlanService.java   ← 新增 (含任务拆分逻辑)
-│   ├── EvaluationTaskService.java   ← 改造: 任务创建逻辑改为从Plan拆分
-│   ├── EvaluationResultService.java ← 新增
-│   ├── ChipReportService.java       ← 新增 (含报告生成逻辑)
-│   └── ScoringService.java          ← 新增 (评分算法)
-├── controller/
-│   ├── ChipController.java          ← 新增
-│   ├── EvaluationPlanController.java ← 新增
-│   ├── ChipReportController.java    ← 新增
-│   └── EvaluationTaskController.java ← 改造: 部分端点调整
-└── dto/
-    ├── ChipDTO.java                 ← 新增
-    ├── PlanDTO.java                 ← 新增
-    ├── PlanCreateRequest.java       ← 新增 (向导数据)
-    └── ChipReportDTO.java           ← 新增
-```
-
-#### Agent 改造清单
-
-```
-agent/
-├── executor.py                      ← 改造: SCRIPT_MAP 基于 test_subject+test_item
-│   现有:
-│     SCRIPT_MAP = {"OPERATOR": "cpu_operator_benchmark.py", "MODEL": "cpu_model_inference.py"}
-│   改为:
-│     SCRIPT_MAP = {
-│       ("OPERATOR", "*"): "cpu_operator_benchmark.py",
-│       ("MODEL", "MLP-*"): "cpu_model_inference.py",
-│     }
-├── cpu_operator_benchmark.py        ← 不变,直接复用
-├── cpu_model_inference.py           ← 不变,直接复用
-└── run_test_cases.py                ← 转化为评测计划预设配置(非运行时使用)
-```
-
-#### 前端改造清单
-
-```
-src/
-├── routes.js                        ← 重写路由表
-├── layouts/
-│   └── MainLayout.jsx               ← 导航菜单从13项改为4+1项
-├── pages/
-│   ├── chips/                       ← 全部新增
-│   │   ├── ChipList.jsx             ← 芯片列表(卡片式)
-│   │   ├── ChipRegister.jsx         ← 芯片注册表单
-│   │   ├── ChipProfile.jsx          ← 芯片档案(4 Tab)
-│   │   └── ChipCompare.jsx          ← 芯片对比
-│   ├── plans/                       ← 全部新增
-│   │   ├── PlanList.jsx             ← 计划列表
-│   │   ├── PlanCreate/              ← 5步向导
-│   │   │   ├── StepSelectChip.jsx
-│   │   │   ├── StepSelectTests.jsx   ← 评测项选择树(最复杂的组件)
-│   │   │   ├── StepConfigParams.jsx
-│   │   │   ├── StepSelectNode.jsx
-│   │   │   └── StepConfirm.jsx
-│   │   ├── PlanDetail.jsx           ← 计划详情/执行监控
-│   │   └── TaskDetail.jsx           ← 单任务详情
-│   ├── reports/
-│   │   └── ChipReport.jsx           ← 芯片评价报告(重写)
-│   ├── dashboard/
-│   │   └── Dashboard.jsx            ← 重设计
-│   └── (删除或弱化的页面)
-│       ├── tasks/                   ← 删除独立页面,融入 PlanDetail
-│       ├── templates/               ← 删除独立页面,融入 PlanCreate
-│       ├── workflows/               ← Phase 2 暂不展示
-│       ├── reports/ (旧)            ← 重写
-│       ├── comparisons/             ← 融入 ChipCompare
-│       ├── logs/                    ← 融入 TaskDetail
-│       ├── assets/                  ← Phase 2
-│       └── community/               ← 删除
-├── components/
-│   ├── RadarChart.jsx               ← 新增 (ECharts 雷达图封装)
-│   ├── TestItemTree.jsx             ← 新增 (评测项选择树)
-│   ├── ProgressTracker.jsx          ← 新增 (执行进度追踪)
-│   ├── ScoreCard.jsx                ← 新增 (评分卡片)
-│   └── BottleneckAnalysis.jsx       ← 新增 (瓶颈分析组件)
-└── constants/
-    ├── chipConstants.js             ← 新增 (芯片类型、评测维度等)
-    ├── testItemConstants.js         ← 新增 (评测项定义、分类、预设)
-    └── scoringConstants.js          ← 新增 (评分权重配置)
-```
 
 ---
 
