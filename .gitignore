@@ -1,3 +1,4 @@
+node_modules/
 frontend/node_modules/
 backend/target/
 deploy/data/
@@ -7,3 +8,4 @@ frontend-dist/
 *.map
 *.LICENSE.txt
 .env
+package-lock.json

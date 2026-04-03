@@ -4,6 +4,8 @@
 
 STATE_FILE="/tmp/ahvp-health-state"
 LOG_FILE="/var/log/ahvp-health.log"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
@@ -65,9 +67,30 @@ check_containers() {
   return 0
 }
 
+check_render() {
+  local render_script="$SCRIPT_DIR/render-check.js"
+  if [ ! -f "$render_script" ]; then
+    echo "render-check.js 不存在: $render_script"
+    return 1
+  fi
+  if [ ! -d "$PROJECT_ROOT/node_modules/puppeteer" ]; then
+    echo "puppeteer 未安装，跳过渲染检查"
+    return 1
+  fi
+  # Quick mode: only check login page renders, don't do full login flow
+  local output
+  output=$(cd "$PROJECT_ROOT" && timeout 45 node "$render_script" --quick 2>&1)
+  local rc=$?
+  if [ $rc -ne 0 ]; then
+    echo "渲染检查失败 (exit=$rc): $(echo "$output" | grep 'FAIL' | head -3)"
+    return 1
+  fi
+  return 0
+}
+
 # 执行所有检查
 errors=""
-for check in check_containers check_frontend check_backend; do
+for check in check_containers check_frontend check_backend check_render; do
   result=$($check 2>&1)
   rc=$?
   if [ $rc -ne 0 ]; then

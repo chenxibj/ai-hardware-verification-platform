@@ -15,6 +15,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Backup current deployment
+        run: |
+          echo "Backing up current frontend files..."
+          rm -rf /tmp/ahvp-html-backup
+          docker cp ahvp-frontend:/usr/share/nginx/html /tmp/ahvp-html-backup
+          echo "Backup saved to /tmp/ahvp-html-backup ($(du -sh /tmp/ahvp-html-backup | cut -f1))"
+
       - name: Deploy frontend
         env:
           CI: "false"
@@ -37,8 +44,42 @@ jobs:
             echo "No backend changes, skipping"
           fi
 
+      - name: Ensure puppeteer is installed
+        run: |
+          if [ ! -d "node_modules/puppeteer" ]; then
+            npm init -y 2>/dev/null
+            PUPPETEER_SKIP_DOWNLOAD=true npm install puppeteer
+          fi
+
       - name: Smoke test
+        id: smoke
         run: |
           sleep 5
           chmod +x deploy/smoke-test.sh
           bash deploy/smoke-test.sh
+        continue-on-error: true
+
+      - name: Rollback on failure
+        if: steps.smoke.outcome == 'failure'
+        run: |
+          echo "❌ Smoke test failed! Rolling back deployment..."
+          if [ -d "/tmp/ahvp-html-backup" ]; then
+            docker cp /tmp/ahvp-html-backup/. ahvp-frontend:/usr/share/nginx/html/
+            docker exec ahvp-frontend nginx -s reload
+            echo "✅ Rollback completed. Running smoke test on rolled-back version..."
+            bash deploy/smoke-test.sh || echo "⚠️ Warning: Rolled-back version also failed smoke test"
+          else
+            echo "⚠️ No backup found! Cannot rollback."
+          fi
+
+      - name: Fail workflow if smoke test failed
+        if: steps.smoke.outcome == 'failure'
+        run: |
+          echo "Deployment was rolled back due to smoke test failure."
+          exit 1
+
+      - name: Cleanup backup on success
+        if: steps.smoke.outcome == 'success'
+        run: |
+          echo "🎉 Smoke tests passed. Cleaning up backup..."
+          rm -rf /tmp/ahvp-html-backup

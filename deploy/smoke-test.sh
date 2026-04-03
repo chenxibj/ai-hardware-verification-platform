@@ -26,7 +26,7 @@ echo "========================================"
 echo
 
 # Test 1: Homepage returns 200 and contains .js reference
-echo "[1/4] Checking homepage..."
+echo "[1/5] Checking homepage..."
 HOMEPAGE=$(curl -s -o /tmp/smoke_home.html -w "%{http_code}" http://localhost/ 2>/dev/null || echo "000")
 if [ "$HOMEPAGE" = "200" ] && grep -q '\.js' /tmp/smoke_home.html 2>/dev/null; then
   check "Homepage returns 200 with .js references" 0
@@ -37,7 +37,7 @@ else
 fi
 
 # Test 2: JS bundle is downloadable and > 500KB
-echo "[2/4] Checking JS bundle size..."
+echo "[2/5] Checking JS bundle size..."
 JS_FILE=$(grep -oP '(?<=src=")[^"]*\.js' /tmp/smoke_home.html 2>/dev/null | head -1 || echo "")
 if [ -n "$JS_FILE" ]; then
   # Handle relative paths
@@ -58,7 +58,7 @@ else
 fi
 
 # Test 3: Backend login API returns code=0
-echo "[3/4] Checking backend login API..."
+echo "[3/5] Checking backend login API..."
 LOGIN_RESP=$(curl -s -X POST http://localhost:8080/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"test@ahvp.com","password":"test123"}' 2>/dev/null || echo "{}")
@@ -72,7 +72,7 @@ else
 fi
 
 # Test 4: All containers are running
-echo "[4/4] Checking container status..."
+echo "[4/5] Checking container status..."
 EXPECTED="ahvp-frontend ahvp-backend ahvp-postgres ahvp-redis ahvp-minio"
 ALL_UP=0
 for c in $EXPECTED; do
@@ -83,6 +83,33 @@ for c in $EXPECTED; do
   fi
 done
 check "All containers running" $ALL_UP
+
+# Test 5: Browser render verification (Puppeteer)
+echo "[5/5] Running browser render check..."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RENDER_SCRIPT="$SCRIPT_DIR/render-check.js"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+if [ ! -f "$RENDER_SCRIPT" ]; then
+  echo "  render-check.js not found at $RENDER_SCRIPT"
+  check "Browser render check" 1
+else
+  # Ensure puppeteer is installed
+  if [ ! -d "$PROJECT_ROOT/node_modules/puppeteer" ]; then
+    echo "  puppeteer not installed, skipping render check"
+    check "Browser render check (puppeteer not installed)" 1
+  else
+    echo "  Running full render check (with login verification)..."
+    RENDER_OUTPUT=$(cd "$PROJECT_ROOT" && node "$RENDER_SCRIPT" 2>&1)
+    RENDER_RC=$?
+    echo "$RENDER_OUTPUT" | sed 's/^/  /'
+    if [ $RENDER_RC -eq 0 ]; then
+      check "Browser render check (full)" 0
+    else
+      check "Browser render check (full)" 1
+    fi
+  fi
+fi
 
 # Summary
 echo
