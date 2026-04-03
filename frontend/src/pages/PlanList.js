@@ -55,7 +55,7 @@ const getProgressStatus = (status) => {
   }
 };
 
-export default function PlanList() {
+export default function PlanList({ onOpenMonitor }) {
   const navigate = useNavigate();
 
   /* 列表 state */
@@ -225,8 +225,8 @@ export default function PlanList() {
         const st = record.status;
         return (
           <Space size="small">
-            <Tooltip title="查看详情">
-              <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => openDetail(record)} />
+            <Tooltip title="执行监控">
+              <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => onOpenMonitor ? onOpenMonitor(record.id) : openDetail(record)} />
             </Tooltip>
 
             {st === "DRAFT" && (

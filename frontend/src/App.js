@@ -15,6 +15,7 @@ function App() {
   const isAuthenticated = useAuthStore(s => s.isAuthenticated);
   const setUnreadCount = useNotificationStore(s => s.setUnreadCount);
   const [currentPage, setCurrentPage] = useState("dashboard");
+  const [planMonitorId, setPlanMonitorId] = useState(null);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -27,11 +28,22 @@ function App() {
     }
   }, [isAuthenticated, currentPage, setUnreadCount]);
 
+  // 切换页面时清除监控状态
+  const handleSetCurrentPage = (page) => {
+    setPlanMonitorId(null);
+    setCurrentPage(page);
+  };
+
   if (!isAuthenticated || !user) return <Login />;
 
   return (
-    <MainLayout currentPage={currentPage} setCurrentPage={setCurrentPage}>
-      <AppRoutes currentPage={currentPage} />
+    <MainLayout currentPage={planMonitorId ? "plans" : currentPage} setCurrentPage={handleSetCurrentPage}>
+      <AppRoutes
+        currentPage={currentPage}
+        planMonitorId={planMonitorId}
+        setCurrentPage={setCurrentPage}
+        setPlanMonitorId={setPlanMonitorId}
+      />
     </MainLayout>
   );
 }

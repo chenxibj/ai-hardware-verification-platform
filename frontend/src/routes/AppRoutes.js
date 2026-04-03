@@ -2,6 +2,7 @@
  * @file AppRoutes.js
  * @description 页面路由配置，根据 currentPage 渲染对应组件
  * @refactor #128 导航结构重组 - 新增芯片管理/评测计划/节点管理/审计页面
+ * @feat #134 支持 planMonitorId 渲染执行监控页面
  */
 import React from "react";
 import Dashboard from "../pages/Dashboard";
@@ -9,6 +10,7 @@ import ChipList from "../pages/ChipList";
 import ChipCompare from "../pages/ChipCompare";
 import PlanList from "../pages/PlanList";
 import PlanCreate from "../pages/PlanCreate";
+import PlanMonitor from "../pages/PlanMonitor";
 import Nodes from "../pages/Nodes";
 import Users from "../pages/Users";
 import Audit from "../pages/Audit";
@@ -49,7 +51,24 @@ const PAGE_COMPONENTS = {
   settings: Settings,
 };
 
-export default function AppRoutes({ currentPage }) {
+export default function AppRoutes({ currentPage, planMonitorId, setCurrentPage, setPlanMonitorId }) {
+  // 如果有 planMonitorId，渲染监控页面
+  if (planMonitorId) {
+    return (
+      <PlanMonitor
+        planId={planMonitorId}
+        onBack={() => {
+          setPlanMonitorId(null);
+          setCurrentPage("plans");
+        }}
+      />
+    );
+  }
+
   const PageComponent = PAGE_COMPONENTS[currentPage] || Dashboard;
+  // 传递 setPlanMonitorId 给 PlanList 以支持跳转到监控页
+  if (currentPage === "plans") {
+    return <PlanList onOpenMonitor={(id) => setPlanMonitorId(id)} />;
+  }
   return <PageComponent />;
 }

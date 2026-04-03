@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import com.lab.task.EvaluationTask;
+import com.lab.task.EvaluationTaskRepository;
 
 /**
  * 评测计划控制器
@@ -21,6 +23,7 @@ import java.util.Map;
 public class EvaluationPlanController {
 
     private final EvaluationPlanService planService;
+    private final EvaluationTaskRepository taskRepository;
 
     @PostMapping("/plans")
     public ResponseEntity<Map<String, Object>> createPlan(
@@ -105,6 +108,14 @@ public class EvaluationPlanController {
         }
     }
 
+
+    @GetMapping("/plans/{planId}/tasks")
+    public ResponseEntity<Map<String, Object>> getPlanTasks(@PathVariable Long planId) {
+        List<EvaluationTask> tasks = taskRepository.findByPlanId(planId);
+        Map<String, Object> resp = success(tasks);
+        resp.put("total", tasks.size());
+        return ResponseEntity.ok(resp);
+    }
     @GetMapping("/chips/{chipId}/plans")
     public ResponseEntity<Map<String, Object>> getPlansByChip(@PathVariable Long chipId) {
         List<EvaluationPlan> plans = planService.getPlansByChipId(chipId);
