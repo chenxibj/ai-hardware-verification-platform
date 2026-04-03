@@ -51,6 +51,7 @@ public class EvaluationTaskController {
     @GetMapping
     public ResponseEntity<Map<String, Object>> listTasks(
             @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) Long planId,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -59,7 +60,7 @@ public class EvaluationTaskController {
         EvaluationTask.TaskStatus taskStatus = status != null ? 
                 EvaluationTask.TaskStatus.valueOf(status) : null;
         
-        Page<EvaluationTask> tasks = taskService.listTasks(userId, taskStatus, pageable);
+        Page<EvaluationTask> tasks = taskService.listTasks(userId, planId, taskStatus, pageable);
         
         Map<String, Object> response = new HashMap<>();
         response.put("code", 0);

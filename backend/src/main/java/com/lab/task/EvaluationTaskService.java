@@ -47,7 +47,10 @@ public class EvaluationTaskService {
      * 查询任务列表
      */
     @Transactional(readOnly = true)
-    public Page<EvaluationTask> listTasks(Long userId, EvaluationTask.TaskStatus status, Pageable pageable) {
+    public Page<EvaluationTask> listTasks(Long userId, Long planId, EvaluationTask.TaskStatus status, Pageable pageable) {
+        if (planId != null) {
+            return taskRepository.findByPlanId(planId, pageable);
+        }
         if (userId != null && status != null) {
             return taskRepository.findByUserIdAndStatus(userId, status, pageable);
         } else if (userId != null) {

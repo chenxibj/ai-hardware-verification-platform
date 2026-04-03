@@ -31,5 +31,6 @@ public interface EvaluationTaskRepository extends JpaRepository<EvaluationTask, 
     List<EvaluationTask> findQueuedTasksOrderByPriorityAndCreatedAt();
 
     List<EvaluationTask> findByPlanId(Long planId);
+    Page<EvaluationTask> findByPlanId(Long planId, Pageable pageable);
     long countByCreatedByAndStatus(Long userId, EvaluationTask.TaskStatus status);
 }
