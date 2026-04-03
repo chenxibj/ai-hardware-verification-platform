@@ -21,6 +21,7 @@ import java.util.Map;
 public class EvaluationResultController {
 
     private final EvaluationResultRepository resultRepository;
+    private final EvaluationResultService resultService;
 
     @GetMapping("/results")
     public ResponseEntity<Map<String, Object>> listResults(
@@ -50,6 +51,65 @@ public class EvaluationResultController {
     public ResponseEntity<Map<String, Object>> getResultsByPlan(@PathVariable Long planId) {
         List<EvaluationResult> results = resultRepository.findByPlanId(planId);
         return ResponseEntity.ok(success(results));
+    }
+
+    @GetMapping("/chips/{chipId}/results")
+    public ResponseEntity<Map<String, Object>> getResultsByChip(@PathVariable Long chipId) {
+        List<EvaluationResult> results = resultRepository.findByChipId(chipId);
+        return ResponseEntity.ok(success(results));
+    }
+
+    /**
+     * Agent 提交任务结果 (permitAll in SecurityConfig)
+     */
+    @PostMapping("/tasks/{taskId}/result")
+    public ResponseEntity<Map<String, Object>> submitResult(
+            @PathVariable Long taskId,
+            @RequestBody Map<String, Object> body) {
+        try {
+            String rawData = body.containsKey("rawData")
+                    ? body.get("rawData").toString()
+                    : new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(body);
+            EvaluationResult result = resultService.submitResult(taskId, rawData);
+            return ResponseEntity.ok(success(result));
+        } catch (Exception e) {
+            log.error("Failed to submit result for task {}", taskId, e);
+            return ResponseEntity.badRequest().body(error(e.getMessage()));
+        }
+    }
+
+    /**
+     * Agent 报告任务失败
+     */
+    @PostMapping("/tasks/{taskId}/failure")
+    public ResponseEntity<Map<String, Object>> submitFailure(
+            @PathVariable Long taskId,
+            @RequestBody Map<String, String> body) {
+        try {
+            String errorMsg = body.getOrDefault("error", "Unknown error");
+            EvaluationResult result = resultService.submitFailure(taskId, errorMsg);
+            return ResponseEntity.ok(success(result));
+        } catch (Exception e) {
+            log.error("Failed to submit failure for task {}", taskId, e);
+            return ResponseEntity.badRequest().body(error(e.getMessage()));
+        }
+    }
+
+    /**
+     * 获取计划的维度评分
+     */
+    @GetMapping("/plans/{planId}/scores")
+    public ResponseEntity<Map<String, Object>> getPlanScores(@PathVariable Long planId) {
+        try {
+            Map<String, Double> dimScores = resultService.calculateDimensionScores(planId);
+            double overall = resultService.calculateOverallScore(dimScores);
+            Map<String, Object> data = new HashMap<>();
+            data.put("dimensionScores", dimScores);
+            data.put("overallScore", overall);
+            return ResponseEntity.ok(success(data));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(error(e.getMessage()));
+        }
     }
 
     @PostMapping("/results")
