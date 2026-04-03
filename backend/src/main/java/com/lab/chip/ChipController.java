@@ -8,7 +8,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.lab.chipreport.ChipReport;
+import com.lab.chipreport.ChipReportRepository;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -21,6 +24,7 @@ import java.util.Map;
 public class ChipController {
 
     private final ChipService chipService;
+    private final ChipReportRepository chipReportRepository;
 
     /**
      * 创建芯片
@@ -94,6 +98,17 @@ public class ChipController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(error(e.getMessage()));
         }
+    }
+
+    /**
+     * 查询芯片的评测报告
+     */
+    @GetMapping("/{id}/reports")
+    public ResponseEntity<Map<String, Object>> getChipReports(@PathVariable Long id) {
+        List<ChipReport> reports = chipReportRepository.findByChipId(id);
+        Map<String, Object> resp = success(reports);
+        resp.put("total", reports.size());
+        return ResponseEntity.ok(resp);
     }
 
     private Map<String, Object> success(Object data) {
