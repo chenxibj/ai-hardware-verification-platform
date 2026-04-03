@@ -1,5 +1,6 @@
 package com.lab.plan;
 
+import com.lab.task.EvaluationTask;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -21,6 +22,7 @@ import java.util.List;
 public class EvaluationPlanService {
 
     private final EvaluationPlanRepository planRepository;
+    private final PlanTaskSplitter planTaskSplitter;
 
     // ============ CRUD ============
 
@@ -33,6 +35,13 @@ public class EvaluationPlanService {
         }
         EvaluationPlan saved = planRepository.save(plan);
         log.info("Created plan: {} ({})", saved.getPlanNo(), saved.getName());
+
+        // 自动拆分任务
+        List<EvaluationTask> tasks = planTaskSplitter.splitPlanToTasks(saved);
+        saved.setTotalTasks(tasks.size());
+        saved = planRepository.save(saved);
+        log.info("Plan {} auto-split into {} tasks", saved.getPlanNo(), tasks.size());
+
         return saved;
     }
 

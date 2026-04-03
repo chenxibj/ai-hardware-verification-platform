@@ -27,6 +27,7 @@ public class EvaluationTaskService {
     public EvaluationTask createTask(CreateTaskRequest request, Long userId) {
         EvaluationTask task = new EvaluationTask();
         task.setTaskNo(generateTaskNo());
+        task.setName(request.getName() != null ? request.getName() : "Task-" + task.getTaskNo());
         task.setTaskType(request.getTaskType());
         task.setEvalType(request.getEvalType());
         task.setStatus(EvaluationTask.TaskStatus.PENDING);

@@ -29,6 +29,9 @@ public class EvaluationTask {
     @Column(name = "task_no", unique = true, nullable = false, length = 64)
     private String taskNo;
 
+    @Column(name = "name", nullable = false, length = 200)
+    private String name;
+
     @Column(name = "task_type", nullable = false, length = 32)
     @Enumerated(EnumType.STRING)
     private TaskType taskType; // TEMPLATE or CUSTOM

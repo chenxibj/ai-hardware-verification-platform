@@ -11,6 +11,8 @@ import java.util.List;
 @Data
 public class CreateTaskRequest {
 
+    private String name;
+
     @NotNull(message = "任务类型不能为空")
     private TaskType taskType;
 
