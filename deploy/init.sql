@@ -72,6 +72,12 @@ CREATE TABLE evaluation_tasks (
     created_by          BIGINT NOT NULL REFERENCES users(id),
     created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    -- 拆分字段
+    plan_id             BIGINT,
+    chip_id             BIGINT,
+    test_subject        VARCHAR(16) CHECK (test_subject IN (OPERATOR, MODEL)),
+    test_item           VARCHAR(64),
+    dimension           VARCHAR(32)
 );
 
 -- 任务日志表

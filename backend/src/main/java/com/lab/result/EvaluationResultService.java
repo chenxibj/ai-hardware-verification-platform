@@ -255,13 +255,15 @@ public class EvaluationResultService {
             return task.getTestSubject() == EvaluationTask.TestSubject.MODEL
                     ? "model_inference" : "compute_perf";
         }
-        item = item.toLowerCase();
-        if (item.contains("matmul") || item.contains("conv") || item.contains("gemm")) return "compute_perf";
-        if (item.contains("memcpy") || item.contains("bandwidth") || item.contains("memory")) return "memory_perf";
-        if (item.contains("sin") || item.contains("cos") || item.contains("exp") || item.contains("sqrt") || item.contains("math")) return "math_func";
-        if (item.contains("attention") || item.contains("flash")) return "attention";
-        if (item.contains("norm") || item.contains("layernorm") || item.contains("batchnorm")) return "normalization";
-        if (item.contains("resnet") || item.contains("bert") || item.contains("llama") || item.contains("model") || item.contains("inference")) return "model_inference";
+        String lower = item.toLowerCase();
+        if (lower.contains("matmul") || lower.contains("conv") || lower.contains("gemm") || lower.contains("linear")) return "compute_perf";
+        if (lower.contains("transpose") || lower.contains("embedding") || lower.contains("concat") ||
+            lower.contains("gather") || lower.contains("scatter") || lower.contains("memcpy") || lower.contains("bandwidth")) return "memory_perf";
+        if (lower.contains("relu") || lower.contains("gelu") || lower.contains("silu") || lower.contains("sigmoid") ||
+            lower.contains("tanh") || lower.contains("softmax")) return "math_func";
+        if (lower.contains("attention") || lower.contains("scaleddotproduct") || lower.contains("flash")) return "attention";
+        if (lower.contains("layernorm") || lower.contains("batchnorm") || lower.contains("rmsnorm") || lower.contains("norm")) return "normalization";
+        if (lower.contains("mlp") || lower.contains("resnet") || lower.contains("bert") || lower.contains("llama") || lower.contains("model") || lower.contains("inference")) return "model_inference";
         return "compute_perf";
     }
 
