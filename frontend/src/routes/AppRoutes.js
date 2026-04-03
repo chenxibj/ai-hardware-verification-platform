@@ -4,11 +4,13 @@
  * @refactor #128 导航结构重组 - 新增芯片管理/评测计划/节点管理/审计页面
  * @feat #134 支持 planMonitorId 渲染执行监控页面
  * @feat #136 支持 chipReportId 渲染芯片评价报告页面
+ * @feat #137 支持 chipProfileId 渲染芯片档案页
  */
 import React from "react";
 import Dashboard from "../pages/Dashboard";
 import ChipList from "../pages/ChipList";
 import ChipCompare from "../pages/ChipCompare";
+import ChipProfile from "../pages/ChipProfile";
 import PlanList from "../pages/PlanList";
 import PlanCreate from "../pages/PlanCreate";
 import PlanMonitor from "../pages/PlanMonitor";
@@ -54,9 +56,34 @@ const PAGE_COMPONENTS = {
 };
 
 export default function AppRoutes({
-  currentPage, planMonitorId, chipReportId,
-  setCurrentPage, setPlanMonitorId, setChipReportId,
+  currentPage, planMonitorId, chipReportId, chipProfileId,
+  setCurrentPage, setPlanMonitorId, setChipReportId, setChipProfileId,
 }) {
+  // 如果有 chipProfileId，渲染芯片档案页
+  if (chipProfileId) {
+    return (
+      <ChipProfile
+        chipId={chipProfileId}
+        onBack={() => {
+          setChipProfileId(null);
+          setCurrentPage("chips");
+        }}
+        onOpenMonitor={(planId) => {
+          setChipProfileId(null);
+          setPlanMonitorId(planId);
+        }}
+        onOpenReport={(planId) => {
+          setChipProfileId(null);
+          setChipReportId(planId);
+        }}
+        onCreatePlan={(chipId) => {
+          setChipProfileId(null);
+          setCurrentPage("plans-create");
+        }}
+      />
+    );
+  }
+
   // 如果有 chipReportId，渲染芯片评价报告页面
   if (chipReportId) {
     return (
@@ -86,6 +113,10 @@ export default function AppRoutes({
   // 传递 setPlanMonitorId 给 PlanList 以支持跳转到监控页
   if (currentPage === "plans") {
     return <PlanList onOpenMonitor={(id) => setPlanMonitorId(id)} />;
+  }
+  // 传递 setChipProfileId 给 ChipList 以支持跳转到档案页
+  if (currentPage === "chips") {
+    return <ChipList onOpenProfile={(id) => setChipProfileId(id)} />;
   }
   return <PageComponent />;
 }

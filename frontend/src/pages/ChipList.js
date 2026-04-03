@@ -30,7 +30,7 @@ const STATUS_MAP = {
 const FRAMEWORK_OPTIONS = ["PyTorch", "ONNX Runtime", "TensorFlow", "PaddlePaddle"];
 
 /* ── 主组件 ── */
-export default function ChipList() {
+export default function ChipList({ onOpenProfile }) {
   /* state */
   const [chips, setChips] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -215,7 +215,7 @@ export default function ChipList() {
       render: (_, record) => (
         <Space size="small">
           <Tooltip title="查看详情">
-            <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => openDetail(record)} />
+            <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => onOpenProfile ? onOpenProfile(record.id) : openDetail(record)} />
           </Tooltip>
           <Tooltip title="编辑">
             <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)} />

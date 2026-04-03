@@ -2,6 +2,7 @@
  * @file App.js
  * @description 应用入口，组合布局和路由
  * @feat #136 添加 chipReportId 状态管理
+ * @feat #137 添加 chipProfileId 状态管理（芯片档案页）
  */
 import React, { useState, useEffect } from "react";
 import api from "./utils/api";
@@ -18,6 +19,7 @@ function App() {
   const [currentPage, setCurrentPage] = useState("dashboard");
   const [planMonitorId, setPlanMonitorId] = useState(null);
   const [chipReportId, setChipReportId] = useState(null);
+  const [chipProfileId, setChipProfileId] = useState(null);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -30,24 +32,35 @@ function App() {
     }
   }, [isAuthenticated, currentPage, setUnreadCount]);
 
-  // 切换页面时清除监控和报告状态
+  // 切换页面时清除监控、报告和档案状态
   const handleSetCurrentPage = (page) => {
     setPlanMonitorId(null);
     setChipReportId(null);
+    setChipProfileId(null);
     setCurrentPage(page);
   };
 
   if (!isAuthenticated || !user) return <Login />;
 
+  // 确定当前高亮的导航项
+  const getActiveNav = () => {
+    if (chipProfileId) return "chips";
+    if (chipReportId) return "reports";
+    if (planMonitorId) return "plans";
+    return currentPage;
+  };
+
   return (
-    <MainLayout currentPage={chipReportId ? "reports" : (planMonitorId ? "plans" : currentPage)} setCurrentPage={handleSetCurrentPage}>
+    <MainLayout currentPage={getActiveNav()} setCurrentPage={handleSetCurrentPage}>
       <AppRoutes
         currentPage={currentPage}
         planMonitorId={planMonitorId}
         chipReportId={chipReportId}
+        chipProfileId={chipProfileId}
         setCurrentPage={setCurrentPage}
         setPlanMonitorId={setPlanMonitorId}
         setChipReportId={setChipReportId}
+        setChipProfileId={setChipProfileId}
       />
     </MainLayout>
   );
