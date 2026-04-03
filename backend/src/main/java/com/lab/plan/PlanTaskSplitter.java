@@ -47,6 +47,12 @@ public class PlanTaskSplitter {
         "MatMul", "Conv2D", "Softmax", "ReLU", "LayerNorm"
     );
 
+    private static final List<String> STANDARD_OPERATORS = Arrays.asList(
+        "MatMul", "Conv2D", "Softmax", "ReLU", "GELU",
+        "SiLU", "LayerNorm", "BatchNorm", "Attention", "ScaledDotProduct",
+        "Add", "Mul", "Transpose"
+    );
+
     // ============ 公开方法 ============
 
     public List<EvaluationTask> splitPlanToTasks(EvaluationPlan plan) {
@@ -81,24 +87,43 @@ public class PlanTaskSplitter {
     private List<EvaluationTask> createQuickTasks(EvaluationPlan plan) {
         List<EvaluationTask> tasks = new ArrayList<>();
 
+        // QUICK: 5 operators x FP32
         for (String op : QUICK_OPERATORS) {
             String config = String.format("{\"dtype\":\"FP32\",\"shape\":\"Medium\",\"operator\":\"%s\"}", op);
             tasks.add(createTask(plan, EvaluationTask.TestSubject.OPERATOR, op, config));
         }
 
-        for (String model : Arrays.asList("MLP-Small", "MLP-Medium")) {
-            for (int batch : new int[]{1, 4}) {
-                String config = String.format("{\"model\":\"%s\",\"batchSize\":%d}", model, batch);
-                tasks.add(createTask(plan, EvaluationTask.TestSubject.MODEL, model, config));
-            }
+        // QUICK: MLP-Medium batch=1,4 = 2 model tasks
+        for (int batch : new int[]{1, 4}) {
+            String config = String.format("{\"model\":\"MLP-Medium\",\"batchSize\":%d}", batch);
+            tasks.add(createTask(plan, EvaluationTask.TestSubject.MODEL, "MLP-Medium", config));
         }
 
-        return tasks;
+        return tasks; // total = 5 + 2 = 7
     }
 
     private List<EvaluationTask> createStandardTasks(EvaluationPlan plan) {
         List<EvaluationTask> tasks = new ArrayList<>();
 
+        // STANDARD: 13 operators x FP32
+        for (String op : STANDARD_OPERATORS) {
+            String config = String.format("{\"dtype\":\"FP32\",\"shape\":\"Medium\",\"operator\":\"%s\"}", op);
+            tasks.add(createTask(plan, EvaluationTask.TestSubject.OPERATOR, op, config));
+        }
+
+        // STANDARD: MLP-Medium x 4 batch sizes
+        for (int batch : new int[]{1, 4, 8, 16}) {
+            String config = String.format("{\"model\":\"MLP-Medium\",\"batchSize\":%d}", batch);
+            tasks.add(createTask(plan, EvaluationTask.TestSubject.MODEL, "MLP-Medium", config));
+        }
+
+        return tasks; // total = 13 + 4 = 17
+    }
+
+    private List<EvaluationTask> createFullTasks(EvaluationPlan plan) {
+        List<EvaluationTask> tasks = new ArrayList<>();
+
+        // FULL: all operators (CORE 20 + EXTENDED 30 = 50) x FP32
         List<String> allOperators = new ArrayList<>(CORE_OPERATORS);
         allOperators.addAll(EXTENDED_OPERATORS);
 
@@ -107,43 +132,15 @@ public class PlanTaskSplitter {
             tasks.add(createTask(plan, EvaluationTask.TestSubject.OPERATOR, op, config));
         }
 
-        for (String model : Arrays.asList("MLP-Small", "MLP-Medium")) {
+        // FULL: MLP x 3 sizes x 4 batch sizes = 12 model tasks
+        for (String model : Arrays.asList("MLP-Small", "MLP-Medium", "MLP-Large")) {
             for (int batch : new int[]{1, 4, 8, 16}) {
                 String config = String.format("{\"model\":\"%s\",\"batchSize\":%d}", model, batch);
                 tasks.add(createTask(plan, EvaluationTask.TestSubject.MODEL, model, config));
             }
         }
 
-        return tasks;
-    }
-
-    private List<EvaluationTask> createFullTasks(EvaluationPlan plan) {
-        List<EvaluationTask> tasks = new ArrayList<>();
-
-        // 标准评测所有任务
-        tasks.addAll(createStandardTasks(plan));
-
-        // 核心算子 FP16
-        for (String op : CORE_OPERATORS) {
-            String config = String.format("{\"dtype\":\"FP16\",\"shape\":\"Medium\",\"operator\":\"%s\"}", op);
-            tasks.add(createTask(plan, EvaluationTask.TestSubject.OPERATOR, op, config));
-        }
-
-        // 核心算子 Large shape
-        for (String op : CORE_OPERATORS) {
-            String config = String.format("{\"dtype\":\"FP32\",\"shape\":\"Large\",\"operator\":\"%s\"}", op);
-            tasks.add(createTask(plan, EvaluationTask.TestSubject.OPERATOR, op, config));
-        }
-
-        // 额外模型
-        for (String model : Arrays.asList("ResNet", "BERT-Tiny")) {
-            for (int batch : new int[]{1, 4, 8, 16}) {
-                String config = String.format("{\"model\":\"%s\",\"batchSize\":%d}", model, batch);
-                tasks.add(createTask(plan, EvaluationTask.TestSubject.MODEL, model, config));
-            }
-        }
-
-        return tasks;
+        return tasks; // total = 50 + 12 = 62
     }
 
     // ============ 辅助方法 ============
