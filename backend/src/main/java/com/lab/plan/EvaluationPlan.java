@@ -36,6 +36,9 @@ public class EvaluationPlan {
     @Column(name = "chip_id", nullable = false)
     private Long chipId;
 
+    @Column(name = "template_id")
+    private Long templateId;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "eval_config", columnDefinition = "jsonb")
     private String evalConfig;

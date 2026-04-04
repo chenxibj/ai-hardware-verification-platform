@@ -164,6 +164,19 @@ public class EvaluationPlanService {
         return saved;
     }
 
+
+    // ============ Stats (#199) ============
+
+    @Transactional(readOnly = true)
+    public long countAll() {
+        return planRepository.count();
+    }
+
+    @Transactional(readOnly = true)
+    public long countByStatus(EvaluationPlan.PlanStatus status) {
+        return planRepository.countByStatus(status);
+    }
+
     // ============ Helpers ============
 
     private void assertStatus(EvaluationPlan plan, EvaluationPlan.PlanStatus expected, String action) {

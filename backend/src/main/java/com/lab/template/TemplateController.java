@@ -67,6 +67,14 @@ public class TemplateController {
             @RequestBody TaskTemplate template,
             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
         if (userId == null) userId = 1L;
+        // #198: 校验 configJson 非空且包含有效配置
+        String configJson = template.getConfigJson();
+        if (configJson != null && !configJson.isBlank() && !configJson.equals("{}")) {
+            if (!configJson.contains("operators") && !configJson.contains("models")
+                    && !configJson.contains("benchmarks") && !configJson.contains("itemCount")) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "configJson 需包含 operators、models 等有效配置");
+            }
+        }
         template.setId(null);
         template.setIsSystem(false);
         template.setCreatedBy(userId);

@@ -118,6 +118,29 @@ public class EvaluationPlanController {
         }
     }
 
+
+    /**
+     * GET /api/plans/stats — 统计各状态数量 (#199)
+     */
+    @GetMapping("/plans/stats")
+    @RequireRole(Role.VIEWER)
+    public ResponseEntity<Map<String, Object>> getPlanStats() {
+        Map<String, Object> statsData = new HashMap<>();
+        long total = planService.countAll();
+        long running = planService.countByStatus(EvaluationPlan.PlanStatus.RUNNING);
+        long completed = planService.countByStatus(EvaluationPlan.PlanStatus.COMPLETED);
+        long failed = planService.countByStatus(EvaluationPlan.PlanStatus.FAILED);
+        long draft = planService.countByStatus(EvaluationPlan.PlanStatus.DRAFT);
+        long paused = planService.countByStatus(EvaluationPlan.PlanStatus.PAUSED);
+        statsData.put("total", total);
+        statsData.put("running", running);
+        statsData.put("completed", completed);
+        statsData.put("failed", failed);
+        statsData.put("draft", draft);
+        statsData.put("paused", paused);
+        return ResponseEntity.ok(success(statsData));
+    }
+
     @GetMapping("/plans/{planId}/tasks")
     @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getPlanTasks(@PathVariable Long planId) {

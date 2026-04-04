@@ -315,10 +315,11 @@ export default function PlanMonitor({ planId, onBack }) {
               <Tooltip title={task.errorMessage || "执行失败，无详细错误信息"}>
                 <ExclamationCircleOutlined style={{ color: "#ff4d4f", cursor: "pointer" }} />
               </Tooltip>
-              <Button type="link" size="small" icon={<ReloadOutlined />}
-                onClick={() => handleRetryTask(task.id)}>
-                重试
-              </Button>
+              <Popconfirm title="确定重试该任务？" onConfirm={() => handleRetryTask(task.id)}>
+                <Button type="link" size="small" icon={<ReloadOutlined />}>
+                  重试
+                </Button>
+              </Popconfirm>
               <Popconfirm title="确定跳过该任务？跳过后不会再执行" onConfirm={() => handleSkipTask(task.id)}>
                 <Button type="link" size="small" icon={<ForwardOutlined />} style={{ color: "#faad14" }}>
                   跳过
@@ -401,10 +402,11 @@ export default function PlanMonitor({ planId, onBack }) {
           <Col>
             <Space>
               {plan?.status === "RUNNING" && (
-                <Button icon={<PauseCircleOutlined />}
-                  onClick={() => handlePlanAction("pause", "暂停")}>
-                  暂停
-                </Button>
+                <Popconfirm title="确定要暂停评测？暂停后可恢复继续执行" onConfirm={() => handlePlanAction("pause", "暂停")}>
+                  <Button icon={<PauseCircleOutlined />}>
+                    暂停
+                  </Button>
+                </Popconfirm>
               )}
               {plan?.status === "PAUSED" && (
                 <Button type="primary" icon={<PlayCircleOutlined />}
