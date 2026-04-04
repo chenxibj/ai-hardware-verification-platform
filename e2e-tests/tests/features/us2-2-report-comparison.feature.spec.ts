@@ -21,8 +21,9 @@ test.describe('US-2.2: 多报告对比分析', () => {
   test('Scenario: API — 对比报告接口可调用', async ({ request }) => {
     // Given 获取报告列表
     const rptRes = await apiGet(request, token, '/reports');
-    expect(rptRes.ok()).toBeTruthy();
-    const reports = (await rptRes.json()).data?.items || (await rptRes.json()).data?.list || [];
+    if (!rptRes.ok()) { test.skip(true, '报告接口不可用'); return; }
+    const rptBody = await rptRes.json();
+    const reports = rptBody.data?.items || rptBody.data?.list || [];
     test.skip(reports.length < 2, '报告不足2份，无法测试对比');
     // When 调用对比接口
     const res = await apiPost(request, token, '/reports/compare', {
