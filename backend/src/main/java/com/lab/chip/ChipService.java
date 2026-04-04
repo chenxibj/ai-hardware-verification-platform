@@ -1,5 +1,7 @@
 package com.lab.chip;
 
+import com.lab.common.BusinessException;
+import com.lab.common.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -61,7 +63,7 @@ public class ChipService {
     @Transactional(readOnly = true)
     public Chip getChip(Long id) {
         return chipRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Chip not found: " + id));
+                .orElseThrow(() -> new BusinessException(ErrorCode.CHIP_NOT_FOUND));
     }
 
     /**
@@ -93,7 +95,6 @@ public class ChipService {
         chipRepository.delete(chip);
         log.info("Deleted chip: {}", chip.getChipNo());
     }
-
 
     /**
      * 按名称搜索芯片

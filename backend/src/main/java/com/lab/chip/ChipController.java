@@ -1,5 +1,9 @@
 package com.lab.chip;
 
+import com.lab.common.ApiResponse;
+import com.lab.common.BusinessException;
+import com.lab.common.ErrorCode;
+import com.lab.common.PageResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -10,12 +14,13 @@ import org.springframework.web.bind.annotation.*;
 
 import com.lab.chipreport.ChipReport;
 import com.lab.chipreport.ChipReportRepository;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * 芯片管理控制器
+ * 芯片管理控制器 (已改造为统一响应格式)
  */
 @Slf4j
 @RestController
@@ -30,16 +35,17 @@ public class ChipController {
      * 创建芯片
      */
     @PostMapping
-    public ResponseEntity<Map<String, Object>> createChip(
+    public ResponseEntity<ApiResponse<Chip>> createChip(
             @RequestBody Chip chip,
             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
         if (userId == null) userId = 1L;
         Chip created = chipService.createChip(chip, userId);
-        return ResponseEntity.ok(success(created));
+        return ResponseEntity.ok(ApiResponse.ok(created));
     }
 
     /**
      * 查询芯片列表
+     * 返回格式保持向后兼容: {code:0, message:"success", data:[...], total:N, page:P, size:S, timestamp:T}
      */
     @GetMapping
     public ResponseEntity<Map<String, Object>> listChips(
@@ -52,62 +58,52 @@ public class ChipController {
         // If name parameter is provided, use name search
         if (name != null && !name.isBlank()) {
             List<Chip> chips = chipService.searchByName(name);
-            Map<String, Object> resp = success(chips);
-            resp.put("total", chips.size());
-            resp.put("page", page);
-            resp.put("size", size);
-            return ResponseEntity.ok(resp);
+            return ResponseEntity.ok(buildListResponse(chips, chips.size(), page, size));
         }
         Pageable pageable = PageRequest.of(page, size);
-        Chip.ChipType type = chipType != null ? Chip.ChipType.valueOf(chipType) : null;
-        Chip.ChipStatus st = status != null ? Chip.ChipStatus.valueOf(status) : null;
+        Chip.ChipType type = null;
+        Chip.ChipStatus st = null;
+        try {
+            if (chipType != null) type = Chip.ChipType.valueOf(chipType);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "无效的芯片类型: " + chipType);
+        }
+        try {
+            if (status != null) st = Chip.ChipStatus.valueOf(status);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "无效的芯片状态: " + status);
+        }
         Page<Chip> chips = chipService.listChips(type, st, search, pageable);
-        Map<String, Object> resp = success(chips.getContent());
-        resp.put("total", chips.getTotalElements());
-        resp.put("page", page);
-        resp.put("size", size);
-        return ResponseEntity.ok(resp);
+        return ResponseEntity.ok(buildListResponse(chips.getContent(), chips.getTotalElements(), page, size));
     }
 
     /**
      * 查询芯片详情
      */
     @GetMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> getChip(@PathVariable Long id) {
-        try {
-            Chip chip = chipService.getChip(id);
-            return ResponseEntity.ok(success(chip));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(error(e.getMessage()));
-        }
+    public ResponseEntity<ApiResponse<Chip>> getChip(@PathVariable Long id) {
+        Chip chip = chipService.getChip(id);
+        return ResponseEntity.ok(ApiResponse.ok(chip));
     }
 
     /**
      * 更新芯片
      */
     @PutMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> updateChip(
+    public ResponseEntity<ApiResponse<Chip>> updateChip(
             @PathVariable Long id,
             @RequestBody Chip chip) {
-        try {
-            Chip updated = chipService.updateChip(id, chip);
-            return ResponseEntity.ok(success(updated));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(error(e.getMessage()));
-        }
+        Chip updated = chipService.updateChip(id, chip);
+        return ResponseEntity.ok(ApiResponse.ok(updated));
     }
 
     /**
      * 删除芯片
      */
     @DeleteMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> deleteChip(@PathVariable Long id) {
-        try {
-            chipService.deleteChip(id);
-            return ResponseEntity.ok(success("deleted"));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(error(e.getMessage()));
-        }
+    public ResponseEntity<ApiResponse<Void>> deleteChip(@PathVariable Long id) {
+        chipService.deleteChip(id);
+        return ResponseEntity.ok(ApiResponse.ok());
     }
 
     /**
@@ -116,23 +112,21 @@ public class ChipController {
     @GetMapping("/{id}/reports")
     public ResponseEntity<Map<String, Object>> getChipReports(@PathVariable Long id) {
         List<ChipReport> reports = chipReportRepository.findByChipId(id);
-        Map<String, Object> resp = success(reports);
-        resp.put("total", reports.size());
-        return ResponseEntity.ok(resp);
+        return ResponseEntity.ok(buildListResponse(reports, reports.size(), 0, reports.size()));
     }
 
-    private Map<String, Object> success(Object data) {
+    /**
+     * 构建列表响应 (保持前端兼容的扁平格式)
+     */
+    private Map<String, Object> buildListResponse(Object data, long total, int page, int size) {
         Map<String, Object> resp = new HashMap<>();
         resp.put("code", 0);
         resp.put("message", "success");
         resp.put("data", data);
-        return resp;
-    }
-
-    private Map<String, Object> error(String message) {
-        Map<String, Object> resp = new HashMap<>();
-        resp.put("code", 1001);
-        resp.put("message", message);
+        resp.put("total", total);
+        resp.put("page", page);
+        resp.put("size", size);
+        resp.put("timestamp", System.currentTimeMillis());
         return resp;
     }
 }
