@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 
@@ -91,6 +92,15 @@ public class ChipService {
         Chip chip = getChip(id);
         chipRepository.delete(chip);
         log.info("Deleted chip: {}", chip.getChipNo());
+    }
+
+
+    /**
+     * 按名称搜索芯片
+     */
+    @Transactional(readOnly = true)
+    public List<Chip> searchByName(String name) {
+        return chipRepository.findByNameContainingIgnoreCase(name.trim());
     }
 
     /**

@@ -150,13 +150,15 @@ public class PlanTaskSplitter {
             tasks.add(createTask(plan, EvaluationTask.TestSubject.OPERATOR, op, config));
         }
 
-        // QUICK: MLP-Medium batch=1,4 = 2 model tasks
-        for (int batch : new int[]{1, 4}) {
-            String config = String.format("{\"model\":\"MLP-Medium\",\"batchSize\":%d}", batch);
-            tasks.add(createTask(plan, EvaluationTask.TestSubject.MODEL, "MLP-Medium", config));
+        // QUICK: MLP-Small batch=1,4 + MLP-Medium batch=1,4 = 4 model tasks
+        for (String model : Arrays.asList("MLP-Small", "MLP-Medium")) {
+            for (int batch : new int[]{1, 4}) {
+                String config = String.format("{\"model\":\"%s\",\"batchSize\":%d}", model, batch);
+                tasks.add(createTask(plan, EvaluationTask.TestSubject.MODEL, model, config));
+            }
         }
 
-        return tasks; // total = 5 + 2 = 7
+        return tasks; // total = 5 + 4 = 9
     }
 
     private List<EvaluationTask> createStandardTasks(EvaluationPlan plan) {
@@ -274,5 +276,9 @@ public class PlanTaskSplitter {
     private String generateTaskNo() {
         long seq = TASK_SEQ.incrementAndGet();
         return "TASK-" + seq;
+    }
+
+    private String generateTaskNo(Long planId, int index) {
+        return "TASK-P" + planId + "-" + index;
     }
 }

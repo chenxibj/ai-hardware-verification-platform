@@ -46,8 +46,18 @@ public class ChipController {
             @RequestParam(required = false) String chipType,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String search,
+            @RequestParam(required = false) String name,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
+        // If name parameter is provided, use name search
+        if (name != null && !name.isBlank()) {
+            List<Chip> chips = chipService.searchByName(name);
+            Map<String, Object> resp = success(chips);
+            resp.put("total", chips.size());
+            resp.put("page", page);
+            resp.put("size", size);
+            return ResponseEntity.ok(resp);
+        }
         Pageable pageable = PageRequest.of(page, size);
         Chip.ChipType type = chipType != null ? Chip.ChipType.valueOf(chipType) : null;
         Chip.ChipStatus st = status != null ? Chip.ChipStatus.valueOf(status) : null;

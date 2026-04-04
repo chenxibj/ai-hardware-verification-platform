@@ -26,7 +26,7 @@ public class EvaluationTask {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "task_no", unique = true, nullable = false, length = 64)
+    @Column(name = "task_no", nullable = false, length = 64)
     private String taskNo;
 
     @Column(name = "name", nullable = false, length = 200)

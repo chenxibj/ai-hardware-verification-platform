@@ -95,9 +95,10 @@ TOTAL7=$(curl -sf "$BASE_URL/chips" -H "$AUTH" | python3 -c "import sys,json; pr
 R8=$(curl -sf "$BASE_URL/chips/$CHIP_ID" -H "$AUTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('code','?'))" 2>/dev/null)
 [ "$R8" = "0" ] && i152_pass "按芯片 ID 查询详情 (id=$CHIP_ID)" || i152_fail "按芯片 ID 查询详情" "code=$R8"
 
-# 9. 按名称搜索芯片 - API does NOT support name search param
-# Controller only accepts chipType and status params
-i152_fail "按名称搜索芯片" "API未实现name搜索参数(Controller仅支持chipType/status筛选)"
+# 9. 按名称搜索芯片
+SEARCH_NAME="T152-$UNIQUE"
+SEARCH_COUNT=$(curl -sf "$BASE_URL/chips?name=$SEARCH_NAME" -H "$AUTH" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('total', len(d.get('data',[]))))" 2>/dev/null || echo "0")
+[ "$SEARCH_COUNT" -gt 0 ] 2>/dev/null && i152_pass "按名称搜索芯片 (name=$SEARCH_NAME, found=$SEARCH_COUNT)" || i152_fail "按名称搜索芯片" "count=$SEARCH_COUNT"
 
 # 10. 按状态筛选芯片
 T10=$(curl -sf "$BASE_URL/chips?status=UNEVALUATED" -H "$AUTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('code','?'))")

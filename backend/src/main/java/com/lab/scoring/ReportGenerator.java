@@ -95,6 +95,13 @@ public class ReportGenerator {
             report.setRadarData("[]");
         }
 
+        // 找到评分最低的维度作为瓶颈
+        String bottleneck = dimensionScores.entrySet().stream()
+                .min(Map.Entry.comparingByValue())
+                .map(e -> String.format("瓶颈维度：%s（评分 %.1f），建议重点优化该方向的算子实现", e.getKey(), e.getValue()))
+                .orElse("暂无瓶颈分析数据");
+        report.setBottleneckAnalysis(bottleneck);
+
         ChipReport saved = chipReportRepository.save(report);
         log.info("Report generated: {} with overallScore={}", saved.getReportNo(), saved.getOverallScore());
 

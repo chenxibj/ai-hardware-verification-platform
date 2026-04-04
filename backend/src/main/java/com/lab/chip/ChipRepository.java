@@ -30,6 +30,8 @@ public interface ChipRepository extends JpaRepository<Chip, Long> {
 
     Page<Chip> findByChipTypeAndStatus(Chip.ChipType chipType, Chip.ChipStatus status, Pageable pageable);
 
+    List<Chip> findByNameContainingIgnoreCase(String name);
+
     @Query("SELECT c FROM Chip c WHERE LOWER(c.name) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(c.manufacturer) LIKE LOWER(CONCAT('%', :search, '%'))")
     Page<Chip> searchByNameOrManufacturer(@Param("search") String search, Pageable pageable);
 }
