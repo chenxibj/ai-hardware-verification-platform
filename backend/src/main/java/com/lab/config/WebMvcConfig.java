@@ -20,6 +20,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/auth/**",
                         "/actuator/**",
                         "/health/**",
+                        "/v1/health/**",
                         "/error",
                         "/nodes/register",
                         "/nodes/*/heartbeat",
