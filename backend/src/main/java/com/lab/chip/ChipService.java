@@ -16,6 +16,7 @@ import java.time.format.DateTimeFormatter;
 
 /**
  * 芯片服务
+ * Enhanced: #159 — chipNo 自动生成（顺序） + 唯一性校验
  */
 @Slf4j
 @Service
@@ -25,17 +26,34 @@ public class ChipService {
     private final ChipRepository chipRepository;
 
     /**
-     * 创建芯片
+     * 创建芯片 — 增强版
+     * - 自动生成 chipNo（CHIP-YYYYMMDD-NNN 顺序递增）
+     * - 唯一性校验：chipNo, name
      */
     @Transactional
-    public Chip createChip(Chip chip, Long userId) {
-        chip.setChipNo(generateChipNo());
-        chip.setCreatedBy(userId);
-        if (chip.getStatus() == null) {
-            chip.setStatus(Chip.ChipStatus.UNEVALUATED);
+    public Chip createChip(ChipCreateRequest req, Long userId) {
+        // 唯一性检查: name
+        if (chipRepository.existsByName(req.getName().trim())) {
+            throw new BusinessException(ErrorCode.CHIP_NAME_DUPLICATE);
         }
+
+        // 自动生成 chipNo（顺序递增，避免冲突）
+        String chipNo = generateChipNo();
+
+        Chip chip = new Chip();
+        chip.setChipNo(chipNo);
+        chip.setName(req.getName().trim());
+        chip.setManufacturer(req.getManufacturer().trim());
+        chip.setChipType(req.getChipType());
+        chip.setTechSpec(req.getTechSpec());
+        chip.setSoftwareStack(req.getSoftwareStack());
+        chip.setRemark(req.getRemark());
+        chip.setTags(req.getTags());
+        chip.setStatus(Chip.ChipStatus.UNEVALUATED);
+        chip.setCreatedBy(userId);
+
         Chip saved = chipRepository.save(chip);
-        log.info("Created chip: {} ({})", saved.getChipNo(), saved.getName());
+        log.info("Created chip: {} ({}) by user {}", saved.getChipNo(), saved.getName(), userId);
         return saved;
     }
 
@@ -105,13 +123,25 @@ public class ChipService {
     }
 
     /**
-     * 生成芯片编号
+     * 生成芯片编号: CHIP-YYYYMMDD-NNN（顺序递增）
      */
     private String generateChipNo() {
         String date = DateTimeFormatter.ofPattern("yyyyMMdd")
                 .withZone(ZoneId.of("Asia/Shanghai"))
                 .format(Instant.now());
-        String seq = String.format("%03d", (int) (Math.random() * 1000));
-        return "CHIP-" + date + "-" + seq;
+        String prefix = "CHIP-" + date + "-";
+
+        // 查询当天已有的数量来递增
+        long count = chipRepository.countByChipNoPrefix(prefix);
+        String chipNo;
+        int seq = (int) count + 1;
+
+        // 防碰撞循环
+        do {
+            chipNo = prefix + String.format("%03d", seq);
+            seq++;
+        } while (chipRepository.existsByChipNo(chipNo));
+
+        return chipNo;
     }
 }

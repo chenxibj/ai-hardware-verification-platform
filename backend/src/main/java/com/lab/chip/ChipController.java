@@ -6,6 +6,7 @@ import com.lab.common.ApiResponse;
 import com.lab.common.BusinessException;
 import com.lab.common.ErrorCode;
 import com.lab.common.PageResponse;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -22,7 +23,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 芯片管理控制器 (已改造为统一响应格式)
+ * 芯片管理控制器
+ * Enhanced: #159 — @Valid + DTO 参数校验
  */
 @Slf4j
 @RestController
@@ -35,14 +37,15 @@ public class ChipController {
 
     /**
      * 创建芯片 — 需要 ENGINEER 及以上
+     * Enhanced: 使用 ChipCreateRequest DTO + @Valid 校验
      */
     @PostMapping
     @RequireRole(Role.ENGINEER)
     public ResponseEntity<ApiResponse<Chip>> createChip(
-            @RequestBody Chip chip,
+            @Valid @RequestBody ChipCreateRequest request,
             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
         if (userId == null) userId = 1L;
-        Chip created = chipService.createChip(chip, userId);
+        Chip created = chipService.createChip(request, userId);
         return ResponseEntity.ok(ApiResponse.ok(created));
     }
 

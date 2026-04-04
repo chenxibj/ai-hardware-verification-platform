@@ -34,4 +34,16 @@ public interface ChipRepository extends JpaRepository<Chip, Long> {
 
     @Query("SELECT c FROM Chip c WHERE LOWER(c.name) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(c.manufacturer) LIKE LOWER(CONCAT('%', :search, '%'))")
     Page<Chip> searchByNameOrManufacturer(@Param("search") String search, Pageable pageable);
+
+    Optional<Chip> findByName(String name);
+
+    boolean existsByName(String name);
+
+    boolean existsByChipNo(String chipNo);
+
+    long countByChipNoStartingWith(String prefix);
+
+    @Query("SELECT COUNT(c) FROM Chip c WHERE c.chipNo LIKE :prefix%")
+    long countByChipNoPrefix(@Param("prefix") String prefix);
+
 }

@@ -1,17 +1,17 @@
 /**
  * @file ChipProfile.js
- * @description 芯片档案页 — 4 Tab 完整版
- * Issue: #138 MVP-1
+ * @description 芯片档案页 — 4 Tab 完整版（增强版）
+ * Issues: #138 MVP-1, #160 芯片档案页增强
  *
- * Tab 1: 基本信息（技术规格 + 软件栈 + 编辑）
- * Tab 2: 能力画像（默认 Tab）— 雷达图 + 维度评分 + 综合评分 + 场景推荐
- * Tab 3: 评测历史 — 计划列表 + 评分趋势图
+ * Tab 1: 能力画像（默认 Tab）— 雷达图 + 维度评分 + 综合评分 + 场景推荐
+ * Tab 2: 基本信息（技术规格增强 + 软件栈增强 + 编辑）
+ * Tab 3: 评测历史（增强：创建计划按钮 + 最新报告入口 + 空状态引导）
  * Tab 4: 评价报告 — 最新报告全文 + 历史报告选择
  */
 import React, { useState, useEffect, useCallback } from "react";
 import {
   Card, Button, Tag, Badge, Space, Row, Col, Table, Progress, Descriptions,
-  message, Spin, Typography, Divider, Modal, Form, Input, Select, Empty,
+  message, Spin, Typography, Divider, Modal, Form, Input, InputNumber, Select, Empty,
   Tooltip, Tabs, Alert,
 } from "antd";
 import {
@@ -19,22 +19,23 @@ import {
   PlayCircleOutlined, CheckCircleOutlined, CloseCircleOutlined,
   EyeOutlined, ThunderboltOutlined, DatabaseOutlined, AppstoreOutlined,
   RadarChartOutlined, HistoryOutlined, ProfileOutlined, InfoCircleOutlined,
-  RiseOutlined,
+  RiseOutlined, ExperimentOutlined, NumberOutlined, FireOutlined,
+  DashboardOutlined,
 } from "@ant-design/icons";
 import ReactECharts from "echarts-for-react";
 import RadarChart, { DIMENSIONS } from "../components/RadarChart";
 import api from "../utils/api";
 
-const { Title, Text } = Typography;
+const { Title, Text, Paragraph } = Typography;
 const { Option } = Select;
 
 /* ── 常量 ── */
 const CHIP_TYPE_COLORS = { GPU: "blue", NPU: "green", TPU: "purple", CPU: "orange", OTHER: "default" };
 const CHIP_TYPE_LABELS = { GPU: "GPU", NPU: "NPU", TPU: "TPU", CPU: "CPU", OTHER: "其他" };
 const STATUS_MAP = {
-  UNEVALUATED: { text: "未评测", status: "default", color: "#d9d9d9" },
-  EVALUATING:  { text: "评测中", status: "processing", color: "#1890ff" },
-  EVALUATED:   { text: "已评测", status: "success", color: "#52c41a" },
+  UNEVALUATED: { text: "未评测", status: "default", color: "#d9d9d9", badgeColor: "default" },
+  EVALUATING:  { text: "评测中", status: "processing", color: "#1890ff", badgeColor: "processing" },
+  EVALUATED:   { text: "已评测", status: "success", color: "#52c41a", badgeColor: "success" },
 };
 const PLAN_STATUS_MAP = {
   DRAFT:     { text: "草稿",   badge: "default" },
@@ -44,7 +45,15 @@ const PLAN_STATUS_MAP = {
   FAILED:    { text: "失败",   badge: "error" },
   CANCELLED: { text: "已取消", badge: "default" },
 };
-const FRAMEWORK_OPTIONS = ["PyTorch", "ONNX Runtime", "TensorFlow", "PaddlePaddle"];
+const FRAMEWORK_OPTIONS = [
+  "PyTorch", "ONNX Runtime", "TensorFlow", "PaddlePaddle",
+  "MindSpore", "TVM", "OpenVINO", "TensorRT", "CANN",
+];
+const FRAMEWORK_COLORS = {
+  "PyTorch": "orange", "ONNX Runtime": "blue", "TensorFlow": "red",
+  "PaddlePaddle": "green", "MindSpore": "purple", "TVM": "cyan",
+  "OpenVINO": "geekblue", "TensorRT": "lime", "CANN": "magenta",
+};
 
 const safeParse = (str) => {
   if (!str) return null;
@@ -130,14 +139,18 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
 
   useEffect(() => { fetchChip(); fetchPlans(); fetchReports(); }, [fetchChip, fetchPlans, fetchReports]);
 
-  /* ── 编辑技术规格 ── */
+  /* ── 编辑技术规格（增强版 #160） ── */
   const openTechModal = () => {
     if (!chip) return;
     const tech = safeParse(chip.techSpec) || {};
     techForm.setFieldsValue({
-      computePower: tech.computePower || "",
-      memory: tech.memory || "",
-      tdp: tech.tdp || "",
+      computePower: tech.computePower || undefined,
+      computePowerUnit: tech.computePowerUnit || "TFLOPS",
+      memory: tech.memory || undefined,
+      memoryType: tech.memoryType || "HBM2e",
+      tdp: tech.tdp || undefined,
+      frequency: tech.frequency || undefined,
+      cores: tech.cores || undefined,
     });
     setTechModalVisible(true);
   };
@@ -148,8 +161,12 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
       setSubmitLoading(true);
       const techSpec = JSON.stringify({
         computePower: values.computePower || "",
+        computePowerUnit: values.computePowerUnit || "TFLOPS",
         memory: values.memory || "",
+        memoryType: values.memoryType || "",
         tdp: values.tdp || "",
+        frequency: values.frequency || "",
+        cores: values.cores || "",
       });
       await api.put(`/chips/${chipId}`, { ...chip, techSpec });
       message.success("技术规格更新成功");
@@ -199,6 +216,7 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
   /* ── 获取最新报告数据 ── */
   const latestReport = reports.length > 0 ? reports[0] : null;
   const selectedReport = reports.find(r => r.id === selectedReportId) || latestReport;
+  const completedReport = reports.find(r => r.status === "PUBLISHED" || r.status === "COMPLETED") || latestReport;
 
   const radarData = safeParse(selectedReport?.radarData) || safeParse(latestReport?.radarData) || [];
   const dimensionScores = safeParse(selectedReport?.dimensionScores) || safeParse(latestReport?.dimensionScores) || {};
@@ -451,36 +469,71 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
       label: <span><InfoCircleOutlined /> 基本信息</span>,
       children: (
         <Row gutter={16}>
+          {/* ── 技术规格 Card 增强 (#160) ── */}
           <Col xs={24} lg={12}>
             <Card
               title={<Space><ThunderboltOutlined /> 技术规格</Space>}
               extra={<Button type="link" size="small" icon={<EditOutlined />} onClick={openTechModal}>编辑</Button>}
               style={{ height: "100%", marginBottom: 16 }}
             >
-              <Descriptions column={1} size="small">
-                <Descriptions.Item label="标称算力"><Text strong>{tech.computePower || "-"}</Text></Descriptions.Item>
-                <Descriptions.Item label="显存/内存"><Text strong>{tech.memory || "-"}</Text></Descriptions.Item>
-                <Descriptions.Item label="TDP功耗"><Text strong>{tech.tdp || "-"}</Text></Descriptions.Item>
+              <Descriptions column={1} size="small" labelStyle={{ width: 100 }}>
+                <Descriptions.Item label={<><DashboardOutlined /> 标称算力</>}>
+                  <Text strong>
+                    {tech.computePower
+                      ? `${tech.computePower} ${tech.computePowerUnit || "TFLOPS"}`
+                      : <Text type="secondary">-</Text>}
+                  </Text>
+                </Descriptions.Item>
+                <Descriptions.Item label={<><DatabaseOutlined /> 显存/内存</>}>
+                  <Text strong>
+                    {tech.memory
+                      ? `${tech.memory} GB ${tech.memoryType || ""}`
+                      : <Text type="secondary">-</Text>}
+                  </Text>
+                </Descriptions.Item>
+                <Descriptions.Item label={<><FireOutlined /> TDP 功耗</>}>
+                  <Text strong>
+                    {tech.tdp ? `${tech.tdp} W` : <Text type="secondary">-</Text>}
+                  </Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="频率">
+                  <Text strong>
+                    {tech.frequency ? `${tech.frequency} GHz` : <Text type="secondary">-</Text>}
+                  </Text>
+                </Descriptions.Item>
+                <Descriptions.Item label={<><NumberOutlined /> 核心数</>}>
+                  <Text strong>
+                    {tech.cores || <Text type="secondary">-</Text>}
+                  </Text>
+                </Descriptions.Item>
               </Descriptions>
-              {!tech.computePower && !tech.memory && !tech.tdp && (
+              {!tech.computePower && !tech.memory && !tech.tdp && !tech.frequency && !tech.cores && (
                 <div style={{ textAlign: "center", padding: "16px 0", color: "#999" }}>
                   暂无技术规格数据，点击编辑添加
                 </div>
               )}
             </Card>
           </Col>
+
+          {/* ── 软件栈 Card 增强 (#160) ── */}
           <Col xs={24} lg={12}>
             <Card
               title={<Space><AppstoreOutlined /> 软件栈</Space>}
               extra={<Button type="link" size="small" icon={<EditOutlined />} onClick={openSwModal}>编辑</Button>}
               style={{ height: "100%", marginBottom: 16 }}
             >
-              <Descriptions column={1} size="small">
-                <Descriptions.Item label="驱动版本"><Text strong>{sw.driver || "-"}</Text></Descriptions.Item>
-                <Descriptions.Item label="SDK版本"><Text strong>{sw.sdk || "-"}</Text></Descriptions.Item>
+              <Descriptions column={1} size="small" labelStyle={{ width: 100 }}>
+                <Descriptions.Item label="驱动版本">
+                  <Text strong>{sw.driver || <Text type="secondary">-</Text>}</Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="SDK 版本">
+                  <Text strong>{sw.sdk || <Text type="secondary">-</Text>}</Text>
+                </Descriptions.Item>
                 <Descriptions.Item label="适配框架">
                   {(sw.frameworks || []).length > 0
-                    ? sw.frameworks.map((f) => <Tag key={f} color="blue">{f}</Tag>)
+                    ? sw.frameworks.map((f) => (
+                        <Tag key={f} color={FRAMEWORK_COLORS[f] || "blue"} style={{ marginBottom: 4 }}>{f}</Tag>
+                      ))
                     : <Text type="secondary">-</Text>}
                 </Descriptions.Item>
               </Descriptions>
@@ -515,19 +568,72 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
       label: <span><HistoryOutlined /> 评测历史</span>,
       children: (
         <div>
-          <Card title={<Space><FileTextOutlined /> 评测计划列表</Space>}
-            extra={<Button type="primary" size="small" icon={<PlusOutlined />}
-              onClick={() => onCreatePlan && onCreatePlan(chipId)}>新建计划</Button>}
-          >
-            <Table
-              rowKey="id"
-              columns={planColumns}
-              dataSource={plans}
-              loading={plansLoading}
-              scroll={{ x: 800 }}
-              pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条评测记录` }}
-              locale={{ emptyText: <Empty description="暂无评测记录" /> }}
+          {/* 快捷入口：查看最新报告（#160 增强） */}
+          {completedReport && (
+            <Alert
+              type="success"
+              showIcon
+              icon={<FileTextOutlined />}
+              style={{ marginBottom: 16 }}
+              message={
+                <Space>
+                  <span>最新报告可用：{completedReport.reportNo}</span>
+                  <Text type="secondary">
+                    综合评分 <Text strong style={{ color: getScoreColor(completedReport.overallScore || 0) }}>
+                      {(completedReport.overallScore || 0).toFixed(1)}
+                    </Text>
+                  </Text>
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<EyeOutlined />}
+                    onClick={() => {
+                      const plan = plans.find(p => p.id === completedReport.planId);
+                      if (plan && onOpenReport) onOpenReport(plan.id);
+                      else { setActiveTab("report"); }
+                    }}
+                  >
+                    查看最新报告
+                  </Button>
+                </Space>
+              }
             />
+          )}
+
+          <Card
+            title={<Space><FileTextOutlined /> 评测计划列表</Space>}
+            extra={
+              <Button type="primary" size="small" icon={<PlusOutlined />}
+                onClick={() => onCreatePlan && onCreatePlan(chipId)}>
+                创建评测计划
+              </Button>
+            }
+          >
+            {plans.length === 0 && !plansLoading ? (
+              /* 空状态引导（#160 增强） */
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={
+                  <span style={{ color: "#666" }}>
+                    该芯片暂无评测记录，点击创建首个评测计划
+                  </span>
+                }
+              >
+                <Button type="primary" icon={<PlusOutlined />}
+                  onClick={() => onCreatePlan && onCreatePlan(chipId)}>
+                  创建评测计划
+                </Button>
+              </Empty>
+            ) : (
+              <Table
+                rowKey="id"
+                columns={planColumns}
+                dataSource={plans}
+                loading={plansLoading}
+                scroll={{ x: 800 }}
+                pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条评测记录` }}
+              />
+            )}
           </Card>
 
           {/* 评分趋势折线图 */}
@@ -696,10 +802,10 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
 
   return (
     <div>
-      {/* ── 顶部概要 ── */}
+      {/* ── 顶部概要（增强 #160） ── */}
       <Card style={{ marginBottom: 16 }}>
         <Row justify="space-between" align="top">
-          <Col>
+          <Col flex="auto">
             <Space align="start">
               <Button type="text" icon={<ArrowLeftOutlined />} onClick={onBack} style={{ marginRight: 8, marginTop: 4 }} />
               <div>
@@ -708,10 +814,28 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
                   <Tag color={CHIP_TYPE_COLORS[chip.chipType] || "default"}>
                     {CHIP_TYPE_LABELS[chip.chipType] || chip.chipType}
                   </Tag>
-                  <Badge status={statusInfo.status} text={statusInfo.text} />
+                  {/* 状态 Badge + 文字增强 (#160) */}
+                  <Tag
+                    color={statusInfo.color}
+                    style={{
+                      borderColor: statusInfo.color,
+                      color: chip.status === "UNEVALUATED" ? "#666" : "#fff",
+                      fontWeight: 500,
+                    }}
+                  >
+                    <Badge status={statusInfo.status} />
+                    {" " + statusInfo.text}
+                  </Tag>
                 </Space>
                 <div>
-                  <Text type="secondary" style={{ marginRight: 24 }}>编号: {chip.chipNo}</Text>
+                  {/* 芯片编号显示增强 (#160) */}
+                  <Text
+                    copyable={{ text: chip.chipNo }}
+                    style={{ marginRight: 24, fontFamily: "monospace", fontSize: 13 }}
+                  >
+                    <ExperimentOutlined style={{ marginRight: 4 }} />
+                    {chip.chipNo}
+                  </Text>
                   <Text type="secondary">厂商: {chip.manufacturer || "-"}</Text>
                   {chip.tags && (
                     <span style={{ marginLeft: 24 }}>
@@ -725,13 +849,37 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
             </Space>
           </Col>
           <Col>
-            <Space>
-              {overallScore != null && (
-                <div style={{ textAlign: "center", marginRight: 24 }}>
-                  <div style={{ fontSize: 36, fontWeight: "bold", color: getScoreColor(overallScore), lineHeight: 1 }}>
-                    {overallScore.toFixed ? overallScore.toFixed(1) : overallScore}
-                  </div>
-                  <Text type="secondary" style={{ fontSize: 12 }}>综合评分</Text>
+            <Space align="center" size={24}>
+              {/* 综合评分用 Progress circle (#160) */}
+              {overallScore != null ? (
+                <div style={{ textAlign: "center" }}>
+                  <Progress
+                    type="circle"
+                    size={120}
+                    percent={Math.round(overallScore)}
+                    strokeColor={getScoreColor(overallScore)}
+                    format={() => (
+                      <div>
+                        <div style={{ fontSize: 28, fontWeight: "bold", color: getScoreColor(overallScore), lineHeight: 1.2 }}>
+                          {overallScore.toFixed ? overallScore.toFixed(1) : overallScore}
+                        </div>
+                        <div style={{ fontSize: 11, color: "#999" }}>综合评分</div>
+                      </div>
+                    )}
+                  />
+                </div>
+              ) : (
+                <div style={{ textAlign: "center", color: "#ccc" }}>
+                  <Progress
+                    type="circle"
+                    size={120}
+                    percent={0}
+                    format={() => (
+                      <div>
+                        <div style={{ fontSize: 14, color: "#ccc" }}>暂无评分</div>
+                      </div>
+                    )}
+                  />
                 </div>
               )}
               <Button type="primary" icon={<PlusOutlined />}
@@ -746,23 +894,75 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
         <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} size="large" />
       </Card>
 
-      {/* ── Modals ── */}
+      {/* ── 编辑技术规格 Modal（增强 #160: InputNumber + 单位后缀） ── */}
       <Modal title="编辑技术规格" open={techModalVisible} onCancel={() => setTechModalVisible(false)}
-        onOk={handleTechSave} confirmLoading={submitLoading} destroyOnClose>
+        onOk={handleTechSave} confirmLoading={submitLoading} width={560} destroyOnClose>
         <Form form={techForm} layout="vertical">
-          <Form.Item name="computePower" label="标称算力"><Input placeholder="如 312 TFLOPS" /></Form.Item>
-          <Form.Item name="memory" label="显存/内存"><Input placeholder="如 80GB HBM2e" /></Form.Item>
-          <Form.Item name="tdp" label="TDP功耗"><Input placeholder="如 400W" /></Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item label="标称算力">
+                <Space.Compact style={{ width: "100%" }}>
+                  <Form.Item name="computePower" noStyle>
+                    <InputNumber placeholder="如 312" style={{ width: "60%" }} min={0} />
+                  </Form.Item>
+                  <Form.Item name="computePowerUnit" noStyle>
+                    <Select style={{ width: "40%" }}>
+                      <Option value="TOPS">TOPS</Option>
+                      <Option value="TFLOPS">TFLOPS</Option>
+                      <Option value="PFLOPS">PFLOPS</Option>
+                    </Select>
+                  </Form.Item>
+                </Space.Compact>
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="显存/内存">
+                <Space.Compact style={{ width: "100%" }}>
+                  <Form.Item name="memory" noStyle>
+                    <InputNumber placeholder="如 80" style={{ width: "60%" }} min={0} />
+                  </Form.Item>
+                  <Form.Item name="memoryType" noStyle>
+                    <Select style={{ width: "40%" }}>
+                      <Option value="HBM2e">GB HBM2e</Option>
+                      <Option value="HBM3">GB HBM3</Option>
+                      <Option value="GDDR6">GB GDDR6</Option>
+                      <Option value="GDDR6X">GB GDDR6X</Option>
+                      <Option value="DDR5">GB DDR5</Option>
+                      <Option value="LPDDR5">GB LPDDR5</Option>
+                    </Select>
+                  </Form.Item>
+                </Space.Compact>
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item name="tdp" label="TDP 功耗">
+                <InputNumber placeholder="如 400" style={{ width: "100%" }} min={0} addonAfter="W" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="frequency" label="频率">
+                <InputNumber placeholder="如 1.41" style={{ width: "100%" }} min={0} step={0.01} addonAfter="GHz" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="cores" label="核心数">
+                <InputNumber placeholder="如 6912" style={{ width: "100%" }} min={0} />
+              </Form.Item>
+            </Col>
+          </Row>
         </Form>
       </Modal>
 
+      {/* ── 编辑软件栈 Modal ── */}
       <Modal title="编辑软件栈" open={swModalVisible} onCancel={() => setSwModalVisible(false)}
         onOk={handleSwSave} confirmLoading={submitLoading} destroyOnClose>
         <Form form={swForm} layout="vertical">
           <Form.Item name="driver" label="驱动版本"><Input placeholder="如 535.129.03" /></Form.Item>
-          <Form.Item name="sdk" label="SDK版本"><Input placeholder="如 CUDA 12.2" /></Form.Item>
+          <Form.Item name="sdk" label="SDK 版本"><Input placeholder="如 CUDA 12.2" /></Form.Item>
           <Form.Item name="frameworks" label="适配框架">
-            <Select mode="multiple" placeholder="选择适配框架" allowClear>
+            <Select mode="tags" placeholder="选择或输入适配框架" allowClear tokenSeparators={[","]}>
               {FRAMEWORK_OPTIONS.map((f) => <Option key={f} value={f}>{f}</Option>)}
             </Select>
           </Form.Item>

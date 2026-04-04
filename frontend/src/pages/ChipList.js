@@ -1,16 +1,18 @@
 /**
  * @file ChipList.js
- * @description 芯片管理页面 — 列表 + 注册弹窗 + 详情抽屉
- * Issues: #129 芯片注册, #130 芯片列表
+ * @description 芯片管理页面 — 列表 + 注册弹窗(增强版) + 详情抽屉
+ * Issues: #129 芯片注册, #130 芯片列表, #159 芯片注册增强
  */
 import React, { useState, useEffect, useCallback } from "react";
 import {
-  Card, Table, Button, Modal, Form, Input, Select, Tag, Badge, Space,
+  Card, Table, Button, Modal, Form, Input, InputNumber, Select, Tag, Badge, Space,
   Statistic, Row, Col, message, Popconfirm, Drawer, Descriptions, Tooltip, Typography,
+  Divider,
 } from "antd";
 import {
   PlusOutlined, ReloadOutlined, SearchOutlined, EyeOutlined,
   EditOutlined, DeleteOutlined, ExperimentOutlined, SwapOutlined,
+  ThunderboltOutlined, AppstoreOutlined,
 } from "@ant-design/icons";
 import api from "../utils/api";
 
@@ -27,7 +29,15 @@ const STATUS_MAP = {
   EVALUATING:  { text: "评测中", status: "processing" },
   EVALUATED:   { text: "已评测", status: "success" },
 };
-const FRAMEWORK_OPTIONS = ["PyTorch", "ONNX Runtime", "TensorFlow", "PaddlePaddle"];
+const FRAMEWORK_OPTIONS = [
+  "PyTorch", "ONNX Runtime", "TensorFlow", "PaddlePaddle",
+  "MindSpore", "TVM", "OpenVINO", "TensorRT", "CANN",
+];
+const FRAMEWORK_COLORS = {
+  "PyTorch": "orange", "ONNX Runtime": "blue", "TensorFlow": "red",
+  "PaddlePaddle": "green", "MindSpore": "purple", "TVM": "cyan",
+  "OpenVINO": "geekblue", "TensorRT": "lime", "CANN": "magenta",
+};
 
 /* ── 主组件 ── */
 export default function ChipList({ onOpenProfile, onCompare }) {
@@ -75,10 +85,8 @@ export default function ChipList({ onOpenProfile, onCompare }) {
 
   const fetchStats = useCallback(async () => {
     try {
-      /* 用不带筛选的全量查询算统计（后端暂无 /chips/stats 接口） */
       const { data: all } = await api.get("/chips", { params: { page: 0, size: 1 } });
       const totalCount = all.total || 0;
-
       const gpuP = api.get("/chips", { params: { page: 0, size: 1, chipType: "GPU" } });
       const npuP = api.get("/chips", { params: { page: 0, size: 1, chipType: "NPU" } });
       const evP  = api.get("/chips", { params: { page: 0, size: 1, status: "EVALUATING" } });
@@ -89,9 +97,7 @@ export default function ChipList({ onOpenProfile, onCompare }) {
         npu: npuR.data.total || 0,
         evaluating: evR.data.total || 0,
       });
-    } catch (_) {
-      /* 统计失败不影响主流程 */
-    }
+    } catch (_) {}
   }, []);
 
   useEffect(() => { fetchChips(); }, [fetchChips]);
@@ -114,9 +120,13 @@ export default function ChipList({ onOpenProfile, onCompare }) {
       name: record.name,
       manufacturer: record.manufacturer,
       chipType: record.chipType,
-      computePower: techSpec.computePower || "",
-      memory: techSpec.memory || "",
-      tdp: techSpec.tdp || "",
+      computePower: techSpec.computePower || undefined,
+      computePowerUnit: techSpec.computePowerUnit || "TFLOPS",
+      memory: techSpec.memory || undefined,
+      memoryType: techSpec.memoryType || "HBM2e",
+      tdp: techSpec.tdp || undefined,
+      frequency: techSpec.frequency || undefined,
+      cores: techSpec.cores || undefined,
       driver: softwareStack.driver || "",
       sdk: softwareStack.sdk || "",
       frameworks: softwareStack.frameworks || [],
@@ -133,8 +143,12 @@ export default function ChipList({ onOpenProfile, onCompare }) {
 
       const techSpec = JSON.stringify({
         computePower: values.computePower || "",
+        computePowerUnit: values.computePowerUnit || "TFLOPS",
         memory: values.memory || "",
+        memoryType: values.memoryType || "",
         tdp: values.tdp || "",
+        frequency: values.frequency || "",
+        cores: values.cores || "",
       });
       const softwareStack = JSON.stringify({
         driver: values.driver || "",
@@ -164,8 +178,9 @@ export default function ChipList({ onOpenProfile, onCompare }) {
       fetchChips();
       fetchStats();
     } catch (e) {
-      if (e.errorFields) return; // 表单校验失败
-      message.error("操作失败: " + (e.response?.data?.message || e.message));
+      if (e.errorFields) return;
+      const errMsg = e.response?.data?.message || e.message;
+      message.error("操作失败: " + errMsg);
     } finally {
       setSubmitLoading(false);
     }
@@ -241,24 +256,16 @@ export default function ChipList({ onOpenProfile, onCompare }) {
       {/* 统计卡片 */}
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col xs={12} sm={6}>
-          <Card hoverable>
-            <Statistic title="芯片总数" value={stats.total} prefix={<ExperimentOutlined />} />
-          </Card>
+          <Card hoverable><Statistic title="芯片总数" value={stats.total} prefix={<ExperimentOutlined />} /></Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card hoverable>
-            <Statistic title="GPU" value={stats.gpu} valueStyle={{ color: "#1890ff" }} />
-          </Card>
+          <Card hoverable><Statistic title="GPU" value={stats.gpu} valueStyle={{ color: "#1890ff" }} /></Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card hoverable>
-            <Statistic title="NPU" value={stats.npu} valueStyle={{ color: "#52c41a" }} />
-          </Card>
+          <Card hoverable><Statistic title="NPU" value={stats.npu} valueStyle={{ color: "#52c41a" }} /></Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card hoverable>
-            <Statistic title="评测中" value={stats.evaluating} valueStyle={{ color: "#faad14" }} />
-          </Card>
+          <Card hoverable><Statistic title="评测中" value={stats.evaluating} valueStyle={{ color: "#faad14" }} /></Card>
         </Col>
       </Row>
 
@@ -316,82 +323,158 @@ export default function ChipList({ onOpenProfile, onCompare }) {
         />
       </Card>
 
-      {/* 注册 / 编辑弹窗 */}
+      {/* ── 注册 / 编辑弹窗 (增强版 #159) ── */}
       <Modal
         title={editRecord ? "编辑芯片" : "注册芯片"}
         open={createVisible}
         onCancel={() => { setCreateVisible(false); form.resetFields(); }}
         onOk={handleSubmit}
         confirmLoading={submitLoading}
-        width={640}
+        width={720}
         destroyOnClose
       >
         <Form form={form} layout="vertical" requiredMark="optional">
+          {/* chipNo 自动生成提示 */}
+          {!editRecord && (
+            <div style={{
+              background: "#fafafa", border: "1px dashed #d9d9d9", borderRadius: 6,
+              padding: "8px 12px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <Text type="secondary" style={{ fontSize: 13 }}>
+                <ExperimentOutlined style={{ marginRight: 4 }} />
+                芯片编号：<Text type="secondary" italic>自动生成（格式：CHIP-YYYYMMDD-NNN）</Text>
+              </Text>
+            </div>
+          )}
+
           <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="name" label="名称" rules={[{ required: true, message: "请输入芯片名称" }]}>
+            <Col span={8}>
+              <Form.Item name="name" label="芯片名称" rules={[{ required: true, message: "请输入芯片名称" }]}>
                 <Input placeholder="如 NVIDIA A100" />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item name="manufacturer" label="厂商" rules={[{ required: true, message: "请输入厂商" }]}>
                 <Input placeholder="如 NVIDIA" />
               </Form.Item>
             </Col>
+            <Col span={8}>
+              <Form.Item name="chipType" label="芯片类型" rules={[{ required: true, message: "请选择芯片类型" }]}>
+                <Select placeholder="选择芯片类型">
+                  {CHIP_TYPES.map((t) => <Option key={t} value={t}>{CHIP_TYPE_LABELS[t]}</Option>)}
+                </Select>
+              </Form.Item>
+            </Col>
           </Row>
 
-          <Form.Item name="chipType" label="类型" rules={[{ required: true, message: "请选择芯片类型" }]}>
-            <Select placeholder="选择芯片类型">
-              {CHIP_TYPES.map((t) => <Option key={t} value={t}>{CHIP_TYPE_LABELS[t]}</Option>)}
-            </Select>
-          </Form.Item>
-
-          <Card size="small" title="技术规格（选填）" style={{ marginBottom: 16 }}>
+          {/* ── 技术规格区域（增强 #159） ── */}
+          <Card
+            size="small"
+            title={<span><ThunderboltOutlined style={{ marginRight: 6 }} />技术规格</span>}
+            style={{ marginBottom: 16 }}
+            type="inner"
+          >
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item label="标称算力" style={{ marginBottom: 8 }}>
+                  <Space.Compact style={{ width: "100%" }}>
+                    <Form.Item name="computePower" noStyle>
+                      <InputNumber placeholder="如 312" style={{ width: "60%" }} min={0} />
+                    </Form.Item>
+                    <Form.Item name="computePowerUnit" noStyle initialValue="TFLOPS">
+                      <Select style={{ width: "40%" }}>
+                        <Option value="TOPS">TOPS</Option>
+                        <Option value="TFLOPS">TFLOPS</Option>
+                        <Option value="PFLOPS">PFLOPS</Option>
+                      </Select>
+                    </Form.Item>
+                  </Space.Compact>
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item label="显存/内存" style={{ marginBottom: 8 }}>
+                  <Space.Compact style={{ width: "100%" }}>
+                    <Form.Item name="memory" noStyle>
+                      <InputNumber placeholder="如 80" style={{ width: "60%" }} min={0} />
+                    </Form.Item>
+                    <Form.Item name="memoryType" noStyle initialValue="HBM2e">
+                      <Select style={{ width: "40%" }}>
+                        <Option value="HBM2e">GB HBM2e</Option>
+                        <Option value="HBM3">GB HBM3</Option>
+                        <Option value="GDDR6">GB GDDR6</Option>
+                        <Option value="GDDR6X">GB GDDR6X</Option>
+                        <Option value="DDR5">GB DDR5</Option>
+                        <Option value="LPDDR5">GB LPDDR5</Option>
+                      </Select>
+                    </Form.Item>
+                  </Space.Compact>
+                </Form.Item>
+              </Col>
+            </Row>
             <Row gutter={16}>
               <Col span={8}>
-                <Form.Item name="computePower" label="标称算力">
-                  <Input placeholder="如 312 TFLOPS" />
+                <Form.Item name="tdp" label="TDP 功耗" style={{ marginBottom: 8 }}>
+                  <InputNumber placeholder="如 400" style={{ width: "100%" }} min={0} addonAfter="W" />
                 </Form.Item>
               </Col>
               <Col span={8}>
-                <Form.Item name="memory" label="显存/内存">
-                  <Input placeholder="如 80GB HBM2e" />
+                <Form.Item name="frequency" label="频率" style={{ marginBottom: 8 }}>
+                  <InputNumber placeholder="如 1.41" style={{ width: "100%" }} min={0} step={0.01} addonAfter="GHz" />
                 </Form.Item>
               </Col>
               <Col span={8}>
-                <Form.Item name="tdp" label="TDP功耗">
-                  <Input placeholder="如 400W" />
+                <Form.Item name="cores" label="核心数" style={{ marginBottom: 8 }}>
+                  <InputNumber placeholder="如 6912" style={{ width: "100%" }} min={0} />
                 </Form.Item>
               </Col>
             </Row>
           </Card>
 
-          <Card size="small" title="软件栈（选填）" style={{ marginBottom: 16 }}>
+          {/* ── 软件栈区域（增强 #159） ── */}
+          <Card
+            size="small"
+            title={<span><AppstoreOutlined style={{ marginRight: 6 }} />软件栈</span>}
+            style={{ marginBottom: 16 }}
+            type="inner"
+          >
             <Row gutter={16}>
               <Col span={12}>
-                <Form.Item name="driver" label="驱动版本">
+                <Form.Item name="driver" label="驱动版本" style={{ marginBottom: 8 }}>
                   <Input placeholder="如 535.129.03" />
                 </Form.Item>
               </Col>
               <Col span={12}>
-                <Form.Item name="sdk" label="SDK版本">
+                <Form.Item name="sdk" label="SDK 版本" style={{ marginBottom: 8 }}>
                   <Input placeholder="如 CUDA 12.2" />
                 </Form.Item>
               </Col>
             </Row>
-            <Form.Item name="frameworks" label="适配框架">
-              <Select mode="multiple" placeholder="选择适配框架" allowClear>
-                {FRAMEWORK_OPTIONS.map((f) => <Option key={f} value={f}>{f}</Option>)}
+            <Form.Item name="frameworks" label="适配框架" style={{ marginBottom: 8 }}>
+              <Select
+                mode="tags"
+                placeholder="选择或输入适配框架"
+                allowClear
+                tokenSeparators={[","]}
+              >
+                {FRAMEWORK_OPTIONS.map((f) => (
+                  <Option key={f} value={f}>{f}</Option>
+                ))}
               </Select>
             </Form.Item>
           </Card>
 
-          <Form.Item name="tags" label="标签">
-            <Input placeholder="多个标签用逗号分隔" />
-          </Form.Item>
-          <Form.Item name="remark" label="备注">
-            <TextArea rows={3} placeholder="备注信息..." />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="tags" label="标签">
+                <Input placeholder="多个标签用逗号分隔" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="remark" label="备注">
+                <Input placeholder="备注信息..." />
+              </Form.Item>
+            </Col>
+          </Row>
         </Form>
       </Modal>
 
@@ -416,14 +499,16 @@ export default function ChipList({ onOpenProfile, onCompare }) {
               <Descriptions.Item label="状态">
                 {(() => { const s = STATUS_MAP[detailRecord.status] || { text: detailRecord.status, status: "default" }; return <Badge status={s.status} text={s.text} />; })()}
               </Descriptions.Item>
-              <Descriptions.Item label="标称算力">{tech.computePower || "-"}</Descriptions.Item>
-              <Descriptions.Item label="显存/内存">{tech.memory || "-"}</Descriptions.Item>
-              <Descriptions.Item label="TDP功耗">{tech.tdp || "-"}</Descriptions.Item>
+              <Descriptions.Item label="标称算力">{tech.computePower ? `${tech.computePower} ${tech.computePowerUnit || "TFLOPS"}` : "-"}</Descriptions.Item>
+              <Descriptions.Item label="显存/内存">{tech.memory ? `${tech.memory} GB ${tech.memoryType || ""}` : "-"}</Descriptions.Item>
+              <Descriptions.Item label="TDP功耗">{tech.tdp ? `${tech.tdp} W` : "-"}</Descriptions.Item>
+              <Descriptions.Item label="频率">{tech.frequency ? `${tech.frequency} GHz` : "-"}</Descriptions.Item>
+              <Descriptions.Item label="核心数">{tech.cores || "-"}</Descriptions.Item>
               <Descriptions.Item label="驱动版本">{sw.driver || "-"}</Descriptions.Item>
               <Descriptions.Item label="SDK版本">{sw.sdk || "-"}</Descriptions.Item>
               <Descriptions.Item label="适配框架">
                 {(sw.frameworks || []).length > 0
-                  ? sw.frameworks.map((f) => <Tag key={f} color="blue">{f}</Tag>)
+                  ? sw.frameworks.map((f) => <Tag key={f} color={FRAMEWORK_COLORS[f] || "blue"}>{f}</Tag>)
                   : "-"}
               </Descriptions.Item>
               <Descriptions.Item label="标签">{detailRecord.tags || "-"}</Descriptions.Item>

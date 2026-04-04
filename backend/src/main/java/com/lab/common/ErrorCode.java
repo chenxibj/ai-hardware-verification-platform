@@ -25,6 +25,7 @@ public enum ErrorCode {
     // 芯片
     CHIP_DUPLICATE("CHIP-001", "芯片编号重复", 409),
     CHIP_NOT_FOUND("CHIP-002", "芯片不存在", 404),
+    CHIP_NAME_DUPLICATE("CHIP-003", "芯片名称已存在", 409),
 
     // 用户/认证
     AUTH_INVALID_CREDENTIALS("AUTH-001", "用户名或密码错误", 401),
