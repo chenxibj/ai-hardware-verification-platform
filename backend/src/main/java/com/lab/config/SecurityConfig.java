@@ -61,6 +61,7 @@ public class SecurityConfig {
                 .requestMatchers("/tasks/*/result").permitAll()
                 .requestMatchers("/tasks/*/failure").permitAll()
                 .requestMatchers("/tasks/*/complete").permitAll()
+                .requestMatchers(HttpMethod.GET, "/templates", "/templates/**").permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .anyRequest().authenticated()
             )

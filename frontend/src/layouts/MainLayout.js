@@ -2,15 +2,16 @@
  * @file MainLayout.js
  * @description 主布局组件：侧边栏 + 顶栏 + 内容区 + Footer
  * @refactor #128 导航结构重组 - 从13模块精简为4+1导航
+ * @feat #161 新增模板浏览导航入口
  */
 import React, { useState } from "react";
-import { Layout, Menu, Button, Badge, Dropdown, Avatar, Typography } from "antd";
+import { Layout, Menu, Button, Badge, Dropdown, Typography } from "antd";
 import {
   DashboardOutlined, ExperimentOutlined, FileSearchOutlined,
   ClusterOutlined, SettingOutlined,
   BellOutlined, UserOutlined, LogoutOutlined,
   UnorderedListOutlined, SwapOutlined, PlusCircleOutlined,
-  TeamOutlined, AuditOutlined,
+  TeamOutlined, AuditOutlined, AppstoreOutlined,
 } from "@ant-design/icons";
 import useAuthStore from "../stores/useAuthStore";
 import useNotificationStore from "../stores/useNotificationStore";
@@ -24,6 +25,7 @@ const PAGE_TITLES = {
   "chip-compare": "芯片对比",
   plans: "评测计划列表",
   "plans-create": "创建评测计划",
+  "template-list": "评测模板",
   nodes: "节点管理",
   users: "用户管理",
   audit: "操作审计",
@@ -55,6 +57,7 @@ const menuItems = [
     children: [
       { key: "plans", icon: <UnorderedListOutlined />, label: "计划列表" },
       { key: "plans-create", icon: <PlusCircleOutlined />, label: "创建计划" },
+      { key: "template-list", icon: <AppstoreOutlined />, label: "评测模板" },
     ],
   },
   {
@@ -92,7 +95,7 @@ export default function MainLayout({ currentPage, setCurrentPage, children }) {
   const getDefaultOpenKeys = () => {
     const parentMap = {
       chips: "chip-mgmt", "chip-compare": "chip-mgmt",
-      plans: "plan-mgmt", "plans-create": "plan-mgmt",
+      plans: "plan-mgmt", "plans-create": "plan-mgmt", "template-list": "plan-mgmt",
       users: "sys-mgmt", audit: "sys-mgmt",
     };
     const parent = parentMap[currentPage];

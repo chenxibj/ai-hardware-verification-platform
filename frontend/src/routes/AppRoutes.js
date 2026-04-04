@@ -5,6 +5,8 @@
  * @feat #134 支持 planMonitorId 渲染执行监控页面
  * @feat #136 支持 chipReportId 渲染芯片评价报告页面
  * @feat #137 支持 chipProfileId 渲染芯片档案页
+ * @feat #161 新增评测模板浏览页
+ * @feat #162 6步创建向导
  */
 import React from "react";
 import Dashboard from "../pages/Dashboard";
@@ -15,6 +17,7 @@ import PlanList from "../pages/PlanList";
 import PlanCreate from "../pages/PlanCreate";
 import PlanMonitor from "../pages/PlanMonitor";
 import ChipReport from "../pages/ChipReport";
+import TemplateList from "../pages/TemplateList";
 import Nodes from "../pages/Nodes";
 import Users from "../pages/Users";
 import Audit from "../pages/Audit";
@@ -38,6 +41,7 @@ const PAGE_COMPONENTS = {
   "chip-compare": ChipCompare,
   plans: PlanList,
   "plans-create": PlanCreate,
+  "template-list": TemplateList,
   nodes: Nodes,
   users: Users,
   audit: Audit,

@@ -35,6 +35,15 @@ public class TaskTemplate {
     @Column(name = "is_system")
     private Boolean isSystem;
 
+    @Column(name = "evaluation_layer", length = 32)
+    private String evaluationLayer;
+
+    @Column(name = "version", length = 32)
+    private String version;
+
+    @Column(name = "fork_from")
+    private Long forkFrom;
+
     @Column(name = "created_by")
     private Long createdBy;
 

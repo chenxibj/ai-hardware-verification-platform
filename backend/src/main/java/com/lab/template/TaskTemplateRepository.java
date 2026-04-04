@@ -11,6 +11,7 @@ import java.util.List;
 public interface TaskTemplateRepository extends JpaRepository<TaskTemplate, Long> {
     List<TaskTemplate> findByIsSystemTrue();
     List<TaskTemplate> findByCreatedBy(Long userId);
+    List<TaskTemplate> findByEvaluationLayer(String evaluationLayer);
 
     @Query("SELECT t FROM TaskTemplate t WHERE t.isSystem = true OR t.createdBy = :userId")
     List<TaskTemplate> findAvailableTemplates(@Param("userId") Long userId);
