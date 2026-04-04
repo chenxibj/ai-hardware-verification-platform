@@ -10,7 +10,7 @@ import {
 } from "antd";
 import {
   PlusOutlined, ReloadOutlined, SearchOutlined, EyeOutlined,
-  EditOutlined, DeleteOutlined, ExperimentOutlined,
+  EditOutlined, DeleteOutlined, ExperimentOutlined, SwapOutlined,
 } from "@ant-design/icons";
 import api from "../utils/api";
 
@@ -30,7 +30,7 @@ const STATUS_MAP = {
 const FRAMEWORK_OPTIONS = ["PyTorch", "ONNX Runtime", "TensorFlow", "PaddlePaddle"];
 
 /* ── 主组件 ── */
-export default function ChipList({ onOpenProfile }) {
+export default function ChipList({ onOpenProfile, onCompare }) {
   /* state */
   const [chips, setChips] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -49,6 +49,8 @@ export default function ChipList({ onOpenProfile }) {
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailRecord, setDetailRecord] = useState(null);
   const [submitLoading, setSubmitLoading] = useState(false);
+
+  const [selectedRowKeys, setSelectedRowKeys] = useState([]);
 
   const [form] = Form.useForm();
 
@@ -277,6 +279,14 @@ export default function ChipList({ onOpenProfile }) {
             >
               {Object.entries(STATUS_MAP).map(([k, v]) => <Option key={k} value={k}>{v.text}</Option>)}
             </Select>
+            {selectedRowKeys.length >= 2 && selectedRowKeys.length <= 4 && (
+              <Button type="primary" icon={<SwapOutlined />} onClick={() => onCompare && onCompare(selectedRowKeys)}>
+                芯片对比 ({selectedRowKeys.length})
+              </Button>
+            )}
+            {selectedRowKeys.length > 4 && (
+              <span style={{ color: '#ff4d4f', fontSize: 12 }}>最多选择4颗芯片</span>
+            )}
             <Button icon={<ReloadOutlined />} onClick={() => { fetchChips(); fetchStats(); }}>刷新</Button>
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增芯片</Button>
           </Space>
@@ -284,6 +294,13 @@ export default function ChipList({ onOpenProfile }) {
       >
         <Table
           rowKey="id"
+          rowSelection={{
+            selectedRowKeys,
+            onChange: (keys) => setSelectedRowKeys(keys),
+            getCheckboxProps: (record) => ({
+              disabled: selectedRowKeys.length >= 4 && !selectedRowKeys.includes(record.id),
+            }),
+          }}
           columns={columns}
           dataSource={chips}
           loading={loading}

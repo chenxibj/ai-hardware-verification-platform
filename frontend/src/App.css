@@ -1,0 +1,10 @@
+
+/* ── Print Styles (#142) ── */
+@media print {
+  .ant-layout-sider, .ant-layout-header, .no-print { display: none !important; }
+  .ant-layout-content { margin: 0 !important; padding: 20px !important; }
+  .ant-table { page-break-inside: avoid; }
+  .ant-table-pagination { display: none !important; }
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .ant-progress-circle .ant-progress-text { color: inherit !important; }
+}

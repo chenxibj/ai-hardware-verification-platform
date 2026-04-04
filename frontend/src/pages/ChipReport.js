@@ -223,7 +223,7 @@ export default function ChipReport({ reportId, onBack }) {
   return (
     <div style={{ padding: "0" }}>
       {/* 操作栏：返回 + 下载PDF */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }} data-html2canvas-ignore>
+      <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }} data-html2canvas-ignore>
         <div>
           {onBack && (
             <Button type="link" icon={<ArrowLeftOutlined />} onClick={onBack}

@@ -20,6 +20,7 @@ function App() {
   const [planMonitorId, setPlanMonitorId] = useState(null);
   const [chipReportId, setChipReportId] = useState(null);
   const [chipProfileId, setChipProfileId] = useState(null);
+  const [compareChipIds, setCompareChipIds] = useState([]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -37,6 +38,7 @@ function App() {
     setPlanMonitorId(null);
     setChipReportId(null);
     setChipProfileId(null);
+    setCompareChipIds([]);
     setCurrentPage(page);
   };
 
@@ -44,6 +46,7 @@ function App() {
 
   // 确定当前高亮的导航项
   const getActiveNav = () => {
+    if (currentPage === "chip-compare") return "chips";
     if (chipProfileId) return "chips";
     if (chipReportId) return "reports";
     if (planMonitorId) return "plans";
@@ -57,10 +60,12 @@ function App() {
         planMonitorId={planMonitorId}
         chipReportId={chipReportId}
         chipProfileId={chipProfileId}
+        compareChipIds={compareChipIds}
         setCurrentPage={setCurrentPage}
         setPlanMonitorId={setPlanMonitorId}
         setChipReportId={setChipReportId}
         setChipProfileId={setChipProfileId}
+        setCompareChipIds={setCompareChipIds}
       />
     </MainLayout>
   );

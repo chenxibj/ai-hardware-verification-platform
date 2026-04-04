@@ -56,9 +56,22 @@ const PAGE_COMPONENTS = {
 };
 
 export default function AppRoutes({
-  currentPage, planMonitorId, chipReportId, chipProfileId,
-  setCurrentPage, setPlanMonitorId, setChipReportId, setChipProfileId,
+  currentPage, planMonitorId, chipReportId, chipProfileId, compareChipIds,
+  setCurrentPage, setPlanMonitorId, setChipReportId, setChipProfileId, setCompareChipIds,
 }) {
+  // 如果进入对比页
+  if (currentPage === "chip-compare") {
+    return (
+      <ChipCompare
+        selectedChipIds={compareChipIds || []}
+        onBack={() => {
+          setCompareChipIds([]);
+          setCurrentPage("chips");
+        }}
+      />
+    );
+  }
+
   // 如果有 chipProfileId，渲染芯片档案页
   if (chipProfileId) {
     return (
@@ -116,7 +129,15 @@ export default function AppRoutes({
   }
   // 传递 setChipProfileId 给 ChipList 以支持跳转到档案页
   if (currentPage === "chips") {
-    return <ChipList onOpenProfile={(id) => setChipProfileId(id)} />;
+    return (
+      <ChipList
+        onOpenProfile={(id) => setChipProfileId(id)}
+        onCompare={(ids) => {
+          setCompareChipIds(ids);
+          setCurrentPage("chip-compare");
+        }}
+      />
+    );
   }
   return <PageComponent />;
 }
