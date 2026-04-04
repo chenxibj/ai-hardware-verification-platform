@@ -34,6 +34,13 @@ import Resources from "../pages/Resources";
 import Community from "../pages/Community";
 import AuditLogs from "../pages/AuditLogs";
 import Settings from "../pages/Settings";
+import Forum from "../pages/Forum";
+import DemandBoard from "../pages/DemandBoard";
+import UserPoints from "../pages/UserPoints";
+import UserPreferences from "../pages/UserPreferences";
+import SchedulerConfig from "../pages/SchedulerConfig";
+import Billing from "../pages/Billing";
+
 
 const PAGE_COMPONENTS = {
   dashboard: Dashboard,
@@ -59,6 +66,12 @@ const PAGE_COMPONENTS = {
   community: Community,
   "audit-logs": AuditLogs,
   settings: Settings,
+  forum: Forum,
+  "demand-board": DemandBoard,
+  "user-points": UserPoints,
+  "user-preferences": UserPreferences,
+  "scheduler-config": SchedulerConfig,
+  billing: Billing,
 };
 
 export default function AppRoutes({

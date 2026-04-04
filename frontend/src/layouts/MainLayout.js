@@ -13,7 +13,7 @@ import {
   BellOutlined, UserOutlined, LogoutOutlined,
   UnorderedListOutlined, SwapOutlined, PlusCircleOutlined,
   TeamOutlined, AuditOutlined, AppstoreOutlined,
-  DatabaseOutlined, CloudServerOutlined,
+  DatabaseOutlined, CloudServerOutlined, StarOutlined, DollarOutlined,
 } from "@ant-design/icons";
 import useAuthStore from "../stores/useAuthStore";
 import useNotificationStore from "../stores/useNotificationStore";
@@ -39,6 +39,13 @@ const PAGE_TITLES = {
   tasks: "评测任务",
   resources: "计算资源",
   settings: "系统设置",
+  forum: "论坛",
+  "demand-board": "需求对接",
+  "user-points": "我的积分",
+  "user-preferences": "偏好设置",
+  "scheduler-config": "调度配置",
+  billing: "计费管理",
+  workflows: "流程编排",
 };
 
 const menuItems = [
@@ -85,6 +92,25 @@ const menuItems = [
     ],
   },
   {
+    key: "community-mgmt",
+    icon: <TeamOutlined />,
+    label: "社区",
+    children: [
+      { key: "community", icon: <TeamOutlined />, label: "社区首页" },
+      { key: "forum", icon: <UnorderedListOutlined />, label: "论坛" },
+      { key: "demand-board", icon: <SwapOutlined />, label: "需求对接" },
+    ],
+  },
+  {
+    key: "user-center",
+    icon: <TeamOutlined />,
+    label: "个人中心",
+    children: [
+      { key: "user-points", icon: <StarOutlined />, label: "我的积分" },
+      { key: "user-preferences", icon: <SettingOutlined />, label: "偏好设置" },
+    ],
+  },
+  {
     key: "sys-mgmt",
     icon: <SettingOutlined />,
     label: "系统设置",
@@ -92,6 +118,9 @@ const menuItems = [
       { key: "users", icon: <TeamOutlined />, label: "用户管理" },
       { key: "tenants", icon: <TeamOutlined />, label: "租户管理" },
       { key: "audit", icon: <AuditOutlined />, label: "操作审计" },
+      { key: "scheduler-config", icon: <SettingOutlined />, label: "调度配置" },
+      { key: "billing", icon: <DollarOutlined />, label: "计费管理" },
+      { key: "workflows", icon: <AppstoreOutlined />, label: "流程编排" },
     ],
   },
 ];

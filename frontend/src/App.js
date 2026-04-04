@@ -10,6 +10,7 @@ import useNotificationStore from "./stores/useNotificationStore";
 import Login from "./pages/Login";
 import MainLayout from "./layouts/MainLayout";
 import AppRoutes from "./routes/AppRoutes";
+import HelpPanel from "./components/HelpPanel";
 
 function App() {
   const user = useAuthStore(s => s.user);
