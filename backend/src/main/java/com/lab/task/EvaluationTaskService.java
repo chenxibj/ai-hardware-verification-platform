@@ -8,6 +8,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import com.lab.plan.EvaluationPlanRepository;
+import com.lab.plan.EvaluationPlan;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -19,6 +22,7 @@ import java.util.Optional;
 public class EvaluationTaskService {
 
     private final EvaluationTaskRepository taskRepository;
+    private final EvaluationPlanRepository planRepository;
 
     /**
      * 创建评测任务
@@ -189,4 +193,44 @@ public class EvaluationTaskService {
         return updateTaskStatus(taskId, EvaluationTask.TaskStatus.PENDING, "Resumed by user");
     }
 
+
+    /**
+     * 跳过任务 (#163)
+     */
+    @Transactional
+    public EvaluationTask skipTask(Long taskId, Long userId) {
+        EvaluationTask task = taskRepository.findById(taskId)
+                .orElseThrow(() -> new RuntimeException("Task not found: " + taskId));
+
+        if (task.getStatus() != EvaluationTask.TaskStatus.FAILED &&
+            task.getStatus() != EvaluationTask.TaskStatus.PENDING) {
+            throw new RuntimeException("Only failed or pending tasks can be skipped");
+        }
+
+        task.setStatus(EvaluationTask.TaskStatus.SKIPPED);
+        task.setCompletedAt(Instant.now());
+        EvaluationTask saved = taskRepository.save(task);
+        log.info("Skipped task: {}", taskId);
+
+        // 更新计划进度
+        if (task.getPlanId() != null) {
+            updatePlanProgressAfterSkip(task.getPlanId());
+        }
+        return saved;
+    }
+
+    private void updatePlanProgressAfterSkip(Long planId) {
+        EvaluationPlan plan = planRepository.findById(planId).orElse(null);
+        if (plan == null) return;
+        List<EvaluationTask> tasks = taskRepository.findByPlanId(planId);
+        int total = tasks.size();
+        long done = tasks.stream()
+                .filter(t -> t.getStatus() == EvaluationTask.TaskStatus.COMPLETED ||
+                             t.getStatus() == EvaluationTask.TaskStatus.FAILED ||
+                             t.getStatus() == EvaluationTask.TaskStatus.SKIPPED)
+                .count();
+        plan.setCompletedTasks((int) done);
+        plan.setProgress(total > 0 ? (int) (done * 100 / total) : 0);
+        planRepository.save(plan);
+    }
 }

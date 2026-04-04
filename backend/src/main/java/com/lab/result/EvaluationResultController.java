@@ -137,4 +137,16 @@ public class EvaluationResultController {
         resp.put("message", message);
         return resp;
     }
+
+    @GetMapping("/results/by-task")
+    @RequireRole(Role.VIEWER)
+    public ResponseEntity<Map<String, Object>> getResultByTaskId(@RequestParam Long taskId) {
+        try {
+            EvaluationResult result = resultRepository.findByTaskId(taskId)
+                    .orElseThrow(() -> new RuntimeException("Result not found for task: " + taskId));
+            return ResponseEntity.ok(success(result));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(error(e.getMessage()));
+        }
+    }
 }

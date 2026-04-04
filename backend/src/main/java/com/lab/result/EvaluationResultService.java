@@ -111,10 +111,12 @@ public class EvaluationResultService {
         int total = tasks.size();
         long completed = tasks.stream()
                 .filter(t -> t.getStatus() == EvaluationTask.TaskStatus.COMPLETED ||
-                             t.getStatus() == EvaluationTask.TaskStatus.FAILED)
+                             t.getStatus() == EvaluationTask.TaskStatus.FAILED ||
+                             t.getStatus() == EvaluationTask.TaskStatus.SKIPPED)
                 .count();
         long failed = tasks.stream()
-                .filter(t -> t.getStatus() == EvaluationTask.TaskStatus.FAILED)
+                .filter(t -> t.getStatus() == EvaluationTask.TaskStatus.FAILED ||
+                             t.getStatus() == EvaluationTask.TaskStatus.SKIPPED)
                 .count();
 
         plan.setCompletedTasks((int) completed);

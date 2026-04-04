@@ -1,8 +1,7 @@
 /**
  * @file App.js
- * @description 应用入口，组合布局和路由
- * @feat #136 添加 chipReportId 状态管理
- * @feat #137 添加 chipProfileId 状态管理（芯片档案页）
+ * @description 应用入口
+ * @feat #136, #137, #164 taskResultId
  */
 import React, { useState, useEffect } from "react";
 import api from "./utils/api";
@@ -21,6 +20,7 @@ function App() {
   const [chipReportId, setChipReportId] = useState(null);
   const [chipProfileId, setChipProfileId] = useState(null);
   const [compareChipIds, setCompareChipIds] = useState([]);
+  const [taskResultId, setTaskResultId] = useState(null);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -33,23 +33,23 @@ function App() {
     }
   }, [isAuthenticated, currentPage, setUnreadCount]);
 
-  // 切换页面时清除监控、报告和档案状态
   const handleSetCurrentPage = (page) => {
     setPlanMonitorId(null);
     setChipReportId(null);
     setChipProfileId(null);
     setCompareChipIds([]);
+    setTaskResultId(null);
     setCurrentPage(page);
   };
 
   if (!isAuthenticated || !user) return <Login />;
 
-  // 确定当前高亮的导航项
   const getActiveNav = () => {
     if (currentPage === "chip-compare") return "chips";
     if (chipProfileId) return "chips";
     if (chipReportId) return "reports";
     if (planMonitorId) return "plans";
+    if (taskResultId) return "plans";
     return currentPage;
   };
 
@@ -61,11 +61,13 @@ function App() {
         chipReportId={chipReportId}
         chipProfileId={chipProfileId}
         compareChipIds={compareChipIds}
+        taskResultId={taskResultId}
         setCurrentPage={setCurrentPage}
         setPlanMonitorId={setPlanMonitorId}
         setChipReportId={setChipReportId}
         setChipProfileId={setChipProfileId}
         setCompareChipIds={setCompareChipIds}
+        setTaskResultId={setTaskResultId}
       />
     </MainLayout>
   );
