@@ -67,22 +67,21 @@ public class TemplateController {
             @RequestBody TaskTemplate template,
             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
         if (userId == null) userId = 1L;
-        // #198: 校验 configJson 非空且包含有效配置
-        String configJson = template.getConfigJson();
-        if (configJson != null && !configJson.isBlank() && !configJson.equals("{}")) {
-            if (!configJson.contains("operators") && !configJson.contains("models")
-                    && !configJson.contains("benchmarks") && !configJson.contains("itemCount")) {
-                throw new BusinessException(ErrorCode.BAD_REQUEST, "configJson 需包含 operators、models 等有效配置");
+        // 校验 configJson：非空时验证 JSON 格式，为空则设置默认值
+        if (template.getConfigJson() != null && !template.getConfigJson().isBlank()) {
+            try {
+                // 验证是有效 JSON
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree(template.getConfigJson());
+            } catch (Exception e) {
+                return ResponseEntity.ok(ApiResponse.error("PARAM_INVALID", "configJson 不是有效的 JSON 格式"));
             }
+        } else {
+            // 设置默认空配置
+            template.setConfigJson("{}");
         }
         template.setId(null);
         template.setIsSystem(false);
         template.setCreatedBy(userId);
-        // Bug #198: 校验 configJson 不能为空
-        if (template.getConfigJson() == null || template.getConfigJson().trim().isEmpty()
-                || template.getConfigJson().equals("{}")) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "模板配置不能为空，请至少选择一个评测算子或模型");
-        }
         TaskTemplate saved = templateRepository.save(template);
         log.info("Created custom template: {} (id={})", saved.getName(), saved.getId());
         return ResponseEntity.ok(ApiResponse.ok(saved));

@@ -9,6 +9,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -22,6 +23,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity(prePostEnabled = true)
 public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthFilter;
     private final AgentTokenFilter agentTokenFilter;
@@ -42,13 +44,13 @@ public class SecurityConfig {
                     response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                     response.setContentType(MediaType.APPLICATION_JSON_VALUE);
                     response.setCharacterEncoding("UTF-8");
-                    response.getWriter().write("{\"code\":401,\"message\":\"未认证或Token已过期，请重新登录\"}");
+                    response.getWriter().write("{\"code\":\"AUTH-002\",\"message\":\"未认证或Token已过期，请重新登录\"}");
                 })
                 .accessDeniedHandler((request, response, accessDeniedException) -> {
                     response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                     response.setContentType(MediaType.APPLICATION_JSON_VALUE);
                     response.setCharacterEncoding("UTF-8");
-                    response.getWriter().write("{\"code\":403,\"message\":\"权限不足\"}");
+                    response.getWriter().write("{\"code\":\"AUTH-003\",\"message\":\"权限不足，您的角色无法执行此操作\"}");
                 })
             )
             .authorizeHttpRequests(auth -> auth
@@ -67,6 +69,18 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/templates", "/templates/**").permitAll()
                 .requestMatchers("/tasks/*/logs", "/tasks/*/logs/download").permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                // RBAC: 用户管理仅 super_admin
+                .requestMatchers(HttpMethod.POST, "/users").hasRole("super_admin")
+                .requestMatchers(HttpMethod.PUT, "/users/*/role").hasRole("super_admin")
+                .requestMatchers(HttpMethod.PUT, "/users/*/status").hasRole("super_admin")
+                .requestMatchers("/users/**").hasAnyRole("super_admin", "tenant_admin")
+                // RBAC: 芯片注册/修改/删除需 engineer 以上
+                .requestMatchers(HttpMethod.POST, "/chips").hasAnyRole("super_admin", "tenant_admin", "engineer")
+                .requestMatchers(HttpMethod.PUT, "/chips/**").hasAnyRole("super_admin", "tenant_admin", "engineer")
+                .requestMatchers(HttpMethod.DELETE, "/chips/**").hasAnyRole("super_admin", "tenant_admin", "engineer")
+                // RBAC: 创建评测计划需 engineer 以上
+                .requestMatchers(HttpMethod.POST, "/plans").hasAnyRole("super_admin", "tenant_admin", "engineer")
+                // 其余需认证
                 .anyRequest().authenticated()
             )
             .addFilterBefore(this.agentTokenFilter, UsernamePasswordAuthenticationFilter.class)

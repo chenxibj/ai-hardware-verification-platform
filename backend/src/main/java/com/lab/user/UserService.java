@@ -1,17 +1,15 @@
 package com.lab.user;
 
-import com.lab.common.BusinessException;
-import com.lab.common.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.regex.Pattern;
 
 @Slf4j
 @Service
@@ -21,122 +19,90 @@ public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
 
-    private static final int MAX_FAILED_ATTEMPTS = 5;
-    private static final Duration LOCK_DURATION = Duration.ofHours(1);
-    private static final Pattern USERNAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_]{4,30}$");
-    private static final Pattern PASSWORD_UPPER = Pattern.compile("[A-Z]");
-    private static final Pattern PASSWORD_LOWER = Pattern.compile("[a-z]");
-    private static final Pattern PASSWORD_DIGIT = Pattern.compile("[0-9]");
+    private static final java.util.Set<String> VALID_ROLES = java.util.Set.of(
+            "super_admin", "tenant_admin", "engineer", "product_mgr", "viewer"
+    );
 
-    public User register(String email, String password, String username) {
-        return register(email, password, username, null, null, null);
-    }
-
+    /**
+     * 注册用户
+     */
     @Transactional
-    public User register(String email, String password, String username,
-                         String organization, String phone, String role) {
-        // Username validation
-        if (username == null || !USERNAME_PATTERN.matcher(username).matches()) {
-            throw new BusinessException(ErrorCode.AUTH_INVALID_USERNAME);
-        }
-
-        // Password validation
-        if (password == null || password.length() < 8 || password.length() > 32
-                || !PASSWORD_UPPER.matcher(password).find()
-                || !PASSWORD_LOWER.matcher(password).find()
-                || !PASSWORD_DIGIT.matcher(password).find()) {
-            throw new BusinessException(ErrorCode.AUTH_WEAK_PASSWORD);
-        }
-
-        // Organization validation
-        if (organization == null || organization.trim().isEmpty()) {
-            throw new BusinessException(ErrorCode.AUTH_ORGANIZATION_REQUIRED);
-        }
-
-        // Uniqueness check
+    public User register(String email, String password, String username, String org, String role) {
+        // 邮箱唯一校验
         if (userRepository.existsByEmail(email)) {
-            throw new BusinessException(ErrorCode.AUTH_EMAIL_EXISTS);
+            throw new RuntimeException("该邮箱已注册: " + email);
         }
+        // 用户名唯一校验
         if (userRepository.findByUsername(username).isPresent()) {
-            throw new BusinessException(ErrorCode.AUTH_USERNAME_EXISTS);
+            throw new RuntimeException("用户名已被使用: " + username);
         }
+        // 用户名长度校验
+        if (username.length() < 4 || username.length() > 30) {
+            throw new RuntimeException("用户名长度需在4-30个字符之间");
+        }
+        // 密码强度校验
+        validatePassword(password);
 
-        // Determine role (default ENGINEER)
-        String assignedRole = "ENGINEER";
-        if (role != null && !role.trim().isEmpty()) {
-            String upper = role.trim().toUpperCase();
-            // Only allow non-admin roles during self-registration
-            if ("ENGINEER".equals(upper) || "PRODUCT_MGR".equals(upper) || "VIEWER".equals(upper)) {
-                assignedRole = upper;
-            }
-        }
+        // 角色校验
+        String finalRole = (role != null && VALID_ROLES.contains(role)) ? role : "engineer";
 
         User user = new User();
-        user.setEmail(email.trim().toLowerCase());
+        user.setEmail(email);
         user.setPassword(passwordEncoder.encode(password));
-        user.setUsername(username.trim());
-        user.setOrganization(organization.trim());
-        user.setPhone(phone != null ? phone.trim() : null);
-        user.setRole(assignedRole);
+        user.setUsername(username);
+        user.setOrg(org);
+        user.setRole(finalRole);
+        user.setUserType(finalRole);
         user.setStatus(User.Status.ACTIVE);
         user.setEmailVerified(false);
         user.setPhoneVerified(false);
-        user.setFailedAttempts(0);
 
         User saved = userRepository.save(user);
-        log.info("User registered: {} ({}) with role {} org={}", saved.getUsername(), saved.getEmail(), assignedRole, organization);
+        log.info("User registered: {} ({}) role={}", saved.getUsername(), saved.getEmail(), saved.getRole());
         return saved;
     }
 
     /**
-     * Record login failure (separate transaction so it commits even when we throw)
+     * 注册用户 (向后兼容3参数版)
      */
-    @Transactional
-    public void recordLoginFailure(User user) {
-        int attempts = (user.getFailedAttempts() == null ? 0 : user.getFailedAttempts()) + 1;
-        user.setFailedAttempts(attempts);
-        if (attempts >= MAX_FAILED_ATTEMPTS) {
-            user.setLockedUntil(Instant.now().plus(LOCK_DURATION));
-        }
-        userRepository.save(user);
-        log.warn("Login failed for user {} ({}): attempt #{}", user.getUsername(), user.getEmail(), attempts);
+    public User register(String email, String password, String username) {
+        return register(email, password, username, null, "engineer");
     }
 
     /**
-     * Authenticate user, throwing appropriate error on failure.
-     * Login failures are persisted in a separate method to avoid rollback.
+     * 密码校验: 8-32字符, 含大写+小写+数字
+     */
+    private void validatePassword(String password) {
+        if (password == null || password.length() < 8 || password.length() > 32) {
+            throw new RuntimeException("密码长度需在8-32个字符之间");
+        }
+        if (!password.matches(".*[A-Z].*")) {
+            throw new RuntimeException("密码必须包含大写字母");
+        }
+        if (!password.matches(".*[a-z].*")) {
+            throw new RuntimeException("密码必须包含小写字母");
+        }
+        if (!password.matches(".*[0-9].*")) {
+            throw new RuntimeException("密码必须包含数字");
+        }
+    }
+
+    /**
+     * 登录认证
      */
     public User authenticate(String email, String password) {
         User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS));
+                .orElseThrow(() -> new RuntimeException("邮箱或密码错误"));
 
-        // Check if account is locked
-        if (user.isLocked()) {
-            long remainingSeconds = Duration.between(Instant.now(), user.getLockedUntil()).getSeconds();
-            long remainingMinutes = (remainingSeconds + 59) / 60;
-            throw new BusinessException(ErrorCode.AUTH_ACCOUNT_LOCKED,
-                    "账户已锁定，请在" + remainingMinutes + "分钟后再试");
+        if (user.getStatus() == User.Status.LOCKED) {
+            throw new RuntimeException("账号已被锁定，请联系管理员");
         }
 
         if (!passwordEncoder.matches(password, user.getPassword())) {
-            // Record failure in a separate transaction
-            recordLoginFailure(user);
-
-            int attempts = user.getFailedAttempts(); // already incremented by recordLoginFailure
-            if (attempts >= MAX_FAILED_ATTEMPTS) {
-                throw new BusinessException(ErrorCode.AUTH_ACCOUNT_LOCKED,
-                        "连续" + MAX_FAILED_ATTEMPTS + "次密码错误，账户已锁定1小时");
-            }
-            int remaining = MAX_FAILED_ATTEMPTS - attempts;
-            throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS,
-                    "用户名或密码错误，还可尝试" + remaining + "次");
+            throw new RuntimeException("邮箱或密码错误");
         }
 
-        // Login success: reset failed attempts
-        if (user.getFailedAttempts() != null && user.getFailedAttempts() > 0) {
-            user.setFailedAttempts(0);
-            user.setLockedUntil(null);
-        }
+        // 更新最后登录时间
         user.setLastLoginAt(Instant.now());
         userRepository.save(user);
 
@@ -151,54 +117,104 @@ public class UserService {
         return userRepository.findByEmail(email);
     }
 
-    public void initAdminUser() {
-        if (!userRepository.existsByEmail("admin@ahvp.com")) {
-            User admin = new User();
-            admin.setEmail("admin@ahvp.com");
-            admin.setPassword(passwordEncoder.encode("admin123"));
-            admin.setUsername("admin");
-            admin.setRole("SUPER_ADMIN");
-            admin.setOrganization("System");
-            admin.setStatus(User.Status.ACTIVE);
-            admin.setEmailVerified(true);
-            admin.setPhoneVerified(false);
-            admin.setFailedAttempts(0);
-            userRepository.save(admin);
-            log.info("Admin user initialized with SUPER_ADMIN role");
-        }
+    /**
+     * 用户列表（分页）
+     */
+    @Transactional(readOnly = true)
+    public Page<User> listUsers(Pageable pageable) {
+        return userRepository.findAll(pageable);
     }
 
-    // ---- Methods added for UserController compatibility ----
-
-    public org.springframework.data.domain.Page<User> listUsers(org.springframework.data.domain.PageRequest pageRequest) {
-        return userRepository.findAll(pageRequest);
-    }
-
+    /**
+     * 创建用户（管理员操作）
+     */
     @Transactional
     public User createUser(String username, String email, String password, String phone, String role) {
-        return register(email, password != null ? password : "TempPass1", username,
-                "Default Org", phone, role);
-    }
+        if (userRepository.existsByEmail(email)) {
+            throw new RuntimeException("该邮箱已注册: " + email);
+        }
+        String finalRole = (role != null && VALID_ROLES.contains(role)) ? role : "engineer";
 
-    @Transactional
-    public User updateRole(Long id, String role) {
-        User user = userRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS));
-        user.setRole(role);
+        User user = new User();
+        user.setUsername(username);
+        user.setEmail(email);
+        user.setPassword(passwordEncoder.encode(password != null ? password : "Ahvp123456"));
+        user.setPhone(phone);
+        user.setRole(finalRole);
+        user.setUserType(finalRole);
+        user.setStatus(User.Status.ACTIVE);
+        user.setEmailVerified(false);
+        user.setPhoneVerified(false);
+
         return userRepository.save(user);
     }
 
+    /**
+     * 更新角色
+     */
+    @Transactional
+    public User updateRole(Long id, String role) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("用户不存在: " + id));
+        if (VALID_ROLES.contains(role)) {
+            user.setRole(role);
+            user.setUserType(role);
+        }
+        return userRepository.save(user);
+    }
+
+    /**
+     * 更新状态
+     */
     @Transactional
     public User updateStatus(Long id, String status) {
         User user = userRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS));
+                .orElseThrow(() -> new RuntimeException("用户不存在: " + id));
         user.setStatus(User.Status.valueOf(status));
         return userRepository.save(user);
     }
 
+    /**
+     * 用户统计
+     */
     public java.util.Map<String, Long> getStats() {
         java.util.Map<String, Long> stats = new java.util.HashMap<>();
         stats.put("total", userRepository.count());
+        stats.put("active", userRepository.countByStatus(User.Status.ACTIVE));
+        stats.put("inactive", userRepository.countByStatus(User.Status.LOCKED));
         return stats;
+    }
+
+    /**
+     * 初始化管理员用户
+     */
+    public void initAdminUser() {
+        if (!userRepository.existsByEmail("admin@ahvp.com")) {
+            User admin = new User();
+            admin.setEmail("admin@ahvp.com");
+            admin.setPassword(passwordEncoder.encode("Admin123456"));
+            admin.setUsername("admin");
+            admin.setRole("super_admin");
+            admin.setUserType("super_admin");
+            admin.setStatus(User.Status.ACTIVE);
+            admin.setEmailVerified(true);
+            admin.setPhoneVerified(false);
+            userRepository.save(admin);
+            log.info("Admin user initialized");
+        }
+        // 确保测试账号存在
+        if (!userRepository.existsByEmail("test@ahvp.com")) {
+            User test = new User();
+            test.setEmail("test@ahvp.com");
+            test.setPassword(passwordEncoder.encode("Test1234"));
+            test.setUsername("test");
+            test.setRole("engineer");
+            test.setUserType("engineer");
+            test.setStatus(User.Status.ACTIVE);
+            test.setEmailVerified(false);
+            test.setPhoneVerified(false);
+            userRepository.save(test);
+            log.info("Test user initialized");
+        }
     }
 }

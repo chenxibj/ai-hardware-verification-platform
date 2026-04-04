@@ -1,7 +1,5 @@
 package com.lab.chip;
 
-import com.lab.common.BusinessException;
-import com.lab.common.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -10,13 +8,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.List;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 
 /**
- * 芯片服务
- * Enhanced: #159 — chipNo 自动生成（顺序） + 唯一性校验
+ * 芯片服务（v3.2适配）
  */
 @Slf4j
 @Service
@@ -26,34 +24,29 @@ public class ChipService {
     private final ChipRepository chipRepository;
 
     /**
-     * 创建芯片 — 增强版
-     * - 自动生成 chipNo（CHIP-YYYYMMDD-NNN 顺序递增）
-     * - 唯一性校验：chipNo, name
+     * 创建芯片
      */
     @Transactional
-    public Chip createChip(ChipCreateRequest req, Long userId) {
-        // 唯一性检查: name
-        if (chipRepository.existsByName(req.getName().trim())) {
-            throw new BusinessException(ErrorCode.CHIP_NAME_DUPLICATE);
+    public Chip createChip(Chip chip, Long userId) {
+        // 自动生成编号: CHIP-YYYYMMDD-NNN
+        chip.setChipNo(generateChipNo());
+        chip.setCreatedBy(userId);
+        if (chip.getStatus() == null) {
+            chip.setStatus(Chip.ChipStatus.REGISTERED);
+        }
+        // 校验
+        if (chip.getName() == null || chip.getName().isBlank()) {
+            throw new RuntimeException("芯片名称不能为空");
+        }
+        if (chip.getManufacturer() == null || chip.getManufacturer().isBlank()) {
+            throw new RuntimeException("厂商不能为空");
+        }
+        if (chip.getChipType() == null) {
+            throw new RuntimeException("芯片类型不能为空");
         }
 
-        // 自动生成 chipNo（顺序递增，避免冲突）
-        String chipNo = generateChipNo();
-
-        Chip chip = new Chip();
-        chip.setChipNo(chipNo);
-        chip.setName(req.getName().trim());
-        chip.setManufacturer(req.getManufacturer().trim());
-        chip.setChipType(req.getChipType());
-        chip.setTechSpec(req.getTechSpec());
-        chip.setSoftwareStack(req.getSoftwareStack());
-        chip.setRemark(req.getRemark());
-        chip.setTags(req.getTags());
-        chip.setStatus(Chip.ChipStatus.UNEVALUATED);
-        chip.setCreatedBy(userId);
-
         Chip saved = chipRepository.save(chip);
-        log.info("Created chip: {} ({}) by user {}", saved.getChipNo(), saved.getName(), userId);
+        log.info("Created chip: {} ({}) type={} vendor={}", saved.getChipNo(), saved.getName(), saved.getChipType(), saved.getManufacturer());
         return saved;
     }
 
@@ -61,9 +54,12 @@ public class ChipService {
      * 查询芯片列表
      */
     @Transactional(readOnly = true)
-    public Page<Chip> listChips(Chip.ChipType chipType, Chip.ChipStatus status, String search, Pageable pageable) {
+    public Page<Chip> listChips(Chip.ChipType chipType, Chip.ChipStatus status, String search, String vendor, Pageable pageable) {
         if (search != null && !search.isBlank()) {
             return chipRepository.searchByNameOrManufacturer(search.trim(), pageable);
+        }
+        if (vendor != null && !vendor.isBlank()) {
+            return chipRepository.findByManufacturerContainingIgnoreCase(vendor.trim(), pageable);
         }
         if (chipType != null && status != null) {
             return chipRepository.findByChipTypeAndStatus(chipType, status, pageable);
@@ -81,7 +77,7 @@ public class ChipService {
     @Transactional(readOnly = true)
     public Chip getChip(Long id) {
         return chipRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(ErrorCode.CHIP_NOT_FOUND));
+                .orElseThrow(() -> new RuntimeException("芯片不存在: " + id));
     }
 
     /**
@@ -97,6 +93,7 @@ public class ChipService {
         if (update.getSoftwareStack() != null) chip.setSoftwareStack(update.getSoftwareStack());
         if (update.getStatus() != null) chip.setStatus(update.getStatus());
         if (update.getCapabilityProfile() != null) chip.setCapabilityProfile(update.getCapabilityProfile());
+        if (update.getProfileData() != null) chip.setProfileData(update.getProfileData());
         if (update.getTags() != null) chip.setTags(update.getTags());
         if (update.getRemark() != null) chip.setRemark(update.getRemark());
         Chip saved = chipRepository.save(chip);
@@ -105,7 +102,18 @@ public class ChipService {
     }
 
     /**
-     * 删除芯片
+     * 软删除芯片（设置状态为ARCHIVED）
+     */
+    @Transactional
+    public void softDeleteChip(Long id) {
+        Chip chip = getChip(id);
+        chip.setStatus(Chip.ChipStatus.ARCHIVED);
+        chipRepository.save(chip);
+        log.info("Soft-deleted (archived) chip: {}", chip.getChipNo());
+    }
+
+    /**
+     * 硬删除芯片（向后兼容）
      */
     @Transactional
     public void deleteChip(Long id) {
@@ -123,25 +131,17 @@ public class ChipService {
     }
 
     /**
-     * 生成芯片编号: CHIP-YYYYMMDD-NNN（顺序递增）
+     * 生成芯片编号: CHIP-YYYYMMDD-NNN
+     * 使用数据库查询当天已有数量来生成序号
      */
-    private String generateChipNo() {
-        String date = DateTimeFormatter.ofPattern("yyyyMMdd")
-                .withZone(ZoneId.of("Asia/Shanghai"))
-                .format(Instant.now());
-        String prefix = "CHIP-" + date + "-";
+    private synchronized String generateChipNo() {
+        String today = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+                .format(DateTimeFormatter.BASIC_ISO_DATE);
+        String prefix = "CHIP-" + today + "-";
 
-        // 查询当天已有的数量来递增
-        long count = chipRepository.countByChipNoPrefix(prefix);
-        String chipNo;
-        int seq = (int) count + 1;
-
-        // 防碰撞循环
-        do {
-            chipNo = prefix + String.format("%03d", seq);
-            seq++;
-        } while (chipRepository.existsByChipNo(chipNo));
-
-        return chipNo;
+        // 查询当天已有的芯片数量
+        long count = chipRepository.countByChipNoStartingWith(prefix);
+        String seq = String.format("%03d", count + 1);
+        return prefix + seq;
     }
 }

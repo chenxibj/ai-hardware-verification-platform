@@ -21,37 +21,45 @@ public class JwtTokenProvider {
         this.expiration = expiration;
     }
 
-    public String generateToken(Long userId, String email, String role) {
+    /**
+     * 生成 JWT Token（包含 userId, email, role, tenantId）
+     */
+    public String generateToken(Long userId, String email, String role, Long tenantId) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + this.expiration);
-        return Jwts.builder()
+        var builder = Jwts.builder()
                 .setSubject(String.valueOf(userId))
                 .claim("email", email)
                 .claim("role", role)
                 .setIssuedAt(now)
                 .setExpiration(expiryDate)
-                .signWith(this.key, SignatureAlgorithm.HS256)
-                .compact();
+                .signWith(this.key, SignatureAlgorithm.HS256);
+        if (tenantId != null) {
+            builder.claim("tenantId", tenantId);
+        }
+        return builder.compact();
+    }
+
+    /**
+     * 向后兼容：3参数版本
+     */
+    public String generateToken(Long userId, String email, String role) {
+        return generateToken(userId, email, role, null);
     }
 
     public String generateRefreshToken(Long userId) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + this.expiration * 7L);
-        return Jwts.builder()
-                .setSubject(String.valueOf(userId))
-                .setIssuedAt(now)
-                .setExpiration(expiryDate)
-                .signWith(this.key, SignatureAlgorithm.HS256)
-                .compact();
+        return Jwts.builder().setSubject(String.valueOf(userId)).setIssuedAt(now).setExpiration(expiryDate).signWith(this.key, SignatureAlgorithm.HS256).compact();
     }
 
     public Long getUserIdFromToken(String token) {
-        Claims claims = Jwts.parserBuilder().setSigningKey(this.key).build().parseClaimsJws(token).getBody();
+        Claims claims = (Claims) Jwts.parserBuilder().setSigningKey(this.key).build().parseClaimsJws(token).getBody();
         return Long.parseLong(claims.getSubject());
     }
 
     public String getRoleFromToken(String token) {
-        Claims claims = Jwts.parserBuilder().setSigningKey(this.key).build().parseClaimsJws(token).getBody();
+        Claims claims = (Claims) Jwts.parserBuilder().setSigningKey(this.key).build().parseClaimsJws(token).getBody();
         return claims.get("role", String.class);
     }
 

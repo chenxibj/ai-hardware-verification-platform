@@ -59,6 +59,10 @@ public class Chip {
     @Column(name = "capability_profile", columnDefinition = "jsonb")
     private String capabilityProfile;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "profile_data", columnDefinition = "jsonb")
+    private String profileData;
+
     private String tags;
     private String remark;
 
@@ -74,10 +78,10 @@ public class Chip {
     private Instant updatedAt;
 
     public enum ChipType {
-        GPU, NPU, TPU, CPU, OTHER
+        GPU, NPU, TPU, CPU, FPGA, ASIC, OTHER
     }
 
     public enum ChipStatus {
-        UNEVALUATED, EVALUATING, EVALUATED
+        UNEVALUATED, EVALUATING, EVALUATED, REGISTERED, ARCHIVED
     }
 }

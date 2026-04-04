@@ -324,6 +324,8 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
           warmupIterations: advancedConfig.warmupIterations,
           benchmarkIterations: advancedConfig.benchmarkIterations,
           itemCount: countEvalItems(selectedTemplate),
+          selectedItems: checkedKeys || [],
+          customItems: customItems || [],
         }),
         nodeId: selectedNodeIds.length > 0 ? selectedNodeIds[0] : null,
         status: runNow ? "RUNNING" : "DRAFT",
