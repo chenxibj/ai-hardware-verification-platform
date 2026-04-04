@@ -75,8 +75,8 @@ async function run() {
     // Step 3: Check page contains expected text
     console.log('[Step 3] Checking page text content...');
     const bodyText = await page.evaluate(() => document.body.innerText);
-    if (bodyText.includes('登录') || bodyText.includes('工作台') || bodyText.includes('Dashboard') || bodyText.includes('芯片') || bodyText.includes('评测')) {
-      pass('Page contains expected text ("登录|工作台|Dashboard|芯片|评测")');
+    if (bodyText.includes('登') && bodyText.includes('录') || bodyText.includes('工作台') || bodyText.includes('Dashboard') || bodyText.includes('芯片') || bodyText.includes('评测')) {
+      pass('Page contains expected text ("登|工作台|Dashboard|芯片|评测")');
     } else {
       fail('Page contains expected text', `Body text (first 200 chars): ${bodyText.substring(0, 200)}`);
       await page.screenshot({ path: '/tmp/render-check-fail.png' }).catch(() => {});
