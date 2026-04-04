@@ -3,44 +3,24 @@ package com.lab.tenant;
 import com.lab.auth.RequireRole;
 import com.lab.auth.Role;
 import com.lab.common.ApiResponse;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
-import org.springframework.http.ResponseEntity;
+import com.lab.common.BusinessException;
+import com.lab.common.ErrorCode;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 
 /**
- * 多租户管理控制器
- * Issue: #174
+ * 租户管理 Controller
+ * @feat #174 多租户管理 (US-4.2)
  */
-@Slf4j
 @RestController
 @RequestMapping("/tenants")
-@RequiredArgsConstructor
 public class TenantController {
 
     private final TenantService tenantService;
 
-    /**
-     * 租户列表 — 仅 SUPER_ADMIN
-     */
-    @GetMapping
-    @RequireRole(Role.SUPER_ADMIN)
-    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> list() {
-        return ResponseEntity.ok(ApiResponse.ok(tenantService.listWithUserCount()));
-    }
-
-    /**
-     * 租户详情
-     */
-    @GetMapping("/{id}")
-    @RequireRole(Role.SUPER_ADMIN)
-    public ResponseEntity<ApiResponse<Tenant>> getById(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.ok(tenantService.getById(id)));
+    public TenantController(TenantService tenantService) {
+        this.tenantService = tenantService;
     }
 
     /**
@@ -48,26 +28,36 @@ public class TenantController {
      */
     @PostMapping
     @RequireRole(Role.SUPER_ADMIN)
-    public ResponseEntity<ApiResponse<Tenant>> create(@RequestBody Tenant tenant) {
-        return ResponseEntity.ok(ApiResponse.ok(tenantService.create(tenant)));
+    public ApiResponse<Tenant> create(@RequestBody TenantCreateRequest request) {
+        return ApiResponse.ok(tenantService.create(request));
     }
 
     /**
-     * 更新租户
+     * 租户列表（仅管理员）
+     */
+    @GetMapping
+    @RequireRole(Role.SUPER_ADMIN)
+    public ApiResponse<List<Tenant>> list(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String keyword) {
+        return ApiResponse.ok(tenantService.list(status, keyword));
+    }
+
+    /**
+     * 租户详情
+     */
+    @GetMapping("/{id}")
+    @RequireRole(Role.TENANT_ADMIN)
+    public ApiResponse<Tenant> getById(@PathVariable Long id) {
+        return ApiResponse.ok(tenantService.getById(id));
+    }
+
+    /**
+     * 更新租户（配额/状态）
      */
     @PutMapping("/{id}")
     @RequireRole(Role.SUPER_ADMIN)
-    public ResponseEntity<ApiResponse<Tenant>> update(@PathVariable Long id, @RequestBody Tenant tenant) {
-        return ResponseEntity.ok(ApiResponse.ok(tenantService.update(id, tenant)));
-    }
-
-    /**
-     * 删除租户
-     */
-    @DeleteMapping("/{id}")
-    @RequireRole(Role.SUPER_ADMIN)
-    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
-        tenantService.delete(id);
-        return ResponseEntity.ok(ApiResponse.ok());
+    public ApiResponse<Tenant> update(@PathVariable Long id, @RequestBody TenantUpdateRequest request) {
+        return ApiResponse.ok(tenantService.update(id, request));
     }
 }

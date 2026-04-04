@@ -7,7 +7,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -20,7 +19,7 @@ import java.util.Map;
 
 /**
  * 芯片评测报告控制器
- * Issues: #169 报告管理, #170 对比分析, #171 导出支持
+ * #169: 报告管理增强 — 筛选/归档/软删除/版本趋势
  */
 @Slf4j
 @RestController
@@ -41,45 +40,40 @@ public class ChipReportController {
         if (report.getStatus() == null) {
             report.setStatus(ChipReport.ReportStatus.DRAFT);
         }
+        if (report.getArchived() == null) report.setArchived(false);
+        if (report.getDeleted() == null) report.setDeleted(false);
         ChipReport saved = reportRepository.save(report);
         log.info("Created report: {}", saved.getReportNo());
         return ResponseEntity.ok(success(saved));
     }
 
     /**
-     * #169 分页查询 + 筛选 + 搜索
-     * GET /api/chip-reports?page=0&size=10&status=PUBLISHED&chipId=1&minScore=60&maxScore=100&keyword=RPT
+     * #169: 增强列表 — 支持芯片ID/状态/归档/时间范围筛选
      */
     @GetMapping
     @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> listReports(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) String status,
             @RequestParam(required = false) Long chipId,
-            @RequestParam(required = false) Double minScore,
-            @RequestParam(required = false) Double maxScore,
-            @RequestParam(required = false) String keyword) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<ChipReport> reports;
-
-        if (keyword != null && !keyword.trim().isEmpty()) {
-            reports = reportRepository.searchByKeyword(keyword.trim(), pageable);
-        } else {
-            ChipReport.ReportStatus statusEnum = null;
-            if (status != null && !status.isEmpty()) {
-                try {
-                    statusEnum = ChipReport.ReportStatus.valueOf(status);
-                } catch (IllegalArgumentException ignored) {}
-            }
-            reports = reportRepository.findFiltered(statusEnum, chipId, minScore, maxScore, pageable);
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Boolean archived,
+            @RequestParam(required = false) String startTime,
+            @RequestParam(required = false) String endTime) {
+        Pageable pageable = PageRequest.of(page, size);
+        ChipReport.ReportStatus statusEnum = null;
+        if (status != null && !status.isEmpty()) {
+            try { statusEnum = ChipReport.ReportStatus.valueOf(status); } catch (Exception ignored) {}
         }
+        Instant start = null, end = null;
+        try { if (startTime != null) start = Instant.parse(startTime); } catch (Exception ignored) {}
+        try { if (endTime != null) end = Instant.parse(endTime); } catch (Exception ignored) {}
 
+        Page<ChipReport> reports = reportRepository.findFiltered(chipId, statusEnum, archived, start, end, pageable);
         Map<String, Object> resp = success(reports.getContent());
         resp.put("total", reports.getTotalElements());
         resp.put("page", page);
         resp.put("size", size);
-        resp.put("totalPages", reports.getTotalPages());
         return ResponseEntity.ok(resp);
     }
 
@@ -110,6 +104,7 @@ public class ChipReportController {
             if (update.getScenarioRecommendations() != null) report.setScenarioRecommendations(update.getScenarioRecommendations());
             if (update.getOperatorRanking() != null) report.setOperatorRanking(update.getOperatorRanking());
             if (update.getStatus() != null) report.setStatus(update.getStatus());
+            if (update.getArchived() != null) report.setArchived(update.getArchived());
             ChipReport saved = reportRepository.save(report);
             return ResponseEntity.ok(success(saved));
         } catch (Exception e) {
@@ -118,21 +113,62 @@ public class ChipReportController {
     }
 
     /**
-     * #169 删除报告
+     * #169: 归档报告
      */
-    @DeleteMapping("/{id}")
+    @PostMapping("/{id}/archive")
     @RequireRole(Role.ENGINEER)
-    public ResponseEntity<Map<String, Object>> deleteReport(@PathVariable Long id) {
+    public ResponseEntity<Map<String, Object>> archiveReport(@PathVariable Long id) {
         try {
-            if (!reportRepository.existsById(id)) {
-                return ResponseEntity.badRequest().body(error("Report not found: " + id));
-            }
-            reportRepository.deleteById(id);
-            log.info("Deleted report id={}", id);
-            return ResponseEntity.ok(success("deleted"));
+            ChipReport report = reportRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("Report not found: " + id));
+            report.setArchived(!Boolean.TRUE.equals(report.getArchived()));
+            reportRepository.save(report);
+            return ResponseEntity.ok(success(report));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(error(e.getMessage()));
         }
+    }
+
+    /**
+     * #169: 软删除
+     */
+    @DeleteMapping("/{id}")
+    @RequireRole(Role.ENGINEER)
+    public ResponseEntity<Map<String, Object>> softDeleteReport(@PathVariable Long id) {
+        try {
+            ChipReport report = reportRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("Report not found: " + id));
+            report.setDeleted(true);
+            report.setDeletedAt(Instant.now());
+            reportRepository.save(report);
+            return ResponseEntity.ok(success("已删除"));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(error(e.getMessage()));
+        }
+    }
+
+    /**
+     * #169: 统计信息
+     */
+    @GetMapping("/stats")
+    @RequireRole(Role.VIEWER)
+    public ResponseEntity<Map<String, Object>> getStats() {
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("total", reportRepository.countByDeletedFalse());
+        stats.put("published", reportRepository.countByDeletedFalseAndStatus(ChipReport.ReportStatus.PUBLISHED));
+        stats.put("draft", reportRepository.countByDeletedFalseAndStatus(ChipReport.ReportStatus.DRAFT));
+        stats.put("archived", reportRepository.countByDeletedFalseAndArchivedTrue());
+        return ResponseEntity.ok(success(stats));
+    }
+
+    /**
+     * #169: 版本趋势 — 同芯片多报告评分变化
+     */
+    @GetMapping("/trend/{chipId}")
+    @RequireRole(Role.VIEWER)
+    public ResponseEntity<Map<String, Object>> getChipTrend(@PathVariable Long chipId) {
+        List<ChipReport> reports = reportRepository.findByChipIdOrderByCreatedAtAsc(chipId);
+        return ResponseEntity.ok(success(reports));
     }
 
     @GetMapping("/chip/{chipId}")
@@ -146,23 +182,6 @@ public class ChipReportController {
     @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getReportsByPlan(@PathVariable Long planId) {
         List<ChipReport> reports = reportRepository.findByPlanId(planId);
-        return ResponseEntity.ok(success(reports));
-    }
-
-    /**
-     * #170 多报告对比
-     * GET /api/chip-reports/compare?ids=1,2,3
-     */
-    @GetMapping("/compare")
-    @RequireRole(Role.VIEWER)
-    public ResponseEntity<Map<String, Object>> compareReports(@RequestParam List<Long> ids) {
-        if (ids == null || ids.size() < 2 || ids.size() > 4) {
-            return ResponseEntity.badRequest().body(error("需要2-4份报告进行对比"));
-        }
-        List<ChipReport> reports = reportRepository.findByIdIn(ids);
-        if (reports.size() < 2) {
-            return ResponseEntity.badRequest().body(error("未找到足够的报告数据"));
-        }
         return ResponseEntity.ok(success(reports));
     }
 

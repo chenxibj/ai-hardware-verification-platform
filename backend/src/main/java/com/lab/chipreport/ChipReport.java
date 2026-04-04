@@ -17,7 +17,7 @@ public class ChipReport {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "report_no", unique = true, nullable = false, length = 32)
+    @Column(name = "report_no", unique = true, nullable = false, length = 64)
     private String reportNo;
 
     @Column(name = "chip_id", nullable = false)
@@ -50,6 +50,15 @@ public class ChipReport {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     private ReportStatus status;
+
+    @Column(name = "archived", nullable = false)
+    private Boolean archived = false;
+
+    @Column(name = "deleted", nullable = false)
+    private Boolean deleted = false;
+
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
 
     @Column(name = "created_by")
     private Long createdBy;

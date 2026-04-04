@@ -1,8 +1,9 @@
 /**
  * @file MainLayout.js
  * @description 主布局组件：侧边栏 + 顶栏 + 内容区 + Footer
- * @refactor #128 导航结构重组
- * @feat #161, #172, #174
+ * @refactor #128 导航结构重组 - 从13模块精简为4+1导航
+ * @feat #161 新增模板浏览导航入口
+ * @feat #172, #174, #175, #176 新增数字资产/租户/资源池/告警
  */
 import React, { useState } from "react";
 import { Layout, Menu, Button, Badge, Dropdown, Typography } from "antd";
@@ -11,8 +12,8 @@ import {
   ClusterOutlined, SettingOutlined,
   BellOutlined, UserOutlined, LogoutOutlined,
   UnorderedListOutlined, SwapOutlined, PlusCircleOutlined,
-  TeamOutlined, AuditOutlined, AppstoreOutlined, FileTextOutlined,
-  DatabaseOutlined, SafetyCertificateOutlined,
+  TeamOutlined, AuditOutlined, AppstoreOutlined,
+  DatabaseOutlined, CloudServerOutlined,
 } from "@ant-design/icons";
 import useAuthStore from "../stores/useAuthStore";
 import useNotificationStore from "../stores/useNotificationStore";
@@ -20,6 +21,7 @@ import useNotificationStore from "../stores/useNotificationStore";
 const { Header, Sider, Content, Footer } = Layout;
 
 const PAGE_TITLES = {
+  // 主导航 4+1
   dashboard: "工作台",
   chips: "芯片列表",
   "chip-compare": "芯片对比",
@@ -27,11 +29,13 @@ const PAGE_TITLES = {
   "plans-create": "创建评测计划",
   "template-list": "评测模板",
   nodes: "节点管理",
+  "resource-pools": "资源池管理",
+  assets: "数字资产",
   users: "用户管理",
+  tenants: "租户管理",
   audit: "操作审计",
-  "report-list": "评测报告",
-  "asset-list": "数字资产",
-  tenants: "多租户管理",
+  alerts: "告警管理",
+  // 内部跳转页面
   tasks: "评测任务",
   resources: "计算资源",
   settings: "系统设置",
@@ -63,19 +67,22 @@ const menuItems = [
     ],
   },
   {
-    key: "report-list",
-    icon: <FileTextOutlined />,
-    label: "评测报告",
-  },
-  {
-    key: "asset-list",
+    key: "asset-mgmt",
     icon: <DatabaseOutlined />,
     label: "数字资产",
+    children: [
+      { key: "assets", icon: <DatabaseOutlined />, label: "资产列表" },
+    ],
   },
   {
-    key: "nodes",
+    key: "node-mgmt",
     icon: <ClusterOutlined />,
     label: "节点管理",
+    children: [
+      { key: "nodes", icon: <ClusterOutlined />, label: "节点列表" },
+      { key: "resource-pools", icon: <CloudServerOutlined />, label: "资源池" },
+      { key: "alerts", icon: <BellOutlined />, label: "告警管理" },
+    ],
   },
   {
     key: "sys-mgmt",
@@ -83,8 +90,8 @@ const menuItems = [
     label: "系统设置",
     children: [
       { key: "users", icon: <TeamOutlined />, label: "用户管理" },
+      { key: "tenants", icon: <TeamOutlined />, label: "租户管理" },
       { key: "audit", icon: <AuditOutlined />, label: "操作审计" },
-      { key: "tenants", icon: <SafetyCertificateOutlined />, label: "多租户管理" },
     ],
   },
 ];
@@ -97,7 +104,7 @@ export default function MainLayout({ currentPage, setCurrentPage, children }) {
 
   const userMenu = {
     items: [
-      { key: "role", label: `角色: ${({ ADMIN: "管理员", USER: "普通用户", REVIEWER: "审核员", OPERATOR: "运维", SUPER_ADMIN: "超级管理员", ENGINEER: "工程师", VIEWER: "观察者" })[user?.role] || user?.role}`, disabled: true },
+      { key: "role", label: `角色: ${({ ADMIN: "管理员", USER: "普通用户", REVIEWER: "审核员", OPERATOR: "运维", SUPER_ADMIN: "超级管理员", TENANT_ADMIN: "租户管理员", ENGINEER: "工程师" })[user.role] || user.role}`, disabled: true },
       { type: "divider" },
       { key: "logout", icon: <LogoutOutlined />, label: "退出登录", danger: true },
     ],
@@ -108,7 +115,9 @@ export default function MainLayout({ currentPage, setCurrentPage, children }) {
     const parentMap = {
       chips: "chip-mgmt", "chip-compare": "chip-mgmt",
       plans: "plan-mgmt", "plans-create": "plan-mgmt", "template-list": "plan-mgmt",
-      users: "sys-mgmt", audit: "sys-mgmt", tenants: "sys-mgmt",
+      assets: "asset-mgmt",
+      nodes: "node-mgmt", "resource-pools": "node-mgmt", alerts: "node-mgmt",
+      users: "sys-mgmt", tenants: "sys-mgmt", audit: "sys-mgmt",
     };
     const parent = parentMap[currentPage];
     return parent ? [parent] : [];
@@ -139,7 +148,7 @@ export default function MainLayout({ currentPage, setCurrentPage, children }) {
               <Button type="text" icon={<BellOutlined />} />
             </Badge>
             <Dropdown menu={userMenu}>
-              <Button type="text" icon={<UserOutlined />}>{user?.username}</Button>
+              <Button type="text" icon={<UserOutlined />}>{user.username}</Button>
             </Dropdown>
           </div>
         </Header>

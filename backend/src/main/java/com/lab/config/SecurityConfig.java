@@ -57,6 +57,7 @@ public class SecurityConfig {
                 .requestMatchers("/actuator/**").permitAll()
                 .requestMatchers("/error").permitAll()
                 .requestMatchers("/dashboard/**").permitAll()
+                .requestMatchers("/community/**").permitAll()
                 .requestMatchers("/nodes/*/heartbeat").permitAll()
                 .requestMatchers("/nodes/register").permitAll()
                 .requestMatchers("/nodes/*/heartbeat").permitAll()

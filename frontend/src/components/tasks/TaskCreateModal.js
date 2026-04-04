@@ -126,11 +126,11 @@ export default function TaskCreateModal({
     if (createStep === 0) return <ModeSelectStep mode={createMode} setMode={setCreateMode} />;
     if (createMode === "template") {
       if (createStep === 1) return <TemplateSelectStep selected={selectedTemplate} onSelect={(t) => { setSelectedTemplate(t); form.setFieldsValue({ evalType: t.evalType, metrics: t.metrics }); }} />;
-      if (createStep === 2) return <NodeSelectStep nodes={onlineNodes} selectedNodeId={selectedNodeId} setSelectedNodeId={setSelectedNodeId} />;
+      if (createStep === 2) return <NodeSelectStep nodes={onlineNodes} allNodes={computeNodes} selectedNodeId={selectedNodeId} setSelectedNodeId={setSelectedNodeId} />;
       if (createStep === 3) return <ConfirmStep mode="template" template={selectedTemplate} node={computeNodes.find(n => n.id === selectedNodeId)} />;
     } else {
       if (createStep === 1) return <BasicInfoStep />;
-      if (createStep === 2) return <EvalConfigStep backendResources={backendResources} backendDatasets={backendDatasets} computeNodes={computeNodes} onlineNodes={onlineNodes} />;
+      if (createStep === 2) return <EvalConfigStep backendResources={backendResources} backendDatasets={backendDatasets} computeNodes={computeNodes} onlineNodes={onlineNodes} form={form} />;
       if (createStep === 3) return <ConfirmStep mode="custom" form={form} computeNodes={computeNodes} />;
     }
     return null;

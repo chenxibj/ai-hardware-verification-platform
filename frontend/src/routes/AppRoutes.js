@@ -1,7 +1,8 @@
 /**
  * @file AppRoutes.js
  * @description 页面路由配置
- * @feat #134, #136, #137, #161, #162, #164, #166, #167, #169, #170
+ * @feat #134, #136, #137, #161, #162, #164, #166, #167
+ * @feat #172, #174, #175, #176
  */
 import React from "react";
 import Dashboard from "../pages/Dashboard";
@@ -16,10 +17,12 @@ import TaskResult from "../pages/TaskResult";
 import TemplateList from "../pages/TemplateList";
 import NodeList from "../pages/NodeList";
 import NodeDetail from "../pages/NodeDetail";
+import ResourcePoolList from "../pages/ResourcePoolList";
+import AlertPanel from "../pages/AlertPanel";
+import TenantList from "../pages/TenantList";
+import Assets from "../pages/Assets";
 import Users from "../pages/Users";
 import Audit from "../pages/Audit";
-import ReportList from "../pages/ReportList";
-import ReportCompare from "../pages/ReportCompare";
 // 保留旧页面路由
 import Tasks from "../pages/Tasks";
 import Templates from "../pages/Templates";
@@ -27,9 +30,6 @@ import Workflows from "../pages/Workflows";
 import Reports from "../pages/Reports";
 import Comparisons from "../pages/Comparisons";
 import Logs from "../pages/Logs";
-import Assets from "../pages/Assets";
-import AssetList from "../pages/AssetList";
-import TenantList from "../pages/TenantList";
 import Resources from "../pages/Resources";
 import Community from "../pages/Community";
 import AuditLogs from "../pages/AuditLogs";
@@ -43,40 +43,30 @@ const PAGE_COMPONENTS = {
   "plans-create": PlanCreate,
   "template-list": TemplateList,
   nodes: NodeList,
+  "resource-pools": ResourcePoolList,
+  alerts: AlertPanel,
+  tenants: TenantList,
+  assets: Assets,
   users: Users,
   audit: Audit,
-  "report-list": ReportList,
   tasks: Tasks,
   templates: Templates,
   workflows: Workflows,
   reports: Reports,
   comparisons: Comparisons,
   logs: Logs,
-  assets: Assets,
   resources: Resources,
   community: Community,
   "audit-logs": AuditLogs,
-  "asset-list": AssetList,
-  tenants: TenantList,
   settings: Settings,
 };
 
 export default function AppRoutes({
   currentPage, planMonitorId, chipReportId, chipProfileId, compareChipIds,
-  taskResultId, nodeDetailId, reportCompareIds,
+  taskResultId, nodeDetailId,
   setCurrentPage, setPlanMonitorId, setChipReportId, setChipProfileId,
-  setCompareChipIds, setTaskResultId, setNodeDetailId, setReportCompareIds,
+  setCompareChipIds, setTaskResultId, setNodeDetailId,
 }) {
-  // 报告对比页 (#170)
-  if (reportCompareIds && reportCompareIds.length >= 2) {
-    return (
-      <ReportCompare
-        reportIds={reportCompareIds}
-        onBack={() => { setReportCompareIds([]); setCurrentPage("report-list"); }}
-      />
-    );
-  }
-
   // 对比页
   if (currentPage === "chip-compare") {
     return (
@@ -130,7 +120,7 @@ export default function AppRoutes({
     );
   }
 
-  // 节点详情页 (#167)
+  // 节点详情页 (#167, #176)
   if (nodeDetailId) {
     return (
       <NodeDetail
@@ -140,14 +130,9 @@ export default function AppRoutes({
     );
   }
 
-  // 报告列表页 (#169)
-  if (currentPage === "report-list") {
-    return (
-      <ReportList
-        onViewReport={(id) => setChipReportId(id)}
-        onCompareReports={(ids) => { if (setReportCompareIds) setReportCompareIds(ids); }}
-      />
-    );
+  // alerts page (standalone, not in node detail)
+  if (currentPage === "alerts") {
+    return <AlertPanel />;
   }
 
   const PageComponent = PAGE_COMPONENTS[currentPage] || Dashboard;

@@ -167,4 +167,38 @@ public class UserService {
             log.info("Admin user initialized with SUPER_ADMIN role");
         }
     }
+
+    // ---- Methods added for UserController compatibility ----
+
+    public org.springframework.data.domain.Page<User> listUsers(org.springframework.data.domain.PageRequest pageRequest) {
+        return userRepository.findAll(pageRequest);
+    }
+
+    @Transactional
+    public User createUser(String username, String email, String password, String phone, String role) {
+        return register(email, password != null ? password : "TempPass1", username,
+                "Default Org", phone, role);
+    }
+
+    @Transactional
+    public User updateRole(Long id, String role) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS));
+        user.setRole(role);
+        return userRepository.save(user);
+    }
+
+    @Transactional
+    public User updateStatus(Long id, String status) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS));
+        user.setStatus(User.Status.valueOf(status));
+        return userRepository.save(user);
+    }
+
+    public java.util.Map<String, Long> getStats() {
+        java.util.Map<String, Long> stats = new java.util.HashMap<>();
+        stats.put("total", userRepository.count());
+        return stats;
+    }
 }

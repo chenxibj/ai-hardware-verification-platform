@@ -1,118 +1,159 @@
 /**
  * @file TenantList.js
- * @description 多租户管理页面 — 仅 SUPER_ADMIN 可见
- * Issue: #174
+ * @description 租户管理页面 — 表格 + 创建/编辑弹窗
+ * @feat #174 多租户管理 (US-4.2)
  */
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
-  Card, Table, Tag, Space, Button, Modal, Form, Input, Select, message, Badge,
+  Card, Table, Tag, Badge, Button, Space, Input, Select, Modal, Form,
+  Typography, Tooltip, message, InputNumber, DatePicker, Descriptions
 } from "antd";
 import {
-  PlusOutlined, EditOutlined, DeleteOutlined, TeamOutlined,
+  PlusOutlined, ReloadOutlined, EditOutlined, EyeOutlined,
+  SearchOutlined, TeamOutlined
 } from "@ant-design/icons";
 import api from "../utils/api";
 import dayjs from "dayjs";
 
+const { Text } = Typography;
+
 const STATUS_MAP = {
-  ACTIVE: { color: "success", text: "活跃" },
-  INACTIVE: { color: "default", text: "未激活" },
-  SUSPENDED: { color: "error", text: "已停用" },
+  ACTIVE: { text: "活跃", color: "success" },
+  INACTIVE: { text: "未激活", color: "default" },
+  SUSPENDED: { text: "已暂停", color: "error" },
 };
 
 export default function TenantList() {
   const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [createVisible, setCreateVisible] = useState(false);
-  const [editVisible, setEditVisible] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [detailVisible, setDetailVisible] = useState(false);
   const [editingTenant, setEditingTenant] = useState(null);
+  const [selectedTenant, setSelectedTenant] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [searchText, setSearchText] = useState("");
   const [form] = Form.useForm();
-  const [editForm] = Form.useForm();
 
-  const fetchTenants = async () => {
+  const fetchTenants = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get("/tenants");
+      const params = {};
+      if (searchText) params.keyword = searchText;
+      const res = await api.get("/tenants", { params });
       if (res.data.code === 0) setTenants(res.data.data || []);
-    } catch (e) {
-      if (e.response?.status === 403) {
-        message.error("权限不足，仅超级管理员可访问");
-      } else {
-        message.error("获取租户列表失败");
-      }
+    } catch (err) {
+      if (err.response?.status !== 403) message.error("获取租户列表失败");
     }
-    finally { setLoading(false); }
+    setLoading(false);
+  }, [searchText]);
+
+  useEffect(() => { fetchTenants(); }, [fetchTenants]);
+
+  const parseQuota = (quotaStr) => {
+    if (!quotaStr) return {};
+    try { return typeof quotaStr === "string" ? JSON.parse(quotaStr) : quotaStr; } catch { return {}; }
   };
 
-  useEffect(() => { fetchTenants(); }, []);
-
-  const handleCreate = async (values) => {
-    try {
-      const res = await api.post("/tenants", values);
-      if (res.data.code === 0) {
-        message.success("租户创建成功");
-        setCreateVisible(false);
-        form.resetFields();
-        fetchTenants();
-      }
-    } catch (e) { message.error("创建失败: " + (e.response?.data?.message || e.message)); }
+  const handleCreate = () => {
+    setEditingTenant(null);
+    form.resetFields();
+    form.setFieldsValue({ maxChips: 100, maxConcurrent: 10, storageGb: 500 });
+    setModalVisible(true);
   };
 
   const handleEdit = (tenant) => {
     setEditingTenant(tenant);
-    editForm.setFieldsValue({
+    const quota = parseQuota(tenant.resourceQuota);
+    form.setFieldsValue({
       name: tenant.name,
-      contactEmail: tenant.contactEmail,
+      code: tenant.code,
       description: tenant.description,
+      adminEmail: tenant.contactEmail,
       status: tenant.status,
+      maxChips: quota.max_chips || 100,
+      maxConcurrent: quota.max_concurrent || 10,
+      storageGb: quota.storage_gb || 500,
     });
-    setEditVisible(true);
+    setModalVisible(true);
   };
 
-  const handleUpdate = async (values) => {
+  const handleSubmit = async () => {
     try {
-      const res = await api.put(`/tenants/${editingTenant.id}`, values);
-      if (res.data.code === 0) {
-        message.success("更新成功");
-        setEditVisible(false);
-        editForm.resetFields();
-        fetchTenants();
-      }
-    } catch (e) { message.error("更新失败"); }
-  };
+      const values = await form.validateFields();
+      setSubmitting(true);
+      const payload = {
+        name: values.name,
+        code: values.code,
+        description: values.description,
+        adminEmail: values.adminEmail,
+        maxChips: values.maxChips,
+        maxConcurrent: values.maxConcurrent,
+        storageGb: values.storageGb,
+        validUntil: values.validUntil ? values.validUntil.format("YYYY-MM-DD") : null,
+        status: values.status,
+      };
 
-  const handleDelete = (id, name) => {
-    Modal.confirm({
-      title: `确定删除租户 "${name}" ？`,
-      content: "删除后不可恢复",
-      okText: "删除", okType: "danger", cancelText: "取消",
-      onOk: async () => {
-        try { await api.delete("/tenants/" + id); message.success("已删除"); fetchTenants(); }
-        catch (e) { message.error("删除失败"); }
-      },
-    });
+      if (editingTenant) {
+        await api.put(`/tenants/${editingTenant.id}`, payload);
+        message.success("租户已更新");
+      } else {
+        await api.post("/tenants", payload);
+        message.success("租户创建成功");
+      }
+      setModalVisible(false);
+      form.resetFields();
+      fetchTenants();
+    } catch (err) {
+      if (err.response?.data?.message) message.error(err.response.data.message);
+    }
+    setSubmitting(false);
   };
 
   const columns = [
-    { title: "租户名称", dataIndex: "name", key: "name", width: 180 },
-    { title: "编码", dataIndex: "code", key: "code", width: 180, render: v => <Tag>{v}</Tag> },
-    { title: "联系邮箱", dataIndex: "contactEmail", key: "contactEmail", width: 200, render: v => v || "-" },
     {
-      title: "状态", dataIndex: "status", key: "status", width: 100,
-      render: v => {
-        const s = STATUS_MAP[v] || { color: "default", text: v };
-        return <Badge status={s.color} text={s.text} />;
+      title: "名称", dataIndex: "name", width: 160,
+      render: (text, record) => (
+        <Button type="link" style={{ padding: 0 }} onClick={() => { setSelectedTenant(record); setDetailVisible(true); }}>
+          <TeamOutlined style={{ marginRight: 4 }} />{text}
+        </Button>
+      ),
+    },
+    { title: "编码", dataIndex: "code", width: 100, render: v => v || "-" },
+    { title: "管理员邮箱", dataIndex: "contactEmail", width: 200, ellipsis: true, render: v => v || "-" },
+    {
+      title: "配额", width: 260,
+      render: (_, record) => {
+        const q = parseQuota(record.resourceQuota);
+        return (
+          <Space size={4} wrap>
+            <Tag>芯片: {q.max_chips || "-"}</Tag>
+            <Tag>并发: {q.max_concurrent || "-"}</Tag>
+            <Tag>存储: {q.storage_gb || "-"}GB</Tag>
+          </Space>
+        );
       },
     },
     {
-      title: "用户数", dataIndex: "userCount", key: "userCount", width: 80,
-      render: v => <Tag icon={<TeamOutlined />} color="blue">{v || 0}</Tag>,
+      title: "状态", dataIndex: "status", width: 90,
+      render: (v) => {
+        const info = STATUS_MAP[v] || { text: v, color: "default" };
+        return <Badge status={info.color} text={info.text} />;
+      },
     },
-    { title: "创建时间", dataIndex: "createdAt", key: "createdAt", width: 160, render: v => v ? dayjs(v).format("YYYY-MM-DD HH:mm") : "-" },
     {
-      title: "操作", key: "action", width: 180, render: (_, r) => (
-        <Space>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(r)}>编辑</Button>
-          <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(r.id, r.name)}>删除</Button>
+      title: "创建时间", dataIndex: "createdAt", width: 160,
+      render: v => v ? dayjs(v).format("YYYY-MM-DD HH:mm") : "-",
+    },
+    {
+      title: "操作", width: 120,
+      render: (_, record) => (
+        <Space size={4}>
+          <Tooltip title="详情">
+            <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => { setSelectedTenant(record); setDetailVisible(true); }} />
+          </Tooltip>
+          <Tooltip title="编辑">
+            <Button type="text" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
+          </Tooltip>
         </Space>
       ),
     },
@@ -121,62 +162,85 @@ export default function TenantList() {
   return (
     <div>
       <Card
-        title={<Space><TeamOutlined />多租户管理</Space>}
+        title={<Space><TeamOutlined /><span>租户管理</span><Tag color="blue">{tenants.length} 个租户</Tag></Space>}
         extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateVisible(true)}>
-            创建租户
-          </Button>
+          <Space>
+            <Input placeholder="搜索名称/邮箱" prefix={<SearchOutlined />} allowClear style={{ width: 200 }}
+              value={searchText} onChange={e => setSearchText(e.target.value)} onPressEnter={fetchTenants} />
+            <Button icon={<ReloadOutlined />} onClick={fetchTenants}>刷新</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>创建租户</Button>
+          </Space>
         }
       >
         <Table columns={columns} dataSource={tenants} rowKey="id" loading={loading}
-          scroll={{ x: "max-content" }}
-          pagination={{ pageSize: 10, showSizeChanger: true, showTotal: t => `共 ${t} 条` }} />
+          pagination={{ pageSize: 20, showTotal: t => `共 ${t} 个租户` }} size="middle" />
       </Card>
 
-      {/* 创建租户 Modal */}
-      <Modal title="创建租户" open={createVisible} onCancel={() => setCreateVisible(false)} footer={null} width={500} destroyOnClose>
-        <Form form={form} onFinish={handleCreate} layout="vertical">
+      {/* 创建/编辑弹窗 */}
+      <Modal title={editingTenant ? "编辑租户" : "创建租户"} open={modalVisible}
+        onOk={handleSubmit} onCancel={() => setModalVisible(false)}
+        confirmLoading={submitting} width={600}>
+        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="name" label="租户名称" rules={[{ required: true, message: "请输入租户名称" }]}>
-            <Input placeholder="例：上海人工智能实验室" />
+            <Input placeholder="如：上海AI实验室" />
           </Form.Item>
-          <Form.Item name="code" label="租户编码" extra="留空将自动生成">
-            <Input placeholder="例：shailab（可留空）" />
+          <Form.Item name="code" label="租户编码">
+            <Input placeholder="唯一编码，如: sh-ai-lab" disabled={!!editingTenant} />
           </Form.Item>
-          <Form.Item name="contactEmail" label="联系邮箱">
+          <Form.Item name="adminEmail" label="管理员邮箱" rules={[{ type: "email", message: "请输入正确的邮箱" }]}>
             <Input placeholder="admin@example.com" />
           </Form.Item>
           <Form.Item name="description" label="描述">
-            <Input.TextArea rows={3} />
+            <Input.TextArea rows={2} placeholder="租户描述" />
           </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit" block size="large">创建</Button>
-          </Form.Item>
+          {editingTenant && (
+            <Form.Item name="status" label="状态">
+              <Select options={Object.entries(STATUS_MAP).map(([k, v]) => ({ value: k, label: v.text }))} />
+            </Form.Item>
+          )}
+          <Card title="资源配额" size="small" style={{ marginBottom: 16 }}>
+            <Space size={16} wrap>
+              <Form.Item name="maxChips" label="最大芯片数" style={{ marginBottom: 0 }}>
+                <InputNumber min={1} max={10000} />
+              </Form.Item>
+              <Form.Item name="maxConcurrent" label="最大并发任务" style={{ marginBottom: 0 }}>
+                <InputNumber min={1} max={1000} />
+              </Form.Item>
+              <Form.Item name="storageGb" label="存储配额(GB)" style={{ marginBottom: 0 }}>
+                <InputNumber min={1} max={100000} />
+              </Form.Item>
+              <Form.Item name="validUntil" label="有效期至" style={{ marginBottom: 0 }}>
+                <DatePicker />
+              </Form.Item>
+            </Space>
+          </Card>
         </Form>
       </Modal>
 
-      {/* 编辑租户 Modal */}
-      <Modal title="编辑租户" open={editVisible} onCancel={() => setEditVisible(false)} footer={null} width={500} destroyOnClose>
-        <Form form={editForm} onFinish={handleUpdate} layout="vertical">
-          <Form.Item name="name" label="租户名称" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="contactEmail" label="联系邮箱">
-            <Input />
-          </Form.Item>
-          <Form.Item name="status" label="状态">
-            <Select options={[
-              { value: "ACTIVE", label: "活跃" },
-              { value: "INACTIVE", label: "未激活" },
-              { value: "SUSPENDED", label: "已停用" },
-            ]} />
-          </Form.Item>
-          <Form.Item name="description" label="描述">
-            <Input.TextArea rows={3} />
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit" block size="large">保存</Button>
-          </Form.Item>
-        </Form>
+      {/* 详情弹窗 */}
+      <Modal title="租户详情" open={detailVisible} onCancel={() => setDetailVisible(false)} footer={null} width={600}>
+        {selectedTenant && (() => {
+          const q = parseQuota(selectedTenant.resourceQuota);
+          return (
+            <Descriptions column={2} bordered size="small">
+              <Descriptions.Item label="名称">{selectedTenant.name}</Descriptions.Item>
+              <Descriptions.Item label="编码">{selectedTenant.code || "-"}</Descriptions.Item>
+              <Descriptions.Item label="管理员邮箱" span={2}>{selectedTenant.contactEmail || "-"}</Descriptions.Item>
+              <Descriptions.Item label="描述" span={2}>{selectedTenant.description || "-"}</Descriptions.Item>
+              <Descriptions.Item label="状态">
+                <Badge status={STATUS_MAP[selectedTenant.status]?.color || "default"}
+                  text={STATUS_MAP[selectedTenant.status]?.text || selectedTenant.status} />
+              </Descriptions.Item>
+              <Descriptions.Item label="创建时间">
+                {selectedTenant.createdAt ? dayjs(selectedTenant.createdAt).format("YYYY-MM-DD HH:mm") : "-"}
+              </Descriptions.Item>
+              <Descriptions.Item label="最大芯片数">{q.max_chips || "-"}</Descriptions.Item>
+              <Descriptions.Item label="最大并发">{q.max_concurrent || "-"}</Descriptions.Item>
+              <Descriptions.Item label="存储配额">{q.storage_gb ? q.storage_gb + " GB" : "-"}</Descriptions.Item>
+              <Descriptions.Item label="有效期至">{q.valid_until || "-"}</Descriptions.Item>
+            </Descriptions>
+          );
+        })()}
       </Modal>
     </div>
   );

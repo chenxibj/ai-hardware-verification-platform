@@ -2,84 +2,127 @@ package com.lab.tenant;
 
 import com.lab.common.BusinessException;
 import com.lab.common.ErrorCode;
-import com.lab.user.UserRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.HashMap;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
-@Slf4j
+/**
+ * 租户服务
+ * @feat #174 多租户管理
+ */
 @Service
-@RequiredArgsConstructor
 public class TenantService {
 
-    private final TenantRepository tenantRepository;
-    private final UserRepository userRepository;
+    private final TenantRepository repo;
+    private final ObjectMapper objectMapper;
 
-    public Page<Tenant> list(Pageable pageable) {
-        return tenantRepository.findAll(pageable);
+    public TenantService(TenantRepository repo, ObjectMapper objectMapper) {
+        this.repo = repo;
+        this.objectMapper = objectMapper;
+    }
+
+    @Transactional
+    public Tenant create(TenantCreateRequest request) {
+        // 检查名称唯一
+        if (repo.findByName(request.getName()).isPresent()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "租户名称已存在: " + request.getName());
+        }
+        // 检查code唯一
+        if (request.getCode() != null && repo.findByCode(request.getCode()).isPresent()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "租户编码已存在: " + request.getCode());
+        }
+
+        Tenant tenant = new Tenant();
+        tenant.setName(request.getName());
+        tenant.setDescription(request.getDescription());
+        tenant.setCode(request.getCode());
+        tenant.setContactEmail(request.getAdminEmail());
+        tenant.setStatus(Tenant.Status.ACTIVE);
+
+        // 构建配额JSON
+        try {
+            Map<String, Object> quota = Map.of(
+                "max_chips", request.getMaxChips() != null ? request.getMaxChips() : 100,
+                "max_concurrent", request.getMaxConcurrent() != null ? request.getMaxConcurrent() : 10,
+                "storage_gb", request.getStorageGb() != null ? request.getStorageGb() : 500,
+                "valid_until", request.getValidUntil() != null ? request.getValidUntil() : ""
+            );
+            tenant.setResourceQuota(objectMapper.writeValueAsString(quota));
+        } catch (Exception e) {
+            tenant.setResourceQuota("{}");
+        }
+
+        return repo.save(tenant);
+    }
+
+    public List<Tenant> list(String status, String keyword) {
+        List<Tenant> tenants = repo.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        if (status != null && !status.isBlank()) {
+            try {
+                Tenant.Status s = Tenant.Status.valueOf(status.toUpperCase());
+                tenants = tenants.stream().filter(t -> t.getStatus() == s).toList();
+            } catch (IllegalArgumentException ignored) {}
+        }
+
+        if (keyword != null && !keyword.isBlank()) {
+            String kw = keyword.toLowerCase();
+            tenants = tenants.stream()
+                .filter(t -> (t.getName() != null && t.getName().toLowerCase().contains(kw))
+                    || (t.getContactEmail() != null && t.getContactEmail().toLowerCase().contains(kw)))
+                .toList();
+        }
+
+        return tenants;
     }
 
     public Tenant getById(Long id) {
-        return tenantRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "租户不存在: " + id));
+        return repo.findById(id)
+            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "租户不存在: " + id));
     }
 
-    public Tenant create(Tenant tenant) {
-        // 自动生成 code
-        if (tenant.getCode() == null || tenant.getCode().isBlank()) {
-            tenant.setCode("org-" + System.currentTimeMillis());
-        }
-        // code 唯一校验
-        tenantRepository.findByCode(tenant.getCode()).ifPresent(existing -> {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "租户编码已存在: " + tenant.getCode());
-        });
-        if (tenant.getStatus() == null) {
-            tenant.setStatus(Tenant.Status.ACTIVE);
-        }
-        return tenantRepository.save(tenant);
-    }
-
-    public Tenant update(Long id, Tenant updates) {
+    @Transactional
+    public Tenant update(Long id, TenantUpdateRequest request) {
         Tenant tenant = getById(id);
-        if (updates.getName() != null) tenant.setName(updates.getName());
-        if (updates.getDescription() != null) tenant.setDescription(updates.getDescription());
-        if (updates.getContactEmail() != null) tenant.setContactEmail(updates.getContactEmail());
-        if (updates.getStatus() != null) tenant.setStatus(updates.getStatus());
-        if (updates.getResourceQuota() != null) tenant.setResourceQuota(updates.getResourceQuota());
-        return tenantRepository.save(tenant);
-    }
 
-    public void delete(Long id) {
-        Tenant tenant = getById(id);
-        tenantRepository.delete(tenant);
-    }
+        if (request.getName() != null) {
+            repo.findByName(request.getName()).ifPresent(other -> {
+                if (!other.getId().equals(id)) {
+                    throw new BusinessException(ErrorCode.BAD_REQUEST, "租户名称已存在: " + request.getName());
+                }
+            });
+            tenant.setName(request.getName());
+        }
+        if (request.getDescription() != null) tenant.setDescription(request.getDescription());
+        if (request.getAdminEmail() != null) tenant.setContactEmail(request.getAdminEmail());
+        if (request.getStatus() != null) {
+            try {
+                tenant.setStatus(Tenant.Status.valueOf(request.getStatus().toUpperCase()));
+            } catch (IllegalArgumentException ignored) {}
+        }
 
-    /**
-     * 获取租户列表 + 每个租户的用户数（简化实现：总用户数 / 租户数的模拟）
-     */
-    public List<Map<String, Object>> listWithUserCount() {
-        List<Tenant> tenants = tenantRepository.findAll();
-        long totalUsers = userRepository.count();
-        return tenants.stream().map(t -> {
-            Map<String, Object> map = new HashMap<>();
-            map.put("id", t.getId());
-            map.put("name", t.getName());
-            map.put("code", t.getCode());
-            map.put("description", t.getDescription());
-            map.put("contactEmail", t.getContactEmail());
-            map.put("status", t.getStatus());
-            map.put("resourceQuota", t.getResourceQuota());
-            map.put("createdAt", t.getCreatedAt());
-            map.put("updatedAt", t.getUpdatedAt());
-            // 简化: 均分用户数
-            map.put("userCount", tenants.size() > 0 ? totalUsers / tenants.size() : 0);
-            return map;
-        }).toList();
+        // 更新配额
+        if (request.getMaxChips() != null || request.getMaxConcurrent() != null
+            || request.getStorageGb() != null || request.getValidUntil() != null) {
+            try {
+                Map<String, Object> oldQuota = tenant.getResourceQuota() != null
+                    ? objectMapper.readValue(tenant.getResourceQuota(), Map.class) : new java.util.HashMap<>();
+                java.util.Map<String, Object> quota = new java.util.HashMap<>(oldQuota);
+                if (request.getMaxChips() != null) quota.put("max_chips", request.getMaxChips());
+                if (request.getMaxConcurrent() != null) quota.put("max_concurrent", request.getMaxConcurrent());
+                if (request.getStorageGb() != null) quota.put("storage_gb", request.getStorageGb());
+                if (request.getValidUntil() != null) quota.put("valid_until", request.getValidUntil());
+                tenant.setResourceQuota(objectMapper.writeValueAsString(quota));
+            } catch (Exception e) {
+                // keep old quota
+            }
+        }
+
+        return repo.save(tenant);
     }
 }
