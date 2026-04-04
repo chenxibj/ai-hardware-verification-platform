@@ -1,263 +1,236 @@
 /**
  * @file ResourcePoolList.js
- * @description 资源池管理 — 列表 + 创建/编辑弹窗 + 节点分配
- * @feat #175 资源池管理与调度 (US-5.2)
+ * @description 资源池管理页面 — 卡片展示+创建Modal+详情查看
+ * Issue: #175 资源池管理与调度
  */
 import React, { useState, useEffect, useCallback } from "react";
 import {
-  Card, Table, Tag, Badge, Button, Space, Input, Select, Modal, Form,
-  Typography, Tooltip, message, Transfer, Descriptions, Popconfirm
+  Card, Row, Col, Button, Modal, Form, Input, Select, Tag, Space,
+  Typography, Empty, Spin, message, Badge, Table, Descriptions, Statistic,
 } from "antd";
 import {
-  PlusOutlined, ReloadOutlined, EditOutlined, DeleteOutlined,
-  EyeOutlined, CloudServerOutlined, NodeIndexOutlined
+  PlusOutlined, CloudServerOutlined, ReloadOutlined,
+  DeleteOutlined, EditOutlined, ArrowLeftOutlined,
 } from "@ant-design/icons";
 import api from "../utils/api";
-import dayjs from "dayjs";
 
-const { Text } = Typography;
+const { Title, Text } = Typography;
 
-const STRATEGY_MAP = {
-  round_robin: { text: "轮询调度", color: "blue" },
-  least_loaded: { text: "最小负载", color: "green" },
-  priority: { text: "优先级", color: "orange" },
-  affinity: { text: "亲和性", color: "purple" },
-};
-
-const STATUS_MAP = {
-  ACTIVE: { text: "活跃", badge: "success" },
-  INACTIVE: { text: "未激活", badge: "default" },
-  MAINTENANCE: { text: "维护中", badge: "warning" },
-};
+const STATUS_COLORS = { ACTIVE: "green", INACTIVE: "default", MAINTENANCE: "orange" };
+const STATUS_LABELS = { ACTIVE: "运行中", INACTIVE: "已停用", MAINTENANCE: "维护中" };
+const TYPE_COLORS = { GPU: "blue", CPU: "orange", NPU: "green", MIXED: "purple", GENERAL: "cyan" };
 
 export default function ResourcePoolList() {
   const [pools, setPools] = useState([]);
-  const [nodes, setNodes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
-  const [assignVisible, setAssignVisible] = useState(false);
   const [editingPool, setEditingPool] = useState(null);
-  const [assigningPool, setAssigningPool] = useState(null);
-  const [selectedNodeIds, setSelectedNodeIds] = useState([]);
-  const [submitting, setSubmitting] = useState(false);
+  const [detailPool, setDetailPool] = useState(null);
+  const [detailData, setDetailData] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [form] = Form.useForm();
 
   const fetchPools = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get("/resource-pools");
-      if (res.data.code === 0) setPools(res.data.data || []);
-    } catch (err) {
-      message.error("获取资源池列表失败");
-    }
-    setLoading(false);
+      const { data: resp } = await api.get("/resource-pools");
+      if (resp.code === 0) setPools(resp.data || []);
+    } catch (e) { message.error("获取资源池列表失败"); }
+    finally { setLoading(false); }
   }, []);
 
-  const fetchNodes = useCallback(async () => {
+  useEffect(() => { fetchPools(); }, [fetchPools]);
+
+  const fetchDetail = async (id) => {
+    setDetailLoading(true);
     try {
-      const res = await api.get("/nodes");
-      if (res.data.code === 0) setNodes(res.data.data || []);
-    } catch (err) {}
-  }, []);
-
-  useEffect(() => { fetchPools(); fetchNodes(); }, [fetchPools, fetchNodes]);
-
-  const parseCap = (capStr) => {
-    if (!capStr) return {};
-    try { return typeof capStr === "string" ? JSON.parse(capStr) : capStr; } catch { return {}; }
+      const { data: resp } = await api.get(`/resource-pools/${id}`);
+      if (resp.code === 0) setDetailData(resp.data);
+    } catch (e) { message.error("获取资源池详情失败"); }
+    finally { setDetailLoading(false); }
   };
 
   const handleCreate = () => {
     setEditingPool(null);
     form.resetFields();
-    form.setFieldsValue({ strategy: "round_robin" });
+    form.setFieldsValue({ type: "GENERAL", status: "ACTIVE" });
     setModalVisible(true);
   };
 
   const handleEdit = (pool) => {
     setEditingPool(pool);
-    const cap = parseCap(pool.capacity);
-    form.setFieldsValue({
-      name: pool.name,
-      description: pool.description,
-      strategy: cap.strategy || pool.type || "round_robin",
-      tenantBinding: cap.tenant_binding,
-    });
+    form.setFieldsValue({ name: pool.name, type: pool.type, description: pool.description, status: pool.status });
     setModalVisible(true);
   };
 
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      setSubmitting(true);
-      const payload = {
-        name: values.name,
-        description: values.description,
-        strategy: values.strategy,
-        tenantBinding: values.tenantBinding || null,
-      };
-
+      const payload = { ...values, capacity: "{}" };
       if (editingPool) {
         await api.put(`/resource-pools/${editingPool.id}`, payload);
-        message.success("资源池已更新");
+        message.success("资源池更新成功");
       } else {
         await api.post("/resource-pools", payload);
         message.success("资源池创建成功");
       }
       setModalVisible(false);
-      form.resetFields();
       fetchPools();
-    } catch (err) {
-      if (err.response?.data?.message) message.error(err.response.data.message);
+    } catch (e) {
+      if (e.response?.data?.message) message.error(e.response.data.message);
     }
-    setSubmitting(false);
   };
 
-  const handleDelete = async (id) => {
-    try {
-      await api.delete(`/resource-pools/${id}`);
-      message.success("资源池已删除");
-      fetchPools();
-    } catch { message.error("删除失败"); }
+  const handleDelete = (pool) => {
+    Modal.confirm({
+      title: "确认删除",
+      content: `确定要删除资源池「${pool.name}」吗？关联节点将被解绑。`,
+      okType: "danger",
+      onOk: async () => {
+        try {
+          await api.delete(`/resource-pools/${pool.id}`);
+          message.success("资源池已删除");
+          fetchPools();
+        } catch (e) { message.error("删除失败"); }
+      },
+    });
   };
 
-  const handleAssignNodes = (pool) => {
-    setAssigningPool(pool);
-    const cap = parseCap(pool.capacity);
-    const nodeIds = (cap.node_ids || []).map(id => Number(id));
-    setSelectedNodeIds(nodeIds);
-    setAssignVisible(true);
+  const openDetail = (pool) => {
+    setDetailPool(pool);
+    fetchDetail(pool.id);
   };
 
-  const handleAssignSubmit = async () => {
-    try {
-      setSubmitting(true);
-      await api.post(`/resource-pools/${assigningPool.id}/nodes`, { nodeIds: selectedNodeIds });
-      message.success("节点分配成功");
-      setAssignVisible(false);
-      fetchPools();
-    } catch (err) {
-      message.error("节点分配失败");
-    }
-    setSubmitting(false);
-  };
+  // Detail view
+  if (detailPool) {
+    const nodeColumns = [
+      { title: "名称", dataIndex: "name", key: "name" },
+      { title: "IP", dataIndex: "ipAddress", key: "ip" },
+      {
+        title: "状态", dataIndex: "status", key: "status",
+        render: (s) => {
+          const color = { ONLINE: "green", OFFLINE: "default", BUSY: "processing", ERROR: "red", MAINTENANCE: "orange" }[s] || "default";
+          const label = { ONLINE: "在线", OFFLINE: "离线", BUSY: "繁忙", ERROR: "异常", MAINTENANCE: "维护" }[s] || s;
+          return <Badge status={color} text={label} />;
+        },
+      },
+      {
+        title: "硬件", key: "hw",
+        render: (_, record) => {
+          let hw;
+          try { hw = typeof record.hardwareInfo === "string" ? JSON.parse(record.hardwareInfo) : record.hardwareInfo; } catch { hw = null; }
+          if (!hw) return <Text type="secondary">-</Text>;
+          return (
+            <Space size={4} wrap>
+              {hw.cpu_model && <Tag style={{ fontSize: 11 }}>CPU {hw.cpu_threads || hw.cpu_cores_logical || "?"}核</Tag>}
+              {hw.memory_total_gb && <Tag style={{ fontSize: 11 }}>内存 {Number(hw.memory_total_gb).toFixed(0)}GB</Tag>}
+              {hw.gpu_count > 0 && <Tag color="blue" style={{ fontSize: 11 }}>GPU ×{hw.gpu_count}</Tag>}
+            </Space>
+          );
+        },
+      },
+    ];
 
-  const columns = [
-    {
-      title: "名称", dataIndex: "name", width: 160,
-      render: (text) => <><CloudServerOutlined style={{ marginRight: 4 }} />{text}</>,
-    },
-    {
-      title: "调度策略", width: 120,
-      render: (_, record) => {
-        const cap = parseCap(record.capacity);
-        const strategy = cap.strategy || record.type || "round_robin";
-        const info = STRATEGY_MAP[strategy] || { text: strategy, color: "default" };
-        return <Tag color={info.color}>{info.text}</Tag>;
-      },
-    },
-    {
-      title: "节点数", width: 80,
-      render: (_, record) => {
-        const cap = parseCap(record.capacity);
-        const count = (cap.node_ids || []).length;
-        return <Tag color={count > 0 ? "blue" : "default"}>{count} 个</Tag>;
-      },
-    },
-    {
-      title: "绑定租户", width: 100,
-      render: (_, record) => {
-        const cap = parseCap(record.capacity);
-        return cap.tenant_binding ? <Tag color="cyan">租户 #{cap.tenant_binding}</Tag> : <Text type="secondary">无</Text>;
-      },
-    },
-    {
-      title: "状态", dataIndex: "status", width: 90,
-      render: (v) => {
-        const info = STATUS_MAP[v] || { text: v, badge: "default" };
-        return <Badge status={info.badge} text={info.text} />;
-      },
-    },
-    {
-      title: "创建时间", dataIndex: "createdAt", width: 160,
-      render: v => v ? dayjs(v).format("YYYY-MM-DD HH:mm") : "-",
-    },
-    {
-      title: "操作", width: 200,
-      render: (_, record) => (
-        <Space size={4}>
-          <Tooltip title="分配节点">
-            <Button type="text" size="small" icon={<NodeIndexOutlined />} onClick={() => handleAssignNodes(record)} />
-          </Tooltip>
-          <Tooltip title="编辑">
-            <Button type="text" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
-          </Tooltip>
-          <Popconfirm title="确定删除此资源池？" onConfirm={() => handleDelete(record.id)}>
-            <Tooltip title="删除">
-              <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-            </Tooltip>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ];
-
-  // Transfer data source for node assignment
-  const transferData = nodes.map(n => ({
-    key: n.id,
-    title: `${n.name} (${n.ipAddress || "未知IP"})`,
-    description: n.status,
-    disabled: false,
-  }));
+    return (
+      <div>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => { setDetailPool(null); setDetailData(null); }} style={{ marginBottom: 16 }}>
+          返回资源池列表
+        </Button>
+        <Card title={`资源池: ${detailPool.name}`} loading={detailLoading}>
+          {detailData && (
+            <>
+              <Descriptions bordered size="small" column={3} style={{ marginBottom: 16 }}>
+                <Descriptions.Item label="名称">{detailData.name}</Descriptions.Item>
+                <Descriptions.Item label="类型"><Tag color={TYPE_COLORS[detailData.type]}>{detailData.type}</Tag></Descriptions.Item>
+                <Descriptions.Item label="状态"><Tag color={STATUS_COLORS[detailData.status]}>{STATUS_LABELS[detailData.status] || detailData.status}</Tag></Descriptions.Item>
+                <Descriptions.Item label="描述" span={3}>{detailData.description || "-"}</Descriptions.Item>
+              </Descriptions>
+              <Title level={5}>关联节点 ({(detailData.nodes || []).length})</Title>
+              <Table dataSource={detailData.nodes || []} columns={nodeColumns} rowKey="id" size="small" pagination={false} />
+            </>
+          )}
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div>
-      <Card
-        title={<Space><CloudServerOutlined /><span>资源池管理</span><Tag color="blue">{pools.length} 个资源池</Tag></Space>}
-        extra={
-          <Space>
-            <Button icon={<ReloadOutlined />} onClick={fetchPools}>刷新</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>创建资源池</Button>
-          </Space>
-        }
-      >
-        <Table columns={columns} dataSource={pools} rowKey="id" loading={loading}
-          pagination={{ pageSize: 20, showTotal: t => `共 ${t} 个资源池` }} size="middle" />
-      </Card>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <Title level={4} style={{ margin: 0 }}>资源池管理</Title>
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={fetchPools}>刷新</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>创建资源池</Button>
+        </Space>
+      </div>
 
-      {/* 创建/编辑弹窗 */}
+      <Spin spinning={loading}>
+        {pools.length === 0 && !loading ? (
+          <Empty description="暂无资源池">
+            <Button type="primary" onClick={handleCreate}>创建第一个资源池</Button>
+          </Empty>
+        ) : (
+          <Row gutter={[16, 16]}>
+            {pools.map(pool => (
+              <Col xs={24} sm={12} lg={8} key={pool.id}>
+                <Card hoverable
+                  onClick={() => openDetail(pool)}
+                  actions={[
+                    <EditOutlined key="edit" onClick={(e) => { e.stopPropagation(); handleEdit(pool); }} />,
+                    <DeleteOutlined key="delete" onClick={(e) => { e.stopPropagation(); handleDelete(pool); }} />,
+                  ]}>
+                  <div style={{ marginBottom: 12 }}>
+                    <Space style={{ width: "100%", justifyContent: "space-between" }}>
+                      <Space>
+                        <CloudServerOutlined style={{ fontSize: 18, color: "#1890ff" }} />
+                        <Text strong style={{ fontSize: 16 }}>{pool.name}</Text>
+                      </Space>
+                      <Tag color={STATUS_COLORS[pool.status]}>{STATUS_LABELS[pool.status] || pool.status}</Tag>
+                    </Space>
+                  </div>
+                  <Text type="secondary" style={{ display: "block", marginBottom: 12, minHeight: 22 }}>
+                    {pool.description || "无描述"}
+                  </Text>
+                  <Tag color={TYPE_COLORS[pool.type]} style={{ marginBottom: 12 }}>{pool.type}</Tag>
+                  <Row gutter={8}>
+                    <Col span={6}><Statistic title="节点" value={pool.nodeCount || 0} valueStyle={{ fontSize: 18 }} /></Col>
+                    <Col span={6}><Statistic title="CPU" value={pool.totalCpu || 0} suffix="核" valueStyle={{ fontSize: 18 }} /></Col>
+                    <Col span={6}><Statistic title="内存" value={pool.totalMemoryGb || 0} suffix="GB" valueStyle={{ fontSize: 18 }} /></Col>
+                    <Col span={6}><Statistic title="GPU" value={pool.totalGpu || 0} valueStyle={{ fontSize: 18 }} /></Col>
+                  </Row>
+                </Card>
+              </Col>
+            ))}
+          </Row>
+        )}
+      </Spin>
+
       <Modal title={editingPool ? "编辑资源池" : "创建资源池"} open={modalVisible}
-        onOk={handleSubmit} onCancel={() => setModalVisible(false)}
-        confirmLoading={submitting} width={520}>
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+        onOk={handleSubmit} onCancel={() => setModalVisible(false)} okText="确认" cancelText="取消">
+        <Form form={form} layout="vertical">
           <Form.Item name="name" label="资源池名称" rules={[{ required: true, message: "请输入名称" }]}>
             <Input placeholder="如: GPU高性能池" />
           </Form.Item>
-          <Form.Item name="strategy" label="调度策略" rules={[{ required: true }]}>
-            <Select options={Object.entries(STRATEGY_MAP).map(([k, v]) => ({ value: k, label: v.text }))} />
-          </Form.Item>
-          <Form.Item name="tenantBinding" label="绑定租户ID">
-            <Input type="number" placeholder="可选，绑定租户ID" />
+          <Form.Item name="type" label="类型" rules={[{ required: true }]}>
+            <Select options={[
+              { value: "GPU", label: "GPU" },
+              { value: "CPU", label: "CPU" },
+              { value: "NPU", label: "NPU" },
+              { value: "MIXED", label: "混合" },
+              { value: "GENERAL", label: "通用" },
+            ]} />
           </Form.Item>
           <Form.Item name="description" label="描述">
-            <Input.TextArea rows={2} placeholder="资源池描述" />
+            <Input.TextArea rows={3} placeholder="资源池用途说明" />
+          </Form.Item>
+          <Form.Item name="status" label="状态">
+            <Select options={[
+              { value: "ACTIVE", label: "运行中" },
+              { value: "INACTIVE", label: "已停用" },
+              { value: "MAINTENANCE", label: "维护中" },
+            ]} />
           </Form.Item>
         </Form>
-      </Modal>
-
-      {/* 节点分配弹窗 */}
-      <Modal title={`分配节点 — ${assigningPool?.name || ""}`} open={assignVisible}
-        onOk={handleAssignSubmit} onCancel={() => setAssignVisible(false)}
-        confirmLoading={submitting} width={700}>
-        <Transfer
-          dataSource={transferData}
-          targetKeys={selectedNodeIds}
-          onChange={setSelectedNodeIds}
-          render={item => item.title}
-          titles={["可用节点", "已分配"]}
-          showSearch
-          listStyle={{ width: 280, height: 400 }}
-        />
       </Modal>
     </div>
   );

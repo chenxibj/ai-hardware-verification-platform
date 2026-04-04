@@ -35,7 +35,10 @@ const PAGE_TITLES = {
   tenants: "租户管理",
   audit: "操作审计",
   alerts: "告警管理",
-  // 内部跳转页面
+  "report-list": "评测报告",
+  "resource-pools": "资源池管理",
+  "resource-monitor": "资源监控",
+  "asset-list": "数字资产",
   tasks: "评测任务",
   resources: "计算资源",
   settings: "系统设置",
@@ -88,6 +91,7 @@ const menuItems = [
     children: [
       { key: "nodes", icon: <ClusterOutlined />, label: "节点列表" },
       { key: "resource-pools", icon: <CloudServerOutlined />, label: "资源池" },
+      { key: "resource-monitor", icon: <DashboardOutlined />, label: "资源监控" },
       { key: "alerts", icon: <BellOutlined />, label: "告警管理" },
     ],
   },
@@ -145,7 +149,7 @@ export default function MainLayout({ currentPage, setCurrentPage, children }) {
       chips: "chip-mgmt", "chip-compare": "chip-mgmt",
       plans: "plan-mgmt", "plans-create": "plan-mgmt", "template-list": "plan-mgmt",
       assets: "asset-mgmt",
-      nodes: "node-mgmt", "resource-pools": "node-mgmt", alerts: "node-mgmt",
+      nodes: "node-mgmt", "resource-pools": "node-mgmt", "resource-monitor": "node-mgmt", alerts: "node-mgmt",
       users: "sys-mgmt", tenants: "sys-mgmt", audit: "sys-mgmt",
     };
     const parent = parentMap[currentPage];

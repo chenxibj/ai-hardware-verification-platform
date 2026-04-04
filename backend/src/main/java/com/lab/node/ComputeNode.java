@@ -77,6 +77,9 @@ public class ComputeNode {
     @UpdateTimestamp
     private Instant updatedAt;
 
+    @Column(name = "resource_pool_id")
+    private Long resourcePoolId;
+
     public enum Status {
         ONLINE, OFFLINE, BUSY, ERROR, MAINTENANCE
     }

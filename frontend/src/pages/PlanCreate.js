@@ -170,13 +170,18 @@ export default function PlanCreate() {
 
   /* Step 4: 参数 */
   const [selectedPreset, setSelectedPreset] = useState("STANDARD");
-  const [advancedConfig, setAdvancedConfig] = useState({ timeout: 3600, retryCount: 1 });
+  const [advancedConfig, setAdvancedConfig] = useState({
+    timeout: 3600, retryCount: 1,
+    dataTypes: ["FP32"], batchSize: 32,
+    warmupIterations: 10, benchmarkIterations: 100,
+  });
 
   /* Step 5: 节点 */
   const [nodes, setNodes] = useState([]);
   const [nodesLoading, setNodesLoading] = useState(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState([]);
   const [resourceMode, setResourceMode] = useState("shared");
+  const [nodeTypeFilter, setNodeTypeFilter] = useState("ALL");
 
   /* Step 6: 提交 */
   const [submitting, setSubmitting] = useState(false);
@@ -289,6 +294,10 @@ export default function PlanCreate() {
           resourceMode,
           timeout: advancedConfig.timeout,
           retryCount: advancedConfig.retryCount,
+          dataTypes: advancedConfig.dataTypes,
+          batchSize: advancedConfig.batchSize,
+          warmupIterations: advancedConfig.warmupIterations,
+          benchmarkIterations: advancedConfig.benchmarkIterations,
           itemCount: countEvalItems(selectedTemplate),
         }),
         nodeId: selectedNodeIds.length > 0 ? selectedNodeIds[0] : null,
@@ -538,20 +547,32 @@ export default function PlanCreate() {
   );
 
   /* ══════════════════════════════════════════════════════════
-   *  Step 4: 配参数
+   *  Step 4: 配参数 (#179 增强)
    * ══════════════════════════════════════════════════════════ */
+  const PRESET_PARAMS = {
+    QUICK:    { timeout: 300,  retryCount: 0, dataTypes: ["FP32"], batchSize: 1,  warmupIterations: 5,  benchmarkIterations: 10 },
+    STANDARD: { timeout: 3600, retryCount: 1, dataTypes: ["FP32", "FP16"], batchSize: 32, warmupIterations: 10, benchmarkIterations: 100 },
+    FULL:     { timeout: 7200, retryCount: 2, dataTypes: ["FP32", "FP16", "BF16", "INT8"], batchSize: 64, warmupIterations: 50, benchmarkIterations: 500 },
+  };
+
+  const handlePresetChange = (preset) => {
+    setSelectedPreset(preset);
+    const defaults = PRESET_PARAMS[preset] || PRESET_PARAMS.STANDARD;
+    setAdvancedConfig(prev => ({ ...prev, ...defaults }));
+  };
+
   const renderStep4 = () => (
     <div>
       <div style={{ marginBottom: 16 }}>
         <Text type="secondary">选择评测预设方案，决定评测的深度和广度</Text>
       </div>
-      <Radio.Group value={selectedPreset} onChange={e => setSelectedPreset(e.target.value)} style={{ width: "100%" }}>
+      <Radio.Group value={selectedPreset} onChange={e => handlePresetChange(e.target.value)} style={{ width: "100%" }}>
         <Row gutter={[16, 16]}>
           {PRESETS.map(preset => {
             const isSelected = selectedPreset === preset.key;
             return (
               <Col xs={24} md={8} key={preset.key}>
-                <Card hoverable onClick={() => setSelectedPreset(preset.key)}
+                <Card hoverable onClick={() => handlePresetChange(preset.key)}
                   style={{
                     border: isSelected ? `2px solid ${preset.color}` : "1px solid #f0f0f0",
                     background: isSelected ? `${preset.color}08` : "#fff",
@@ -589,24 +610,90 @@ export default function PlanCreate() {
         </Row>
       </Card>
 
-      {/* 高级选项 */}
+      {/* 详细参数表 */}
+      <Card size="small" title="📋 详细参数配置" style={{ marginTop: 16 }}>
+        <Row gutter={[24, 16]}>
+          {/* 超时时间滑块 */}
+          <Col xs={24} md={12}>
+            <div style={{ marginBottom: 8 }}>
+              <Text strong>超时时间</Text>
+              <Text type="secondary" style={{ marginLeft: 8 }}>{advancedConfig.timeout}s ({Math.round(advancedConfig.timeout / 60)}分钟)</Text>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Text style={{ fontSize: 12 }}>30s</Text>
+              <input type="range" min={30} max={3600} step={30} value={advancedConfig.timeout}
+                onChange={e => setAdvancedConfig(p => ({ ...p, timeout: Number(e.target.value) }))}
+                style={{ flex: 1 }} />
+              <Text style={{ fontSize: 12 }}>3600s</Text>
+            </div>
+          </Col>
+
+          {/* 重试次数 Radio */}
+          <Col xs={24} md={12}>
+            <div style={{ marginBottom: 8 }}><Text strong>失败重试次数</Text></div>
+            <Radio.Group value={advancedConfig.retryCount}
+              onChange={e => setAdvancedConfig(p => ({ ...p, retryCount: e.target.value }))}>
+              <Radio value={0}>不重试</Radio>
+              <Radio value={1}>1次</Radio>
+              <Radio value={2}>2次</Radio>
+              <Radio value={3}>3次</Radio>
+            </Radio.Group>
+          </Col>
+
+          {/* 数据类型多选 */}
+          <Col xs={24} md={12}>
+            <div style={{ marginBottom: 8 }}><Text strong>数据类型</Text></div>
+            <Checkbox.Group value={advancedConfig.dataTypes}
+              onChange={v => setAdvancedConfig(p => ({ ...p, dataTypes: v }))}>
+              <Row gutter={[8, 8]}>
+                {["FP32", "FP16", "BF16", "INT8"].map(dt => (
+                  <Col key={dt}><Checkbox value={dt}>{dt}</Checkbox></Col>
+                ))}
+              </Row>
+            </Checkbox.Group>
+          </Col>
+
+          {/* Batch Size */}
+          <Col xs={24} md={12}>
+            <div style={{ marginBottom: 8 }}><Text strong>Batch Size</Text></div>
+            <InputNumber min={1} max={256} value={advancedConfig.batchSize}
+              onChange={v => setAdvancedConfig(p => ({ ...p, batchSize: v }))}
+              style={{ width: "100%" }}
+              addonAfter={
+                <Space size={4}>
+                  {[1, 8, 32, 64, 128].map(v => (
+                    <Tag key={v} style={{ cursor: "pointer", margin: 0 }}
+                      color={advancedConfig.batchSize === v ? "blue" : "default"}
+                      onClick={() => setAdvancedConfig(p => ({ ...p, batchSize: v }))}>
+                      {v}
+                    </Tag>
+                  ))}
+                </Space>
+              } />
+          </Col>
+        </Row>
+      </Card>
+
+      {/* 高级选项折叠区 */}
       <Collapse ghost style={{ marginTop: 12 }}>
         <Panel header="⚙️ 高级选项" key="advanced">
           <Row gutter={24}>
             <Col span={12}>
               <Space direction="vertical" style={{ width: "100%" }}>
-                <Text>任务超时时间 (秒)</Text>
-                <InputNumber min={60} max={86400} value={advancedConfig.timeout}
-                  onChange={v => setAdvancedConfig(p => ({ ...p, timeout: v }))}
+                <Text>预热迭代次数 (warmup_iterations)</Text>
+                <InputNumber min={5} max={100} value={advancedConfig.warmupIterations}
+                  onChange={v => setAdvancedConfig(p => ({ ...p, warmupIterations: v }))}
                   style={{ width: "100%" }} />
+                <Text type="secondary" style={{ fontSize: 12 }}>建议: 快速5, 标准10, 全量50</Text>
               </Space>
             </Col>
             <Col span={12}>
               <Space direction="vertical" style={{ width: "100%" }}>
-                <Text>失败重试次数</Text>
-                <InputNumber min={0} max={5} value={advancedConfig.retryCount}
-                  onChange={v => setAdvancedConfig(p => ({ ...p, retryCount: v }))}
+                <Text>基准测试迭代次数 (benchmark_iterations)</Text>
+                <InputNumber min={10} max={1000} value={advancedConfig.benchmarkIterations}
+                  onChange={v => setAdvancedConfig(p => ({ ...p, benchmarkIterations: v }))}
                   style={{ width: "100%" }} />
+                <Text type="secondary" style={{ fontSize: 12 }}>建议: 快速10, 标准100, 全量500</Text>
               </Space>
             </Col>
           </Row>
@@ -616,7 +703,7 @@ export default function PlanCreate() {
   );
 
   /* ══════════════════════════════════════════════════════════
-   *  Step 5: 选节点
+   *  Step 5: 选节点 (#180 增强)
    * ══════════════════════════════════════════════════════════ */
   const renderStep5 = () => {
     const toggleNode = (nodeId) => {
@@ -625,25 +712,63 @@ export default function PlanCreate() {
       );
     };
 
+    // Filter nodes by type
+    const filteredNodes = nodeTypeFilter === "ALL" ? nodes : nodes.filter(n => {
+      const tags = (n.tags || "").toUpperCase();
+      let hw;
+      try { hw = typeof n.hardwareInfo === "string" ? JSON.parse(n.hardwareInfo) : n.hardwareInfo; } catch { hw = null; }
+      if (nodeTypeFilter === "GPU") return tags.includes("GPU") || (hw && hw.gpu_count > 0);
+      if (nodeTypeFilter === "NPU") return tags.includes("NPU");
+      if (nodeTypeFilter === "CPU") return tags.includes("CPU") || (!tags.includes("GPU") && !tags.includes("NPU") && !(hw && hw.gpu_count > 0));
+      return true;
+    });
+
+    const onlineNodes = nodes.filter(n => n.status === "ONLINE" || n.status === "BUSY");
+
     return (
       <Spin spinning={nodesLoading}>
-        <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
           <Text type="secondary">选择执行评测的计算节点（可多选）</Text>
-          <Space>
-            <Text>资源模式: </Text>
-            <Select value={resourceMode} onChange={setResourceMode} style={{ width: 120 }} size="small"
-              options={[
-                { value: "shared", label: "共享模式" },
-                { value: "exclusive", label: "独占模式" },
-              ]} />
+          <Space wrap>
+            <Space size={4}>
+              <Text style={{ fontSize: 13 }}>类型筛选:</Text>
+              <Select value={nodeTypeFilter} onChange={setNodeTypeFilter} style={{ width: 100 }} size="small"
+                options={[
+                  { value: "ALL", label: "全部" },
+                  { value: "CPU", label: "CPU" },
+                  { value: "GPU", label: "GPU" },
+                  { value: "NPU", label: "NPU" },
+                ]} />
+            </Space>
+            <Space size={4}>
+              <Text style={{ fontSize: 13 }}>资源模式:</Text>
+              <Select value={resourceMode} onChange={setResourceMode} style={{ width: 120 }} size="small"
+                options={[
+                  { value: "shared", label: "🔄 共享模式" },
+                  { value: "exclusive", label: "🔒 独占模式" },
+                  { value: "auto", label: "⚡ 自动分配" },
+                ]} />
+            </Space>
           </Space>
         </div>
 
-        {nodes.length === 0 && !nodesLoading ? (
-          <Alert message="当前无可用计算节点" description="任务创建后将排队等待节点上线" type="warning" showIcon />
+        {onlineNodes.length === 0 && !nodesLoading ? (
+          <Alert
+            message="当前无在线计算节点"
+            description={
+              <Space direction="vertical">
+                <Text>请先注册并激活计算节点，才能执行评测任务。</Text>
+                <Text type="secondary">步骤: 节点管理 → 注册节点 → 部署Agent → 等待心跳上线</Text>
+              </Space>
+            }
+            type="warning" showIcon
+            action={<Button size="small" type="primary" onClick={() => message.info("请前往节点管理页面注册节点")}>去注册节点</Button>}
+          />
+        ) : nodes.length === 0 && !nodesLoading ? (
+          <Alert message="暂无计算节点" description="请先注册计算节点" type="info" showIcon />
         ) : (
           <Row gutter={[16, 16]}>
-            {nodes.map(node => {
+            {filteredNodes.map(node => {
               const status = NODE_STATUS_MAP[node.status] || NODE_STATUS_MAP.OFFLINE;
               const isOffline = node.status === "OFFLINE" || node.status === "ERROR";
               const isSelected = selectedNodeIds.includes(node.id);
@@ -670,13 +795,49 @@ export default function PlanCreate() {
                         <Badge status={status.badge} text={status.text} />
                       </Space>
                       {node.ipAddress && <Text type="secondary" style={{ fontSize: 12 }}>{node.ipAddress}</Text>}
-                      {hw && (
-                        <Space size={8} wrap>
-                          {hw.cpu_model && <Tooltip title={hw.cpu_model}><Tag style={{ fontSize: 11 }}>CPU {hw.cpu_threads || hw.cpu_cores_logical || "?"}核</Tag></Tooltip>}
-                          {hw.memory_total_gb && <Tag style={{ fontSize: 11 }}>内存 {Number(hw.memory_total_gb).toFixed(0)}GB</Tag>}
-                          {hw.gpu_count > 0 && <Tag color="blue" style={{ fontSize: 11 }}>GPU ×{hw.gpu_count}</Tag>}
-                        </Space>
+
+                      {/* 增强: 硬件详情卡片 */}
+                      {hw ? (
+                        <div style={{ background: "#f9f9f9", borderRadius: 4, padding: "6px 8px", marginTop: 4 }}>
+                          {hw.cpu_model && (
+                            <div style={{ fontSize: 11, color: "#666", marginBottom: 2 }}>
+                              <Text style={{ fontSize: 11 }}>CPU: {hw.cpu_model}</Text>
+                            </div>
+                          )}
+                          <Space size={6} wrap>
+                            {(hw.cpu_threads || hw.cpu_cores_logical) && (
+                              <Tag style={{ fontSize: 11, margin: 0 }}>🖥 {hw.cpu_threads || hw.cpu_cores_logical}核</Tag>
+                            )}
+                            {hw.memory_total_gb && (
+                              <Tag style={{ fontSize: 11, margin: 0 }}>💾 {Number(hw.memory_total_gb).toFixed(0)}GB</Tag>
+                            )}
+                            {hw.gpu_count > 0 && (
+                              <Tag color="blue" style={{ fontSize: 11, margin: 0 }}>🎮 GPU ×{hw.gpu_count}</Tag>
+                            )}
+                          </Space>
+                          {hw.gpu_name && (
+                            <div style={{ fontSize: 11, color: "#1890ff", marginTop: 2 }}>
+                              GPU: {hw.gpu_name}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <Text type="secondary" style={{ fontSize: 11 }}>硬件信息待上报</Text>
                       )}
+
+                      {/* 负载预览 */}
+                      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          {node.status === "BUSY" ? "📊 运行中任务: 1" : node.status === "ONLINE" ? "📊 空闲" : ""}
+                        </Text>
+                        {node.tags && (
+                          <Space size={2}>
+                            {node.tags.split(",").filter(Boolean).slice(0, 3).map(tag => (
+                              <Tag key={tag} style={{ fontSize: 10, margin: 0 }}>{tag.trim()}</Tag>
+                            ))}
+                          </Space>
+                        )}
+                      </div>
                     </Space>
                   </Card>
                 </Col>
@@ -686,14 +847,18 @@ export default function PlanCreate() {
         )}
 
         {selectedNodeIds.length > 0 && (
-          <div style={{ marginTop: 12 }}>
-            <Text>已选 <Text strong style={{ color: "#1890ff" }}>{selectedNodeIds.length}</Text> 个节点</Text>
-          </div>
+          <Card size="small" style={{ marginTop: 12, background: "#f6ffed" }}>
+            <Space>
+              <Text>已选 <Text strong style={{ color: "#1890ff" }}>{selectedNodeIds.length}</Text> 个节点</Text>
+              <Text type="secondary">|</Text>
+              <Text type="secondary">资源模式: {resourceMode === "exclusive" ? "🔒 独占" : resourceMode === "auto" ? "⚡ 自动" : "🔄 共享"}</Text>
+              <Button size="small" type="link" onClick={() => setSelectedNodeIds([])}>清空选择</Button>
+            </Space>
+          </Card>
         )}
       </Spin>
     );
   };
-
   /* ══════════════════════════════════════════════════════════
    *  Step 6: 确认提交
    * ══════════════════════════════════════════════════════════ */

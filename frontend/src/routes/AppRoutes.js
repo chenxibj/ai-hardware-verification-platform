@@ -23,6 +23,7 @@ import TenantList from "../pages/TenantList";
 import Assets from "../pages/Assets";
 import Users from "../pages/Users";
 import Audit from "../pages/Audit";
+import ResourceMonitor from "../pages/ResourceMonitor";
 // 保留旧页面路由
 import Tasks from "../pages/Tasks";
 import Templates from "../pages/Templates";
@@ -65,6 +66,7 @@ const PAGE_COMPONENTS = {
   resources: Resources,
   community: Community,
   "audit-logs": AuditLogs,
+  "resource-monitor": ResourceMonitor,
   settings: Settings,
   forum: Forum,
   "demand-board": DemandBoard,
