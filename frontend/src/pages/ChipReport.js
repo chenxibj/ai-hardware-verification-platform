@@ -9,7 +9,7 @@
  * 板块4: 适用场景推荐（三栏卡片）
  * 板块5: 评测环境信息
  */
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Card, Row, Col, Statistic, Progress, Table, Tag, Typography,
   Spin, Button, Space, Divider, message, Descriptions, Alert, Empty,
@@ -18,9 +18,11 @@ import {
   ArrowLeftOutlined, TrophyOutlined, CheckCircleOutlined,
   CloseCircleOutlined, ExperimentOutlined, WarningOutlined,
   SafetyCertificateOutlined, ClockCircleOutlined,
+  DownloadOutlined,
 } from "@ant-design/icons";
 import RadarChart from "../components/RadarChart";
 import api from "../utils/api";
+import { exportToPdf, generateReportFilename } from "../utils/exportPdf";
 
 const { Title, Text } = Typography;
 
@@ -75,6 +77,8 @@ export default function ChipReport({ reportId, onBack }) {
   const [report, setReport] = useState(null);
   const [chipName, setChipName] = useState("");
   const [planName, setPlanName] = useState("");
+  const reportRef = useRef(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     if (!reportId) return;
@@ -198,15 +202,45 @@ export default function ChipReport({ reportId, onBack }) {
     },
   ];
 
+  /* PDF export handler */
+  const handleExportPdf = async () => {
+    if (!reportRef.current) return;
+    setExporting(true);
+    try {
+      const filename = generateReportFilename(chipName);
+      await exportToPdf(reportRef.current, filename);
+      message.success("PDF 导出成功");
+    } catch (err) {
+      console.error("PDF export error:", err);
+      message.error("PDF 导出失败: " + (err.message || "未知错误"));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const reportTime = report.createdAt ? new Date(report.createdAt).toLocaleString("zh-CN") : "-";
 
   return (
     <div style={{ padding: "0" }}>
-      {/* 返回按钮 */}
-      {onBack && (
-        <Button type="link" icon={<ArrowLeftOutlined />} onClick={onBack}
-          style={{ marginBottom: 16, paddingLeft: 0 }}>返回</Button>
-      )}
+      {/* 操作栏：返回 + 下载PDF */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }} data-html2canvas-ignore>
+        <div>
+          {onBack && (
+            <Button type="link" icon={<ArrowLeftOutlined />} onClick={onBack}
+              style={{ paddingLeft: 0 }}>返回</Button>
+          )}
+        </div>
+        <Button
+          type="primary"
+          icon={<DownloadOutlined />}
+          loading={exporting}
+          onClick={handleExportPdf}
+        >
+          下载 PDF
+        </Button>
+      </div>
+
+      <div ref={reportRef}>
 
       {/* ── 板块 1: 芯片能力总览 ── */}
       <Card style={{ marginBottom: 24 }}>
@@ -424,6 +458,7 @@ export default function ChipReport({ reportId, onBack }) {
           <Descriptions.Item label="生成方式">规则引擎（自动）</Descriptions.Item>
         </Descriptions>
       </Card>
+      </div>
     </div>
   );
 }
