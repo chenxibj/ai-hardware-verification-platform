@@ -82,6 +82,8 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       JWT_SECRET: ${JWT_SECRET}
+    volumes:
+      - /data/assets:/data/assets
     depends_on:
       postgres:
         condition: service_healthy

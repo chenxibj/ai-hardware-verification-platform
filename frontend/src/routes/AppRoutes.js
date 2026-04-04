@@ -28,6 +28,8 @@ import Reports from "../pages/Reports";
 import Comparisons from "../pages/Comparisons";
 import Logs from "../pages/Logs";
 import Assets from "../pages/Assets";
+import AssetList from "../pages/AssetList";
+import TenantList from "../pages/TenantList";
 import Resources from "../pages/Resources";
 import Community from "../pages/Community";
 import AuditLogs from "../pages/AuditLogs";
@@ -54,6 +56,8 @@ const PAGE_COMPONENTS = {
   resources: Resources,
   community: Community,
   "audit-logs": AuditLogs,
+  "asset-list": AssetList,
+  tenants: TenantList,
   settings: Settings,
 };
 

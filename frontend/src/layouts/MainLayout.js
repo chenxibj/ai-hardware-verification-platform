@@ -1,8 +1,8 @@
 /**
  * @file MainLayout.js
  * @description 主布局组件：侧边栏 + 顶栏 + 内容区 + Footer
- * @refactor #128 导航结构重组 - 从13模块精简为4+1导航
- * @feat #161 新增模板浏览导航入口
+ * @refactor #128 导航结构重组
+ * @feat #161, #172, #174
  */
 import React, { useState } from "react";
 import { Layout, Menu, Button, Badge, Dropdown, Typography } from "antd";
@@ -11,7 +11,8 @@ import {
   ClusterOutlined, SettingOutlined,
   BellOutlined, UserOutlined, LogoutOutlined,
   UnorderedListOutlined, SwapOutlined, PlusCircleOutlined,
-  TeamOutlined, AuditOutlined, AppstoreOutlined, FileTextOutlined, BarChartOutlined,
+  TeamOutlined, AuditOutlined, AppstoreOutlined, FileTextOutlined,
+  DatabaseOutlined, SafetyCertificateOutlined,
 } from "@ant-design/icons";
 import useAuthStore from "../stores/useAuthStore";
 import useNotificationStore from "../stores/useNotificationStore";
@@ -19,7 +20,6 @@ import useNotificationStore from "../stores/useNotificationStore";
 const { Header, Sider, Content, Footer } = Layout;
 
 const PAGE_TITLES = {
-  // 主导航 4+1
   dashboard: "工作台",
   chips: "芯片列表",
   "chip-compare": "芯片对比",
@@ -30,7 +30,8 @@ const PAGE_TITLES = {
   users: "用户管理",
   audit: "操作审计",
   "report-list": "评测报告",
-  // 内部跳转页面（不在侧边栏显示）
+  "asset-list": "数字资产",
+  tenants: "多租户管理",
   tasks: "评测任务",
   resources: "计算资源",
   settings: "系统设置",
@@ -67,6 +68,11 @@ const menuItems = [
     label: "评测报告",
   },
   {
+    key: "asset-list",
+    icon: <DatabaseOutlined />,
+    label: "数字资产",
+  },
+  {
     key: "nodes",
     icon: <ClusterOutlined />,
     label: "节点管理",
@@ -78,6 +84,7 @@ const menuItems = [
     children: [
       { key: "users", icon: <TeamOutlined />, label: "用户管理" },
       { key: "audit", icon: <AuditOutlined />, label: "操作审计" },
+      { key: "tenants", icon: <SafetyCertificateOutlined />, label: "多租户管理" },
     ],
   },
 ];
@@ -90,19 +97,18 @@ export default function MainLayout({ currentPage, setCurrentPage, children }) {
 
   const userMenu = {
     items: [
-      { key: "role", label: `角色: ${({ ADMIN: "管理员", USER: "普通用户", REVIEWER: "审核员", OPERATOR: "运维" })[user.role] || user.role}`, disabled: true },
+      { key: "role", label: `角色: ${({ ADMIN: "管理员", USER: "普通用户", REVIEWER: "审核员", OPERATOR: "运维", SUPER_ADMIN: "超级管理员", ENGINEER: "工程师", VIEWER: "观察者" })[user?.role] || user?.role}`, disabled: true },
       { type: "divider" },
       { key: "logout", icon: <LogoutOutlined />, label: "退出登录", danger: true },
     ],
     onClick: ({ key }) => { if (key === "logout") logout(); },
   };
 
-  /* 计算 SubMenu 的 openKeys，让当前页的父菜单自动展开 */
   const getDefaultOpenKeys = () => {
     const parentMap = {
       chips: "chip-mgmt", "chip-compare": "chip-mgmt",
       plans: "plan-mgmt", "plans-create": "plan-mgmt", "template-list": "plan-mgmt",
-      users: "sys-mgmt", audit: "sys-mgmt",
+      users: "sys-mgmt", audit: "sys-mgmt", tenants: "sys-mgmt",
     };
     const parent = parentMap[currentPage];
     return parent ? [parent] : [];
@@ -133,7 +139,7 @@ export default function MainLayout({ currentPage, setCurrentPage, children }) {
               <Button type="text" icon={<BellOutlined />} />
             </Badge>
             <Dropdown menu={userMenu}>
-              <Button type="text" icon={<UserOutlined />}>{user.username}</Button>
+              <Button type="text" icon={<UserOutlined />}>{user?.username}</Button>
             </Dropdown>
           </div>
         </Header>

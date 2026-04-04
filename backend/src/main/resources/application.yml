@@ -29,6 +29,12 @@ spring:
       password: ${REDIS_PASSWORD:}
       timeout: 5000ms
 
+  # 文件上传配置 (#172)
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
+
 # MinIO 配置
 minio:
   endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
@@ -38,7 +44,7 @@ minio:
 # JWT 配置
 jwt:
   secret: ${JWT_SECRET}
-  expiration: ${JWT_EXPIRATION:86400000}  # 24 hours
+  expiration: ${JWT_EXPIRATION:86400000}
   header: ${JWT_HEADER:Authorization}
   prefix: ${JWT_PREFIX:Bearer }
 
