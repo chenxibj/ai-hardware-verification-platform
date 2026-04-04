@@ -1,130 +1,137 @@
 /**
  * @file MainLayout.js
- * @description 主布局组件：侧边栏 + 顶栏 + 内容区 + Footer
- * @refactor #128 导航结构重组 - 从13模块精简为4+1导航
- * @feat #161 新增模板浏览导航入口
- * @feat #172, #174, #175, #176 新增数字资产/租户/资源池/告警
+ * @description 主布局组件：侧边栏+顶栏+面包屑+内容区+Footer
+ * @refactor #181 导航重组+响应式+Header增强
  */
-import React, { useState } from "react";
-import { Layout, Menu, Button, Badge, Dropdown, Typography } from "antd";
+import React, { useState, useEffect } from "react";
 import {
-  DashboardOutlined, ExperimentOutlined, FileSearchOutlined,
-  ClusterOutlined, SettingOutlined,
-  BellOutlined, UserOutlined, LogoutOutlined,
-  UnorderedListOutlined, SwapOutlined, PlusCircleOutlined,
-  TeamOutlined, AuditOutlined, AppstoreOutlined,
-  DatabaseOutlined, CloudServerOutlined, StarOutlined, DollarOutlined,
+  Layout, Menu, Button, Badge, Dropdown, Typography, Breadcrumb, Avatar, Space,
+} from "antd";
+import {
+  DashboardOutlined, ExperimentOutlined, ClusterOutlined, SettingOutlined,
+  BellOutlined, UserOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined,
+  UnorderedListOutlined, AppstoreOutlined, FileSearchOutlined,
+  CloudServerOutlined, DatabaseOutlined, FundProjectionScreenOutlined,
+  TeamOutlined, TrophyOutlined, CloudDownloadOutlined, LockOutlined,
+  ProfileOutlined, SwapOutlined, PlusCircleOutlined,
+  AuditOutlined, DollarOutlined, StarOutlined,
 } from "@ant-design/icons";
 import useAuthStore from "../stores/useAuthStore";
 import useNotificationStore from "../stores/useNotificationStore";
 
 const { Header, Sider, Content, Footer } = Layout;
+const { Text } = Typography;
 
 const PAGE_TITLES = {
-  // 主导航 4+1
   dashboard: "工作台",
-  chips: "芯片列表",
+  chips: "芯片管理",
   "chip-compare": "芯片对比",
-  plans: "评测计划列表",
-  "plans-create": "创建评测计划",
   "template-list": "评测模板",
+  plans: "评测计划",
+  "plans-create": "创建评测计划",
+  "report-list": "评测报告",
   nodes: "节点管理",
   "resource-pools": "资源池管理",
+  "resource-monitor": "资源监控",
   assets: "数字资产",
+  leaderboard: "评测榜单",
+  "community-resources": "资源下载",
   users: "用户管理",
   tenants: "租户管理",
-  audit: "操作审计",
   alerts: "告警管理",
-  "report-list": "评测报告",
-  "resource-pools": "资源池管理",
-  "resource-monitor": "资源监控",
-  "asset-list": "数字资产",
-  tasks: "评测任务",
-  resources: "计算资源",
-  settings: "系统设置",
+  audit: "操作审计",
   forum: "论坛",
   "demand-board": "需求对接",
+  community: "社区首页",
   "user-points": "我的积分",
   "user-preferences": "偏好设置",
   "scheduler-config": "调度配置",
   billing: "计费管理",
   workflows: "流程编排",
+  tasks: "评测任务",
+  resources: "计算资源",
+  settings: "系统设置",
+};
+
+const BREADCRUMB_MAP = {
+  dashboard: [{ title: "首页" }],
+  chips: [{ title: "评测中心" }, { title: "芯片管理" }],
+  "chip-compare": [{ title: "评测中心" }, { title: "芯片对比" }],
+  "template-list": [{ title: "评测中心" }, { title: "评测模板" }],
+  plans: [{ title: "评测中心" }, { title: "评测计划" }],
+  "plans-create": [{ title: "评测中心" }, { title: "创建计划" }],
+  "report-list": [{ title: "评测中心" }, { title: "评测报告" }],
+  nodes: [{ title: "资源管理" }, { title: "节点管理" }],
+  "resource-pools": [{ title: "资源管理" }, { title: "资源池" }],
+  "resource-monitor": [{ title: "资源管理" }, { title: "资源监控" }],
+  assets: [{ title: "资源管理" }, { title: "数字资产" }],
+  alerts: [{ title: "资源管理" }, { title: "告警管理" }],
+  leaderboard: [{ title: "社区" }, { title: "评测榜单" }],
+  "community-resources": [{ title: "社区" }, { title: "资源下载" }],
+  users: [{ title: "系统设置" }, { title: "用户管理" }],
+  tenants: [{ title: "系统设置" }, { title: "租户管理" }],
+};
+
+const PARENT_MAP = {
+  dashboard: null,
+  chips: "eval-center", "chip-compare": "eval-center",
+  "template-list": "eval-center", plans: "eval-center",
+  "plans-create": "eval-center", "report-list": "eval-center",
+  nodes: "resource-mgmt", "resource-pools": "resource-mgmt",
+  "resource-monitor": "resource-mgmt", assets: "resource-mgmt",
+  alerts: "resource-mgmt",
+  leaderboard: "community-hub", "community-resources": "community-hub",
+  community: "community-hub", forum: "community-hub", "demand-board": "community-hub",
+  users: "sys-settings", tenants: "sys-settings",
+  audit: "sys-settings", "scheduler-config": "sys-settings",
+  billing: "sys-settings", workflows: "sys-settings",
+  "user-points": "user-center", "user-preferences": "user-center",
 };
 
 const menuItems = [
   {
     key: "dashboard",
     icon: <DashboardOutlined />,
-    label: "工作台",
+    label: "Dashboard",
   },
   {
-    key: "chip-mgmt",
+    key: "eval-center",
     icon: <ExperimentOutlined />,
-    label: "芯片管理",
+    label: "评测中心",
     children: [
-      { key: "chips", icon: <UnorderedListOutlined />, label: "芯片列表" },
-      { key: "chip-compare", icon: <SwapOutlined />, label: "芯片对比" },
-    ],
-  },
-  {
-    key: "plan-mgmt",
-    icon: <FileSearchOutlined />,
-    label: "评测计划",
-    children: [
-      { key: "plans", icon: <UnorderedListOutlined />, label: "计划列表" },
-      { key: "plans-create", icon: <PlusCircleOutlined />, label: "创建计划" },
+      { key: "chips", icon: <UnorderedListOutlined />, label: "芯片管理" },
       { key: "template-list", icon: <AppstoreOutlined />, label: "评测模板" },
+      { key: "plans", icon: <FileSearchOutlined />, label: "评测计划" },
+      { key: "report-list", icon: <ProfileOutlined />, label: "评测报告" },
     ],
   },
   {
-    key: "asset-mgmt",
-    icon: <DatabaseOutlined />,
-    label: "数字资产",
-    children: [
-      { key: "assets", icon: <DatabaseOutlined />, label: "资产列表" },
-    ],
-  },
-  {
-    key: "node-mgmt",
+    key: "resource-mgmt",
     icon: <ClusterOutlined />,
-    label: "节点管理",
+    label: "资源管理",
     children: [
-      { key: "nodes", icon: <ClusterOutlined />, label: "节点列表" },
+      { key: "nodes", icon: <ClusterOutlined />, label: "节点管理" },
       { key: "resource-pools", icon: <CloudServerOutlined />, label: "资源池" },
-      { key: "resource-monitor", icon: <DashboardOutlined />, label: "资源监控" },
-      { key: "alerts", icon: <BellOutlined />, label: "告警管理" },
+      { key: "resource-monitor", icon: <FundProjectionScreenOutlined />, label: "资源监控" },
+      { key: "assets", icon: <DatabaseOutlined />, label: "数字资产" },
     ],
   },
   {
-    key: "community-mgmt",
+    key: "community-hub",
     icon: <TeamOutlined />,
     label: "社区",
     children: [
-      { key: "community", icon: <TeamOutlined />, label: "社区首页" },
-      { key: "forum", icon: <UnorderedListOutlined />, label: "论坛" },
-      { key: "demand-board", icon: <SwapOutlined />, label: "需求对接" },
+      { key: "leaderboard", icon: <TrophyOutlined />, label: "评测榜单" },
+      { key: "community-resources", icon: <CloudDownloadOutlined />, label: "资源下载" },
     ],
   },
   {
-    key: "user-center",
-    icon: <TeamOutlined />,
-    label: "个人中心",
-    children: [
-      { key: "user-points", icon: <StarOutlined />, label: "我的积分" },
-      { key: "user-preferences", icon: <SettingOutlined />, label: "偏好设置" },
-    ],
-  },
-  {
-    key: "sys-mgmt",
+    key: "sys-settings",
     icon: <SettingOutlined />,
     label: "系统设置",
     children: [
       { key: "users", icon: <TeamOutlined />, label: "用户管理" },
       { key: "tenants", icon: <TeamOutlined />, label: "租户管理" },
-      { key: "audit", icon: <AuditOutlined />, label: "操作审计" },
-      { key: "scheduler-config", icon: <SettingOutlined />, label: "调度配置" },
-      { key: "billing", icon: <DollarOutlined />, label: "计费管理" },
-      { key: "workflows", icon: <AppstoreOutlined />, label: "流程编排" },
     ],
   },
 ];
@@ -137,55 +144,107 @@ export default function MainLayout({ currentPage, setCurrentPage, children }) {
 
   const userMenu = {
     items: [
-      { key: "role", label: `角色: ${({ ADMIN: "管理员", USER: "普通用户", REVIEWER: "审核员", OPERATOR: "运维", SUPER_ADMIN: "超级管理员", TENANT_ADMIN: "租户管理员", ENGINEER: "工程师" })[user.role] || user.role}`, disabled: true },
+      {
+        key: "info",
+        icon: <UserOutlined />,
+        label: `${user.username}`,
+        disabled: true,
+      },
+      {
+        key: "role",
+        label: `角色: ${({
+          ADMIN: "管理员", USER: "普通用户", REVIEWER: "审核员",
+          OPERATOR: "运维", SUPER_ADMIN: "超级管理员",
+          TENANT_ADMIN: "租户管理员", ENGINEER: "工程师",
+        })[user.role] || user.role}`,
+        disabled: true,
+      },
+      { type: "divider" },
+      { key: "user-preferences", icon: <SettingOutlined />, label: "个人设置" },
+      { key: "change-password", icon: <LockOutlined />, label: "修改密码" },
       { type: "divider" },
       { key: "logout", icon: <LogoutOutlined />, label: "退出登录", danger: true },
     ],
-    onClick: ({ key }) => { if (key === "logout") logout(); },
+    onClick: ({ key }) => {
+      if (key === "logout") logout();
+      else if (key === "user-preferences") setCurrentPage("user-preferences");
+    },
   };
 
   const getDefaultOpenKeys = () => {
-    const parentMap = {
-      chips: "chip-mgmt", "chip-compare": "chip-mgmt",
-      plans: "plan-mgmt", "plans-create": "plan-mgmt", "template-list": "plan-mgmt",
-      assets: "asset-mgmt",
-      nodes: "node-mgmt", "resource-pools": "node-mgmt", "resource-monitor": "node-mgmt", alerts: "node-mgmt",
-      users: "sys-mgmt", tenants: "sys-mgmt", audit: "sys-mgmt",
-    };
-    const parent = parentMap[currentPage];
+    const parent = PARENT_MAP[currentPage];
     return parent ? [parent] : [];
   };
 
+  const breadcrumbItems = BREADCRUMB_MAP[currentPage] || [{ title: PAGE_TITLES[currentPage] || "工作台" }];
+
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      <Sider collapsible collapsed={collapsed} onCollapse={setCollapsed} theme="light"
-        breakpoint="lg" collapsedWidth="80"
-        onBreakpoint={broken => setCollapsed(broken)}
-        style={{ borderRight: "1px solid #f0f0f0" }} width={220}>
-        <div style={{ height: 48, display: "flex", alignItems: "center", justifyContent: "center",
-          borderBottom: "1px solid #f0f0f0", fontWeight: "bold", fontSize: collapsed ? 14 : 16 }}>
-          {collapsed ? "AI" : <strong>AI软硬件验证平台</strong>}
+      <Sider
+        collapsible
+        collapsed={collapsed}
+        onCollapse={setCollapsed}
+        theme="light"
+        breakpoint="lg"
+        collapsedWidth={80}
+        onBreakpoint={(broken) => setCollapsed(broken)}
+        style={{ borderRight: "1px solid #f0f0f0" }}
+        width={220}
+        trigger={null}
+      >
+        <div style={{
+          height: 56, display: "flex", alignItems: "center", justifyContent: "center",
+          borderBottom: "1px solid #f0f0f0", fontWeight: "bold", fontSize: collapsed ? 14 : 15,
+          padding: "0 12px", overflow: "hidden", whiteSpace: "nowrap",
+        }}>
+          {collapsed
+            ? <span style={{ fontSize: 20 }}>🔬</span>
+            : <span>🔬 <strong>AI验证平台</strong></span>
+          }
         </div>
-        <Menu mode="inline" selectedKeys={[currentPage]}
+        <Menu
+          mode="inline"
+          selectedKeys={[currentPage]}
           defaultOpenKeys={getDefaultOpenKeys()}
           items={menuItems}
           onClick={({ key }) => setCurrentPage(key)}
-          style={{ borderRight: 0 }} />
+          style={{ borderRight: 0, marginTop: 4 }}
+        />
       </Sider>
       <Layout>
-        <Header style={{ background: "#fff", padding: "0 24px", display: "flex",
-          alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #f0f0f0" }}>
-          <strong style={{ fontSize: 16 }}>{PAGE_TITLES[currentPage] || "工作台"}</strong>
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <Badge count={notifCount} size="small">
-              <Button type="text" icon={<BellOutlined />} />
+        <Header style={{
+          background: "#fff", padding: "0 24px", display: "flex",
+          alignItems: "center", justifyContent: "space-between",
+          borderBottom: "1px solid #f0f0f0", height: 56, lineHeight: "56px",
+        }}>
+          <Space>
+            <Button
+              type="text"
+              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={() => setCollapsed(!collapsed)}
+              style={{ fontSize: 16 }}
+            />
+            <Breadcrumb
+              items={[{ title: <DashboardOutlined /> }, ...breadcrumbItems]}
+              style={{ marginLeft: 8 }}
+            />
+          </Space>
+          <Space size={16}>
+            <Badge count={notifCount} size="small" offset={[-2, 2]}>
+              <Button type="text" icon={<BellOutlined style={{ fontSize: 18 }} />} />
             </Badge>
-            <Dropdown menu={userMenu}>
-              <Button type="text" icon={<UserOutlined />}>{user.username}</Button>
+            <Dropdown menu={userMenu} placement="bottomRight">
+              <Space style={{ cursor: "pointer" }}>
+                <Avatar size={32} icon={<UserOutlined />} style={{ backgroundColor: "#1890ff" }} />
+                <Text style={{ maxWidth: 100 }} ellipsis>{user.username}</Text>
+              </Space>
             </Dropdown>
-          </div>
+          </Space>
         </Header>
-        <Content style={{ margin: 16, padding: 24, background: "#fff", borderRadius: 8, minHeight: 280, overflow: "auto" }}>
+        <Content style={{
+          margin: 16, padding: 24, background: "#fff",
+          borderRadius: 8, minHeight: 280, overflow: "auto",
+        }}>
           {children}
         </Content>
         <Footer style={{ textAlign: "center", padding: "12px 50px", color: "#999" }}>

@@ -3,6 +3,7 @@
  * @description 页面路由配置
  * @feat #134, #136, #137, #161, #162, #164, #166, #167
  * @feat #172, #174, #175, #176
+ * @feat #177, #178, #181 评测榜单+社区资源+导航重组
  */
 import React from "react";
 import Dashboard from "../pages/Dashboard";
@@ -24,6 +25,8 @@ import Assets from "../pages/Assets";
 import Users from "../pages/Users";
 import Audit from "../pages/Audit";
 import ResourceMonitor from "../pages/ResourceMonitor";
+import Leaderboard from "../pages/Leaderboard";
+import CommunityResources from "../pages/CommunityResources";
 // 保留旧页面路由
 import Tasks from "../pages/Tasks";
 import Templates from "../pages/Templates";
@@ -41,6 +44,7 @@ import UserPoints from "../pages/UserPoints";
 import UserPreferences from "../pages/UserPreferences";
 import SchedulerConfig from "../pages/SchedulerConfig";
 import Billing from "../pages/Billing";
+import ReportList from "../pages/ReportList";
 
 
 const PAGE_COMPONENTS = {
@@ -74,6 +78,7 @@ const PAGE_COMPONENTS = {
   "user-preferences": UserPreferences,
   "scheduler-config": SchedulerConfig,
   billing: Billing,
+  "community-resources": CommunityResources,
 };
 
 export default function AppRoutes({
@@ -148,6 +153,20 @@ export default function AppRoutes({
   // alerts page (standalone, not in node detail)
   if (currentPage === "alerts") {
     return <AlertPanel />;
+  }
+
+  // 评测榜单 (#177) — pass onViewReport to open report detail
+  if (currentPage === "leaderboard") {
+    return <Leaderboard onViewReport={(reportId) => setChipReportId(reportId)} />;
+  }
+
+  // 评测报告列表 (#169)
+  if (currentPage === "report-list") {
+    return (
+      <ReportList
+        onViewReport={(reportId) => setChipReportId(reportId)}
+      />
+    );
   }
 
   const PageComponent = PAGE_COMPONENTS[currentPage] || Dashboard;

@@ -1,44 +1,70 @@
 /**
  * @file Leaderboard.js
- * @description 评测榜单页面 — Tab切换5种榜单 (#177 US-3.1)
+ * @description 评测榜单页面 (#177) — 排行榜表格+筛选+排序+Top3特殊样式
  */
 import React, { useState, useEffect } from "react";
-import { Card, Table, Tabs, Tag, Space, Typography, Spin, message, Button, Tooltip } from "antd";
+import {
+  Card, Table, Tag, Space, Typography, Spin, message, Button, Tooltip,
+  Select, Progress, Row, Col, Statistic,
+} from "antd";
 import {
   TrophyOutlined, ThunderboltOutlined, RocketOutlined,
-  DashboardOutlined, CheckCircleOutlined, EyeOutlined,
-  CrownOutlined, StarOutlined,
+  DashboardOutlined, EyeOutlined, CrownOutlined, StarFilled,
+  FilterOutlined,
 } from "@ant-design/icons";
 import api from "../utils/api";
 import dayjs from "dayjs";
 
 const { Text, Title } = Typography;
 
-const LEADERBOARD_TYPES = [
-  { key: "overall", label: "综合榜", icon: <TrophyOutlined />, metric: "综合评分", unit: "分" },
-  { key: "compute", label: "算力榜", icon: <ThunderboltOutlined />, metric: "FP16 算力", unit: "TFLOPS" },
-  { key: "inference", label: "推理榜", icon: <RocketOutlined />, metric: "推理QPS", unit: "QPS" },
-  { key: "efficiency", label: "能效榜", icon: <DashboardOutlined />, metric: "能效比", unit: "TFLOPS/W" },
-  { key: "compatibility", label: "兼容性榜", icon: <CheckCircleOutlined />, metric: "精度通过率", unit: "%" },
+const CHIP_TYPE_OPTIONS = [
+  { value: "ALL", label: "全部类型" },
+  { value: "CPU", label: "CPU" },
+  { value: "GPU", label: "GPU" },
+  { value: "NPU", label: "NPU" },
+  { value: "TPU", label: "TPU" },
 ];
 
-const CHIP_TYPE_COLORS = { GPU: "blue", NPU: "green", TPU: "orange", CPU: "default", OTHER: "purple" };
+const SORT_OPTIONS = [
+  { value: "overall", label: "综合评分" },
+  { value: "compute", label: "计算性能" },
+  { value: "inference", label: "模型推理" },
+];
 
-const RANK_ICONS = {
-  1: <CrownOutlined style={{ color: "#faad14", fontSize: 18 }} />,
-  2: <CrownOutlined style={{ color: "#bfbfbf", fontSize: 16 }} />,
-  3: <CrownOutlined style={{ color: "#cd7f32", fontSize: 16 }} />,
+const CHIP_TYPE_COLORS = { GPU: "blue", NPU: "green", TPU: "orange", CPU: "cyan", OTHER: "purple" };
+
+const RANK_MEDALS = { 1: "🥇", 2: "🥈", 3: "🥉" };
+
+const TOP3_BG = {
+  1: "linear-gradient(90deg, #fff9e6 0%, #fff 60%)",
+  2: "linear-gradient(90deg, #f5f5f5 0%, #fff 60%)",
+  3: "linear-gradient(90deg, #fef3e8 0%, #fff 60%)",
 };
 
+function scoreGrade(score) {
+  if (score >= 90) return { stars: 5, text: "卓越", color: "#52c41a" };
+  if (score >= 80) return { stars: 4, text: "优秀", color: "#1890ff" };
+  if (score >= 70) return { stars: 3, text: "良好", color: "#13c2c2" };
+  if (score >= 60) return { stars: 2, text: "一般", color: "#faad14" };
+  return { stars: 1, text: "待改进", color: "#ff4d4f" };
+}
+
+function renderStars(count) {
+  return Array.from({ length: 5 }, (_, i) => (
+    <StarFilled key={i} style={{ color: i < count ? "#faad14" : "#e8e8e8", fontSize: 14 }} />
+  ));
+}
+
 export default function Leaderboard({ onViewReport }) {
-  const [type, setType] = useState("overall");
+  const [sortType, setSortType] = useState("overall");
+  const [chipTypeFilter, setChipTypeFilter] = useState("ALL");
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const fetchLeaderboard = async (t) => {
+  const fetchLeaderboard = async (type) => {
     setLoading(true);
     try {
-      const r = await api.get("/community/leaderboard", { params: { type: t } });
+      const r = await api.get("/community/leaderboard", { params: { type } });
       if (r.data.code === 0) {
         setData((r.data.data || []).map((item, idx) => ({ ...item, rank: idx + 1 })));
       }
@@ -49,9 +75,13 @@ export default function Leaderboard({ onViewReport }) {
     }
   };
 
-  useEffect(() => { fetchLeaderboard(type); }, [type]);
+  useEffect(() => { fetchLeaderboard(sortType); }, [sortType]);
 
-  const currentType = LEADERBOARD_TYPES.find(t => t.key === type);
+  const filtered = chipTypeFilter === "ALL"
+    ? data
+    : data.filter(d => d.chipType === chipTypeFilter).map((d, idx) => ({ ...d, rank: idx + 1 }));
+
+  const topCount = Math.min(3, filtered.length);
 
   const columns = [
     {
@@ -60,10 +90,9 @@ export default function Leaderboard({ onViewReport }) {
       width: 80,
       align: "center",
       render: (rank) => (
-        <Space>
-          {RANK_ICONS[rank] || <Text type="secondary" strong>#{rank}</Text>}
-          {rank <= 3 && <Text strong style={{ color: rank === 1 ? "#faad14" : rank === 2 ? "#bfbfbf" : "#cd7f32" }}>#{rank}</Text>}
-        </Space>
+        <span style={{ fontSize: rank <= 3 ? 22 : 15, fontWeight: rank <= 3 ? 700 : 400 }}>
+          {RANK_MEDALS[rank] || <Text type="secondary">#{rank}</Text>}
+        </span>
       ),
     },
     {
@@ -71,49 +100,61 @@ export default function Leaderboard({ onViewReport }) {
       dataIndex: "chipName",
       render: (name, record) => (
         <Space>
-          <Text strong>{name}</Text>
-          {record.rank === 1 && <StarOutlined style={{ color: "#faad14" }} />}
+          <Text strong style={{ fontSize: record.rank <= 3 ? 15 : 14 }}>{name}</Text>
+          {record.rank === 1 && <CrownOutlined style={{ color: "#faad14" }} />}
         </Space>
       ),
     },
     {
       title: "厂商",
       dataIndex: "manufacturer",
-      width: 120,
+      width: 130,
     },
     {
       title: "类型",
       dataIndex: "chipType",
-      width: 80,
+      width: 90,
       render: (t) => <Tag color={CHIP_TYPE_COLORS[t] || "default"}>{t}</Tag>,
-    },
-    {
-      title: currentType?.metric || "核心指标",
-      dataIndex: "metricValue",
-      width: 150,
-      align: "right",
-      sorter: (a, b) => (a.metricValue || 0) - (b.metricValue || 0),
-      defaultSortOrder: "descend",
-      render: (val) => (
-        <Text strong style={{ color: "#1890ff", fontSize: 15 }}>
-          {val != null ? (typeof val === "number" ? val.toFixed(2) : val) : "N/A"}
-          <Text type="secondary" style={{ fontSize: 12, marginLeft: 4 }}>{currentType?.unit}</Text>
-        </Text>
-      ),
     },
     {
       title: "综合评分",
       dataIndex: "overallScore",
-      width: 100,
+      width: 200,
+      render: (score) => {
+        if (score == null) return "-";
+        const pct = Math.min(score, 100);
+        const color = score >= 80 ? "#52c41a" : score >= 60 ? "#1890ff" : "#faad14";
+        return (
+          <Space style={{ width: "100%" }}>
+            <Progress
+              percent={pct}
+              size="small"
+              strokeColor={color}
+              format={() => <Text strong style={{ color }}>{score.toFixed(1)}</Text>}
+              style={{ width: 130, marginBottom: 0 }}
+            />
+          </Space>
+        );
+      },
+    },
+    {
+      title: "评级",
+      width: 130,
       align: "center",
-      render: (score) => score != null ? (
-        <Tag color={score >= 80 ? "green" : score >= 60 ? "blue" : "orange"}>{score.toFixed(1)}</Tag>
-      ) : "-",
+      render: (_, record) => {
+        if (record.overallScore == null) return "-";
+        const grade = scoreGrade(record.overallScore);
+        return (
+          <Tooltip title={grade.text}>
+            <span>{renderStars(grade.stars)}</span>
+          </Tooltip>
+        );
+      },
     },
     {
       title: "评测日期",
       dataIndex: "evaluatedAt",
-      width: 120,
+      width: 110,
       render: (d) => d ? dayjs(d).format("YYYY-MM-DD") : "-",
     },
     {
@@ -121,58 +162,85 @@ export default function Leaderboard({ onViewReport }) {
       width: 100,
       align: "center",
       render: (_, record) => (
-        <Tooltip title="查看报告详情">
-          <Button
-            type="link"
-            size="small"
-            icon={<EyeOutlined />}
-            onClick={() => onViewReport && onViewReport(record.reportId)}
-          >
-            详情
-          </Button>
-        </Tooltip>
+        <Button
+          type="link"
+          size="small"
+          icon={<EyeOutlined />}
+          onClick={() => onViewReport && onViewReport(record.reportId)}
+        >
+          查看报告
+        </Button>
       ),
     },
   ];
 
   return (
     <div>
+      {/* Header */}
+      <Card style={{ marginBottom: 16 }}>
+        <Row align="middle" justify="space-between">
+          <Col>
+            <Title level={3} style={{ margin: 0 }}>
+              <TrophyOutlined style={{ color: "#faad14", marginRight: 8 }} />
+              评测榜单
+            </Title>
+            <Text type="secondary">基于公开评测报告数据，实时排名</Text>
+          </Col>
+          <Col>
+            <Row gutter={16}>
+              <Col>
+                <Statistic title="参评芯片" value={data.length} prefix={<DashboardOutlined />} />
+              </Col>
+              <Col>
+                <Statistic title="最高评分" value={data.length > 0 ? (data[0]?.overallScore || 0).toFixed(1) : "N/A"} prefix={<TrophyOutlined style={{ color: "#faad14" }} />} />
+              </Col>
+            </Row>
+          </Col>
+        </Row>
+      </Card>
+
+      {/* Filters */}
+      <Card size="small" style={{ marginBottom: 16 }}>
+        <Space wrap>
+          <FilterOutlined />
+          <Text strong>筛选：</Text>
+          <Select
+            value={chipTypeFilter}
+            onChange={setChipTypeFilter}
+            options={CHIP_TYPE_OPTIONS}
+            style={{ width: 130 }}
+          />
+          <Text strong style={{ marginLeft: 16 }}>排序：</Text>
+          <Select
+            value={sortType}
+            onChange={setSortType}
+            options={SORT_OPTIONS}
+            style={{ width: 140 }}
+          />
+        </Space>
+      </Card>
+
+      {/* Table */}
       <Card>
-        <div style={{ textAlign: "center", marginBottom: 16 }}>
-          <Title level={3} style={{ margin: 0 }}>
-            <TrophyOutlined style={{ color: "#faad14", marginRight: 8 }} />
-            评测榜单
-          </Title>
-          <Text type="secondary">基于公开评测报告，180天内数据</Text>
-        </div>
-
-        <Tabs
-          activeKey={type}
-          onChange={setType}
-          centered
-          items={LEADERBOARD_TYPES.map(t => ({
-            key: t.key,
-            label: (
-              <span>{t.icon} {t.label}</span>
-            ),
-          }))}
-        />
-
         <Spin spinning={loading}>
           <Table
-            dataSource={data}
+            dataSource={filtered}
             columns={columns}
             rowKey={(record) => record.reportId || record.chipId || record.rank}
-            pagination={{ pageSize: 20, showSizeChanger: true }}
+            pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }}
             size="middle"
-            rowClassName={(record) => record.rank <= 3 ? "leaderboard-top3" : ""}
+            rowClassName={(record) => record.rank <= 3 ? `leaderboard-rank-${record.rank}` : ""}
           />
         </Spin>
       </Card>
 
       <style>{`
-        .leaderboard-top3 { background: linear-gradient(90deg, #fffbe6 0%, #fff 50%) !important; }
-        .leaderboard-top3:hover td { background: #fffbe6 !important; }
+        .leaderboard-rank-1 td { background: ${TOP3_BG[1]} !important; }
+        .leaderboard-rank-1:hover td { background: #fff9e6 !important; }
+        .leaderboard-rank-2 td { background: ${TOP3_BG[2]} !important; }
+        .leaderboard-rank-2:hover td { background: #f5f5f5 !important; }
+        .leaderboard-rank-3 td { background: ${TOP3_BG[3]} !important; }
+        .leaderboard-rank-3:hover td { background: #fef3e8 !important; }
       `}</style>
     </div>
   );
