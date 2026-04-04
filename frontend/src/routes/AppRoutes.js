@@ -1,7 +1,7 @@
 /**
  * @file AppRoutes.js
  * @description 页面路由配置
- * @feat #134, #136, #137, #161, #162, #164
+ * @feat #134, #136, #137, #161, #162, #164, #166, #167
  */
 import React from "react";
 import Dashboard from "../pages/Dashboard";
@@ -14,7 +14,8 @@ import PlanMonitor from "../pages/PlanMonitor";
 import ChipReport from "../pages/ChipReport";
 import TaskResult from "../pages/TaskResult";
 import TemplateList from "../pages/TemplateList";
-import Nodes from "../pages/Nodes";
+import NodeList from "../pages/NodeList";
+import NodeDetail from "../pages/NodeDetail";
 import Users from "../pages/Users";
 import Audit from "../pages/Audit";
 // 保留旧页面路由
@@ -37,7 +38,7 @@ const PAGE_COMPONENTS = {
   plans: PlanList,
   "plans-create": PlanCreate,
   "template-list": TemplateList,
-  nodes: Nodes,
+  nodes: NodeList,
   users: Users,
   audit: Audit,
   tasks: Tasks,
@@ -55,9 +56,9 @@ const PAGE_COMPONENTS = {
 
 export default function AppRoutes({
   currentPage, planMonitorId, chipReportId, chipProfileId, compareChipIds,
-  taskResultId,
+  taskResultId, nodeDetailId,
   setCurrentPage, setPlanMonitorId, setChipReportId, setChipProfileId,
-  setCompareChipIds, setTaskResultId,
+  setCompareChipIds, setTaskResultId, setNodeDetailId,
 }) {
   // 对比页
   if (currentPage === "chip-compare") {
@@ -112,6 +113,16 @@ export default function AppRoutes({
     );
   }
 
+  // 节点详情页 (#167)
+  if (nodeDetailId) {
+    return (
+      <NodeDetail
+        nodeId={nodeDetailId}
+        onBack={() => { if (setNodeDetailId) setNodeDetailId(null); }}
+      />
+    );
+  }
+
   const PageComponent = PAGE_COMPONENTS[currentPage] || Dashboard;
   if (currentPage === "plans") {
     return <PlanList onOpenMonitor={(id) => setPlanMonitorId(id)} />;
@@ -121,6 +132,13 @@ export default function AppRoutes({
       <ChipList
         onOpenProfile={(id) => setChipProfileId(id)}
         onCompare={(ids) => { setCompareChipIds(ids); setCurrentPage("chip-compare"); }}
+      />
+    );
+  }
+  if (currentPage === "nodes") {
+    return (
+      <NodeList
+        onOpenDetail={(id) => { if (setNodeDetailId) setNodeDetailId(id); }}
       />
     );
   }

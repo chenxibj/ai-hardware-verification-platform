@@ -1,207 +1,327 @@
-import React, { useState, useEffect } from "react";
-import { Card, Row, Col, Statistic, Table, Tag, Badge, Progress, Space, Button, Typography, Timeline, Divider, List, Avatar, Empty, Alert } from "antd";
-import { DashboardOutlined, ProjectOutlined, FileTextOutlined, CloudServerOutlined, CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined, SyncOutlined, RiseOutlined, ThunderboltOutlined, TeamOutlined, DatabaseOutlined, BarChartOutlined, RocketOutlined, PlusCircleOutlined, AppstoreOutlined, FundOutlined, CloseCircleOutlined, BulbOutlined } from "@ant-design/icons";
-import { useNavigate } from "react-router-dom";
-import ReactECharts from "echarts-for-react";
+/**
+ * @file Dashboard.js
+ * @description 工作台总览页 — 统计卡片 + 实时动态 + 雷达图 + 最近评测计划 + 快速操作
+ * @feat #166
+ */
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  Card, Row, Col, Statistic, Tag, Badge, Progress, Space, Button,
+  Typography, Timeline, List, Empty, Skeleton, Tooltip
+} from "antd";
+import {
+  ExperimentOutlined, PlayCircleOutlined, CheckCircleOutlined,
+  ClockCircleOutlined, PlusCircleOutlined,
+  BarChartOutlined, AppstoreOutlined,
+  SyncOutlined, RocketOutlined
+} from "@ant-design/icons";
+import RadarChart from "../components/RadarChart";
 import api from "../utils/api";
 import dayjs from "dayjs";
-const { Text, Title, Paragraph } = Typography;
+import relativeTime from "dayjs/plugin/relativeTime";
+import "dayjs/locale/zh-cn";
 
-const STATUS_COLORS = { PENDING:"default", QUEUED:"warning", RUNNING:"processing", COMPLETED:"success", FAILED:"error", CANCELLED:"default" };
-const STATUS_MAP = { PENDING:"待执行", QUEUED:"排队中", RUNNING:"执行中", COMPLETED:"已完成", FAILED:"失败", CANCELLED:"已取消" };
-const EVAL_TYPES = { PERFORMANCE:"性能评测", ACCURACY:"精度评测", COMPATIBILITY:"兼容性评测", STABILITY:"稳定性评测", GENERAL:"通用评测" };
+dayjs.extend(relativeTime);
+dayjs.locale("zh-cn");
 
-const quickActions = [
-  { title: "创建评测任务", desc: "新建硬件评测任务", icon: <PlusCircleOutlined style={{ fontSize: 28, color: "#1890ff" }} />, path: "/tasks", gradient: "linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%)", color: "#1890ff" },
-  { title: "查看评测模板", desc: "浏览和管理评测模板", icon: <AppstoreOutlined style={{ fontSize: 28, color: "#722ed1" }} />, path: "/templates", gradient: "linear-gradient(135deg, #f9f0ff 0%, #efdbff 100%)", color: "#722ed1" },
-  { title: "管理计算资源", desc: "查看和配置计算资源", icon: <CloudServerOutlined style={{ fontSize: 28, color: "#52c41a" }} />, path: "/resources", gradient: "linear-gradient(135deg, #f6ffed 0%, #d9f7be 100%)", color: "#52c41a" },
-  { title: "查看最新报告", desc: "浏览评测报告", icon: <FundOutlined style={{ fontSize: 28, color: "#fa8c16" }} />, path: "/reports", gradient: "linear-gradient(135deg, #fff7e6 0%, #ffe7ba 100%)", color: "#fa8c16" },
-];
+const { Text, Title } = Typography;
 
-function buildTimeline(tasks) {
-  const items = [];
-  tasks.forEach(t => {
-    const name = t.name || t.taskNo || "未命名任务";
-    if (t.status === "COMPLETED") {
-      items.push({ time: t.updatedAt || t.createdAt, label: `任务「${name}」完成`, color: "green", icon: <CheckCircleOutlined /> });
-    } else if (t.status === "FAILED") {
-      items.push({ time: t.updatedAt || t.createdAt, label: `任务「${name}」失败`, color: "red", icon: <CloseCircleOutlined /> });
-    }
-    items.push({ time: t.createdAt, label: `任务「${name}」创建`, color: "blue", icon: <ClockCircleOutlined /> });
-  });
-  items.sort((a, b) => new Date(b.time) - new Date(a.time));
-  return items.slice(0, 10);
-}
+const PLAN_STATUS_MAP = {
+  DRAFT: { text: "草稿", color: "default" },
+  RUNNING: { text: "执行中", color: "processing" },
+  PAUSED: { text: "已暂停", color: "warning" },
+  COMPLETED: { text: "已完成", color: "success" },
+  FAILED: { text: "失败", color: "error" },
+  CANCELLED: { text: "已取消", color: "default" },
+};
+
+const REFRESH_INTERVAL = 30000; // 30 seconds
 
 export default function Dashboard() {
-  const navigate = useNavigate();
-  const [taskStats, setTaskStats] = useState({});
-  const [reportStats, setReportStats] = useState({});
-  const [resourceStats, setResourceStats] = useState({});
-  const [recentTasks, setRecentTasks] = useState([]);
-  const [recentReports, setRecentReports] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [stats, setStats] = useState(null);
+  const [activities, setActivities] = useState([]);
+  const [recentPlans, setRecentPlans] = useState([]);
+  const [radarChips, setRadarChips] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    setLoading(true);
-    Promise.allSettled([
-      api.get("/tasks/stats").then(r => r.data.code === 0 && setTaskStats(r.data.data)),
-      api.get("/reports/stats").then(r => r.data.code === 0 && setReportStats(r.data.data)),
-      api.get("/resources/stats").then(r => r.data.code === 0 && setResourceStats(r.data.data)),
-      api.get("/tasks", { params: { size: 8, sortBy: "createdAt", sortDir: "desc" } }).then(r => r.data.code === 0 && setRecentTasks(r.data.data || [])),
-      api.get("/reports", { params: { size: 5 } }).then(r => r.data.code === 0 && setRecentReports(r.data.data || [])),
-    ]).finally(() => setLoading(false));
+  const fetchData = useCallback(async (showLoading = false) => {
+    if (showLoading) setLoading(true);
+    try {
+      const [statsRes, activitiesRes, plansRes] = await Promise.allSettled([
+        api.get("/dashboard/stats"),
+        api.get("/dashboard/recent-activities"),
+        api.get("/dashboard/recent-plans"),
+      ]);
+
+      if (statsRes.status === "fulfilled" && statsRes.value.data.code === 0) {
+        setStats(statsRes.value.data.data);
+      }
+      if (activitiesRes.status === "fulfilled" && activitiesRes.value.data.code === 0) {
+        setActivities(activitiesRes.value.data.data || []);
+      }
+      if (plansRes.status === "fulfilled" && plansRes.value.data.code === 0) {
+        setRecentPlans(plansRes.value.data.data || []);
+      }
+
+      // Try to fetch radar data from chips with capability profiles
+      try {
+        const chipsRes = await api.get("/chips", { params: { size: 4, sortBy: "updatedAt", sortDir: "desc" } });
+        if (chipsRes.data.code === 0) {
+          const chips = (chipsRes.data.data || []).filter(c => c.capabilityProfile);
+          const datasets = chips.map((chip, idx) => {
+            let profile = chip.capabilityProfile;
+            if (typeof profile === "string") {
+              try { profile = JSON.parse(profile); } catch { profile = null; }
+            }
+            if (!profile || !Array.isArray(profile)) return null;
+            return {
+              name: chip.name,
+              data: profile,
+              color: ["#1890ff", "#52c41a", "#fa8c16", "#f5222d"][idx % 4],
+            };
+          }).filter(Boolean);
+          setRadarChips(datasets);
+        }
+      } catch { /* radar is optional */ }
+    } catch { /* handled by individual requests */ }
+    if (showLoading) setLoading(false);
   }, []);
 
-  const timelineItems = buildTimeline(recentTasks);
+  useEffect(() => {
+    fetchData(true);
+    const timer = setInterval(() => fetchData(false), REFRESH_INTERVAL);
+    return () => clearInterval(timer);
+  }, [fetchData]);
 
-  const taskPieOption = {
-    tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
-    series: [{
-      type: "pie", radius: ["45%", "70%"], avoidLabelOverlap: true,
-      itemStyle: { borderRadius: 6, borderColor: "#fff", borderWidth: 2 },
-      data: [
-        { value: taskStats.completed || 0, name: "已完成", itemStyle: { color: "#52c41a" } },
-        { value: taskStats.running || 0, name: "执行中", itemStyle: { color: "#1890ff" } },
-        { value: taskStats.queued || 0, name: "排队中", itemStyle: { color: "#faad14" } },
-        { value: taskStats.failed || 0, name: "失败", itemStyle: { color: "#ff4d4f" } },
-        { value: taskStats.cancelled || 0, name: "已取消", itemStyle: { color: "#d9d9d9" } },
-      ].filter(d => d.value > 0),
-      label: { show: true, formatter: "{b}\n{d}%" },
-    }],
-  };
+  // Stat cards config
+  const statCards = stats ? [
+    {
+      title: "芯片总数",
+      value: stats.chipCount,
+      icon: <ExperimentOutlined />,
+      color: "#1890ff",
+      bg: "linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%)",
+    },
+    {
+      title: "评测中",
+      value: stats.runningPlans,
+      icon: <PlayCircleOutlined />,
+      color: "#722ed1",
+      bg: "linear-gradient(135deg, #f9f0ff 0%, #efdbff 100%)",
+    },
+    {
+      title: "已完成",
+      value: stats.completedPlans,
+      icon: <CheckCircleOutlined />,
+      color: "#52c41a",
+      bg: "linear-gradient(135deg, #f6ffed 0%, #d9f7be 100%)",
+    },
+    {
+      title: "待评测",
+      value: stats.unevaluatedChips,
+      icon: <ClockCircleOutlined />,
+      color: "#fa8c16",
+      bg: "linear-gradient(135deg, #fff7e6 0%, #ffe7ba 100%)",
+    },
+  ] : [];
 
-  const trendOption = {
-    tooltip: { trigger: "axis" },
-    legend: { data: ["创建任务", "完成任务"], bottom: 0 },
-    xAxis: { type: "category", data: Array.from({ length: 7 }, (_, i) => dayjs().subtract(6 - i, "day").format("MM-DD")) },
-    yAxis: { type: "value", name: "数量" },
-    series: [
-      { name: "创建任务", type: "line", smooth: true, data: [3, 5, 2, 8, 4, 6, 3], areaStyle: { opacity: 0.1 }, itemStyle: { color: "#1890ff" } },
-      { name: "完成任务", type: "line", smooth: true, data: [2, 4, 1, 6, 3, 5, 2], areaStyle: { opacity: 0.1 }, itemStyle: { color: "#52c41a" } },
-    ],
-  };
-
-  const columns = [
-    { title: "编号", dataIndex: "taskNo", width: 150, ellipsis: true },
-    { title: "名称", dataIndex: "name", ellipsis: true },
-    { title: "类型", dataIndex: "evalType", width: 90, render: v => <Tag color="blue">{EVAL_TYPES[v] || v}</Tag> },
-    { title: "状态", dataIndex: "status", width: 80, render: v => <Badge status={STATUS_COLORS[v]} text={STATUS_MAP[v] || v} /> },
-    { title: "进度", dataIndex: "progress", width: 100, render: v => <Progress percent={v || 0} size="small" /> },
-    { title: "创建", dataIndex: "createdAt", width: 100, render: v => v ? dayjs(v).format("MM-DD HH:mm") : "-" },
+  // Quick action buttons
+  const quickActions = [
+    { title: "注册芯片", icon: <PlusCircleOutlined />, color: "#1890ff" },
+    { title: "创建评测", icon: <RocketOutlined />, color: "#722ed1" },
+    { title: "查看报告", icon: <BarChartOutlined />, color: "#52c41a" },
+    { title: "模板管理", icon: <AppstoreOutlined />, color: "#fa8c16" },
   ];
+
+  if (loading && !stats) {
+    return (
+      <div>
+        <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+          {[1, 2, 3, 4].map(i => (
+            <Col xs={24} sm={12} md={6} key={i}>
+              <Card><Skeleton active paragraph={{ rows: 1 }} /></Card>
+            </Col>
+          ))}
+        </Row>
+        <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+          <Col xs={24} md={12}><Card><Skeleton active paragraph={{ rows: 6 }} /></Card></Col>
+          <Col xs={24} md={12}><Card><Skeleton active paragraph={{ rows: 6 }} /></Card></Col>
+        </Row>
+      </div>
+    );
+  }
 
   return (
     <div>
-      {/* 新用户引导 */}
-      {!loading && taskStats.total === 0 && (
-        <Alert
-          type="info"
-          showIcon
-          icon={<BulbOutlined />}
-          style={{ marginBottom: 24, borderRadius: 8, background: "linear-gradient(135deg, #e6f7ff 0%, #f0f5ff 100%)" }}
-          message={<Text strong>欢迎使用 AI 硬件评测平台！</Text>}
-          description={
-            <Space direction="vertical" size={8} style={{ marginTop: 4 }}>
-              <Text>还没有评测任务？试试从模板创建你的第一个评测任务！</Text>
-              <Space>
-                <Button type="primary" icon={<RocketOutlined />} onClick={() => navigate("/templates")}>从模板创建任务</Button>
-                <Button icon={<PlusCircleOutlined />} onClick={() => navigate("/tasks")}>手动创建任务</Button>
-              </Space>
-            </Space>
-          }
-        />
-      )}
-
-      {/* 快速操作 */}
+      {/* 统计卡片 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        {quickActions.map(a => (
-          <Col xs={24} sm={12} md={6} key={a.path}>
+        {statCards.map((card, idx) => (
+          <Col xs={24} sm={12} md={6} key={idx}>
             <Card
               hoverable
-              style={{ background: a.gradient, borderColor: "transparent", cursor: "pointer" }}
-              bodyStyle={{ padding: "20px 16px" }}
-              onClick={() => navigate(a.path)}
+              style={{ background: card.bg, borderColor: "transparent" }}
+              bodyStyle={{ padding: "20px 24px" }}
             >
-              <Space align="start" size={12}>
-                <div style={{ width: 48, height: 48, borderRadius: 12, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-                  {a.icon}
-                </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div>
-                  <Text strong style={{ fontSize: 15, color: a.color }}>{a.title}</Text>
-                  <br />
-                  <Text type="secondary" style={{ fontSize: 12 }}>{a.desc}</Text>
+                  <Text type="secondary" style={{ fontSize: 13 }}>{card.title}</Text>
+                  <div style={{ fontSize: 32, fontWeight: 700, color: card.color, lineHeight: 1.2, marginTop: 4 }}>
+                    {card.value}
+                  </div>
                 </div>
-              </Space>
+                <div style={{
+                  width: 48, height: 48, borderRadius: 12,
+                  background: "#fff", display: "flex",
+                  alignItems: "center", justifyContent: "center",
+                  fontSize: 24, color: card.color,
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.06)"
+                }}>
+                  {card.icon}
+                </div>
+              </div>
             </Card>
           </Col>
         ))}
       </Row>
 
-      {/* 核心指标 — 响应式布局 */}
+      {/* 中间区域：实时动态 + 最近评测计划 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        <Col xs={24} sm={12} md={6}><Card hoverable><Statistic title="评测任务总数" value={taskStats.total || 0} prefix={<ProjectOutlined style={{ color: "#1890ff" }} />} /></Card></Col>
-        <Col xs={24} sm={12} md={6}><Card hoverable><Statistic title="执行中" value={taskStats.running || 0} prefix={<SyncOutlined spin style={{ color: "#1890ff" }} />} suffix={<Text type="secondary" style={{ fontSize: 12 }}>/ {taskStats.queued || 0} 排队</Text>} /></Card></Col>
-        <Col xs={24} sm={12} md={6}><Card hoverable><Statistic title="评测报告" value={reportStats.total || 0} prefix={<FileTextOutlined style={{ color: "#722ed1" }} />} suffix={<Text type="secondary" style={{ fontSize: 12 }}>/ {reportStats.published || 0} 已发布</Text>} /></Card></Col>
-        <Col xs={24} sm={12} md={6}><Card hoverable><Statistic title="计算资源" value={resourceStats.total || 0} prefix={<CloudServerOutlined style={{ color: "#52c41a" }} />} suffix={<Text type="secondary" style={{ fontSize: 12 }}>/ {resourceStats.online || 0} 在线</Text>} /></Card></Col>
-      </Row>
-
-      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        <Col xs={24} sm={12} md={6}><Card size="small" style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", color: "#fff" }}><Statistic title={<span style={{ color: "rgba(255,255,255,0.8)" }}>完成率</span>} value={taskStats.total ? Math.round((taskStats.completed || 0) / taskStats.total * 100) : 0} suffix="%" valueStyle={{ color: "#fff" }} prefix={<CheckCircleOutlined />} /></Card></Col>
-        <Col xs={24} sm={12} md={6}><Card size="small" style={{ background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)", color: "#fff" }}><Statistic title={<span style={{ color: "rgba(255,255,255,0.8)" }}>失败任务</span>} value={taskStats.failed || 0} valueStyle={{ color: "#fff" }} prefix={<ExclamationCircleOutlined />} /></Card></Col>
-        <Col xs={24} sm={12} md={6}><Card size="small" style={{ background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)", color: "#fff" }}><Statistic title={<span style={{ color: "rgba(255,255,255,0.8)" }}>平均评分</span>} value={reportStats.avgScore ? Number(reportStats.avgScore).toFixed(1) : "-"} valueStyle={{ color: "#fff" }} prefix={<RiseOutlined />} /></Card></Col>
-        <Col xs={24} sm={12} md={6}><Card size="small" style={{ background: "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)", color: "#fff" }}><Statistic title={<span style={{ color: "rgba(255,255,255,0.8)" }}>今日新增</span>} value={recentTasks.filter(t => dayjs(t.createdAt).isSame(dayjs(), "day")).length} valueStyle={{ color: "#fff" }} prefix={<ThunderboltOutlined />} /></Card></Col>
-      </Row>
-
-      {/* 图表 + 最近任务 */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        <Col xs={24} md={8}><Card title="任务状态分布" size="small"><ReactECharts option={taskPieOption} style={{ height: 260 }} /></Card></Col>
-        <Col xs={24} md={16}><Card title="近7天任务趋势" size="small"><ReactECharts option={trendOption} style={{ height: 260 }} /></Card></Col>
-      </Row>
-
-      {/* 最近任务 + 活动时间线 + 最近报告 */}
-      <Row gutter={[16, 16]}>
+        {/* 左侧：实时动态 + 雷达图 */}
         <Col xs={24} lg={12}>
-          <Card title="最近评测任务" size="small" extra={<Button type="link" size="small" onClick={() => navigate("/tasks")}>查看全部</Button>}>
-            <Table columns={columns} dataSource={recentTasks} rowKey="id" size="small" pagination={false} loading={loading} />
-          </Card>
-        </Col>
-        <Col xs={24} lg={6}>
-          <Card title="最近活动" size="small" style={{ height: "100%" }}>
-            {timelineItems.length > 0 ? (
-              <Timeline style={{ marginTop: 8 }}>
-                {timelineItems.map((item, idx) => (
-                  <Timeline.Item key={idx} color={item.color} dot={item.icon}>
-                    <Text style={{ fontSize: 13 }}>{item.label}</Text>
-                    <br />
-                    <Text type="secondary" style={{ fontSize: 11 }}>{dayjs(item.time).format("MM-DD HH:mm")}</Text>
+          <Card
+            title="实时动态"
+            size="small"
+            extra={<Text type="secondary" style={{ fontSize: 12 }}>
+              <SyncOutlined spin /> 30秒自动刷新
+            </Text>}
+            style={{ marginBottom: 16 }}
+          >
+            {activities.length > 0 ? (
+              <Timeline style={{ marginTop: 12 }}>
+                {activities.slice(0, 5).map((item, idx) => (
+                  <Timeline.Item
+                    key={idx}
+                    color={item.action.includes("完成") ? "green" : item.action.includes("失败") ? "red" : "blue"}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div>
+                        <Text strong style={{ fontSize: 13 }}>{item.user}</Text>
+                        <Text style={{ fontSize: 13 }}> {item.action} </Text>
+                        <Text type="secondary" style={{ fontSize: 13 }}>{item.target}</Text>
+                      </div>
+                      <Tooltip title={item.time ? dayjs(item.time).format("YYYY-MM-DD HH:mm:ss") : ""}>
+                        <Text type="secondary" style={{ fontSize: 11, whiteSpace: "nowrap", marginLeft: 8 }}>
+                          {item.time ? dayjs(item.time).fromNow() : ""}
+                        </Text>
+                      </Tooltip>
+                    </div>
                   </Timeline.Item>
                 ))}
               </Timeline>
             ) : (
-              <Empty description="暂无活动记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              <Empty description="暂无动态" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            )}
+          </Card>
+
+          {/* 雷达图 */}
+          <Card title="芯片能力雷达图" size="small">
+            {radarChips.length > 0 ? (
+              <RadarChart datasets={radarChips} height={300} showLabel={false} fillOpacity={0.2} />
+            ) : (
+              <Empty
+                description="暂无评测数据"
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                style={{ padding: "40px 0" }}
+              />
             )}
           </Card>
         </Col>
-        <Col xs={24} lg={6}>
-          <Card title="最近报告" size="small" extra={<Button type="link" size="small" onClick={() => navigate("/reports")}>查看全部</Button>}>
-            <List size="small" dataSource={recentReports} renderItem={r => (
-              <List.Item><List.Item.Meta
-                avatar={<Avatar style={{ background: "#722ed1" }} icon={<FileTextOutlined />} size="small" />}
-                title={<Text ellipsis style={{ maxWidth: 200 }}>{r.title || r.reportNo}</Text>}
-                description={<Space size={4}><Tag size="small">{r.status}</Tag><Text type="secondary" style={{ fontSize: 11 }}>{dayjs(r.createdAt).format("MM-DD")}</Text></Space>}
-              /></List.Item>
-            )} />
-          </Card>
-          <Card title="快捷操作" size="small" style={{ marginTop: 16 }}>
-            <Space direction="vertical" style={{ width: "100%" }}>
-              <Button block icon={<RocketOutlined />} type="primary" onClick={() => navigate("/tasks")}>创建评测任务</Button>
-              <Button block icon={<BarChartOutlined />} onClick={() => navigate("/reports")}>查看评测报告</Button>
-              <Button block icon={<CloudServerOutlined />} onClick={() => navigate("/resources")}>管理计算资源</Button>
-              <Button block icon={<DatabaseOutlined />} onClick={() => navigate("/templates")}>评测模板管理</Button>
-            </Space>
+
+        {/* 右侧：最近评测计划 */}
+        <Col xs={24} lg={12}>
+          <Card
+            title="最近评测计划"
+            size="small"
+            extra={<Button type="link" size="small">查看全部</Button>}
+            style={{ height: "100%" }}
+          >
+            {recentPlans.length > 0 ? (
+              <List
+                dataSource={recentPlans}
+                renderItem={(plan) => {
+                  const statusInfo = PLAN_STATUS_MAP[plan.status] || { text: plan.status, color: "default" };
+                  const progress = plan.totalTasks > 0
+                    ? Math.round((plan.completedTasks / plan.totalTasks) * 100)
+                    : plan.progress || 0;
+                  return (
+                    <List.Item style={{ padding: "12px 0" }}>
+                      <div style={{ width: "100%" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <Text strong ellipsis style={{ maxWidth: 200, display: "inline-block" }}>
+                              {plan.name}
+                            </Text>
+                            <Tag color="blue" style={{ marginLeft: 8 }}>{plan.chipName}</Tag>
+                          </div>
+                          <Badge status={statusInfo.color} text={statusInfo.text} />
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <Progress
+                            percent={progress}
+                            size="small"
+                            style={{ flex: 1, marginRight: 16 }}
+                            strokeColor={plan.status === "COMPLETED" ? "#52c41a" : plan.status === "FAILED" ? "#ff4d4f" : undefined}
+                          />
+                          <Tooltip title={plan.createdAt ? dayjs(plan.createdAt).format("YYYY-MM-DD HH:mm:ss") : ""}>
+                            <Text type="secondary" style={{ fontSize: 11, whiteSpace: "nowrap" }}>
+                              {plan.createdAt ? dayjs(plan.createdAt).fromNow() : ""}
+                            </Text>
+                          </Tooltip>
+                        </div>
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          {plan.planNo} · {plan.completedTasks}/{plan.totalTasks} 任务 · {plan.createdBy}
+                        </Text>
+                      </div>
+                    </List.Item>
+                  );
+                }}
+              />
+            ) : (
+              <Empty
+                description="暂无评测计划"
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                style={{ padding: "40px 0" }}
+              >
+                <Button type="primary" icon={<RocketOutlined />}>
+                  创建第一个评测计划
+                </Button>
+              </Empty>
+            )}
           </Card>
         </Col>
+      </Row>
+
+      {/* 快速操作入口 */}
+      <Row gutter={[16, 16]}>
+        {quickActions.map((action, idx) => (
+          <Col xs={12} sm={6} key={idx}>
+            <Card
+              hoverable
+              style={{ textAlign: "center", cursor: "pointer" }}
+              bodyStyle={{ padding: "20px 12px" }}
+              onClick={() => {/* nav via sidebar */}}
+            >
+              <div style={{
+                width: 48, height: 48, borderRadius: "50%",
+                background: `${action.color}15`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                margin: "0 auto 12px", fontSize: 24, color: action.color,
+              }}>
+                {action.icon}
+              </div>
+              <Text strong style={{ color: action.color }}>{action.title}</Text>
+            </Card>
+          </Col>
+        ))}
       </Row>
     </div>
   );

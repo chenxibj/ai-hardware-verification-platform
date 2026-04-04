@@ -1,7 +1,7 @@
 /**
  * @file App.js
  * @description 应用入口
- * @feat #136, #137, #164 taskResultId
+ * @feat #136, #137, #164 taskResultId, #167 nodeDetailId
  */
 import React, { useState, useEffect } from "react";
 import api from "./utils/api";
@@ -21,6 +21,7 @@ function App() {
   const [chipProfileId, setChipProfileId] = useState(null);
   const [compareChipIds, setCompareChipIds] = useState([]);
   const [taskResultId, setTaskResultId] = useState(null);
+  const [nodeDetailId, setNodeDetailId] = useState(null);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -39,6 +40,7 @@ function App() {
     setChipProfileId(null);
     setCompareChipIds([]);
     setTaskResultId(null);
+    setNodeDetailId(null);
     setCurrentPage(page);
   };
 
@@ -50,6 +52,7 @@ function App() {
     if (chipReportId) return "reports";
     if (planMonitorId) return "plans";
     if (taskResultId) return "plans";
+    if (nodeDetailId) return "nodes";
     return currentPage;
   };
 
@@ -62,12 +65,14 @@ function App() {
         chipProfileId={chipProfileId}
         compareChipIds={compareChipIds}
         taskResultId={taskResultId}
+        nodeDetailId={nodeDetailId}
         setCurrentPage={setCurrentPage}
         setPlanMonitorId={setPlanMonitorId}
         setChipReportId={setChipReportId}
         setChipProfileId={setChipProfileId}
         setCompareChipIds={setCompareChipIds}
         setTaskResultId={setTaskResultId}
+        setNodeDetailId={setNodeDetailId}
       />
     </MainLayout>
   );
