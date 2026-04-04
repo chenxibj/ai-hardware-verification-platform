@@ -14,7 +14,7 @@ import {
   FileTextOutlined, CheckCircleOutlined, CloseCircleOutlined,
   ExclamationCircleOutlined,
 } from "@ant-design/icons";
-import { useNavigate, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import api from "../utils/api";
 
 const { Option } = Select;
@@ -55,8 +55,7 @@ const getProgressStatus = (status) => {
   }
 };
 
-export default function PlanList({ onOpenMonitor }) {
-  const navigate = useNavigate();
+export default function PlanList({ onOpenMonitor, onCreatePlan }) {
 
   /* 列表 state */
   const [plans, setPlans] = useState([]);
@@ -319,7 +318,7 @@ export default function PlanList({ onOpenMonitor }) {
               {Object.entries(PLAN_STATUS_MAP).map(([k, v]) => <Option key={k} value={k}>{v.text}</Option>)}
             </Select>
             <Button icon={<ReloadOutlined />} onClick={() => { fetchPlans(); fetchStats(); }}>刷新</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate("/plans-create")}>创建计划</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => onCreatePlan && onCreatePlan()}>创建计划</Button>
           </Space>
         }
       >

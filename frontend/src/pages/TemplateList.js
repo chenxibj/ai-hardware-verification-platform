@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect, useCallback } from "react";
 import {
-  Card, Row, Col, Tag, Space, Button, Input, message, Spin, Empty,
+  Card, Row, Col, Tag, Space, Button, Input, InputNumber, Checkbox, message, Spin, Empty,
   Typography, Modal, Form, Select, Tooltip, Badge, Divider,
 } from "antd";
 import {
@@ -38,6 +38,30 @@ const LAYER_ICONS = {
   CHIP: <ThunderboltOutlined />, OPERATOR: <AppstoreOutlined />,
   MODEL: <RocketOutlined />, COMPARISON: <BarChartOutlined />,
 };
+
+
+
+const PRIORITY_OPTIONS = [
+  { value: "LOW", label: "低" },
+  { value: "NORMAL", label: "普通" },
+  { value: "HIGH", label: "高" },
+  { value: "CRITICAL", label: "紧急" },
+];
+
+const DATA_TYPES = ["float32", "float16", "int8", "int4", "bfloat16"];
+
+const AVAILABLE_OPERATORS = [
+  "matmul", "conv2d", "relu", "sigmoid", "softmax", "batchnorm",
+  "pooling", "transpose", "concat", "elementwise_add", "elementwise_mul",
+  "reduce_sum", "gather", "scatter", "attention", "layernorm",
+  "gelu", "embedding", "topk", "sort",
+];
+
+const AVAILABLE_MODELS = [
+  "ResNet-50", "VGG-16", "BERT-Base", "GPT-2", "MobileNet-V2",
+  "YOLOv5", "Transformer-Base", "LSTM-256", "EfficientNet-B0",
+  "DeepSeek-R1", "Llama-3", "Qwen-2",
+];
 
 const EVAL_TYPES = {
   PERFORMANCE: "性能评测", ACCURACY: "精度评测",
@@ -108,9 +132,21 @@ export default function TemplateList() {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      const config = selected
-        ? { ...parseConfig(selected.configJson), evalDimension: values.evaluationLayer || parseConfig(selected.configJson).evalDimension }
-        : { evalDimension: values.evaluationLayer || "" };
+      const config = {
+        evalDimension: values.evaluationLayer || "",
+        operators: values.operators || [],
+        models: values.models || [],
+        iterations: values.iterations || 100,
+        batchSizes: values.batchSizes || [1],
+        dataTypes: values.dataTypes || ["float32"],
+        priority: values.priority || "NORMAL",
+      };
+      if (selected) {
+        const existingConfig = parseConfig(selected.configJson);
+        Object.keys(existingConfig).forEach(k => {
+          if (!(k in config)) config[k] = existingConfig[k];
+        });
+      }
       const payload = {
         name: values.name, description: values.description,
         evalType: values.evalType, configJson: JSON.stringify(config),
@@ -128,9 +164,16 @@ export default function TemplateList() {
 
   const openEdit = (record) => {
     setSelected(record);
+    const config = parseConfig(record.configJson);
     form.setFieldsValue({
       name: record.name, description: record.description,
       evalType: record.evalType, evaluationLayer: record.evaluationLayer,
+      operators: config.operators || [],
+      models: config.models || [],
+      iterations: config.iterations || 100,
+      batchSizes: config.batchSizes || [1],
+      dataTypes: config.dataTypes || ["float32"],
+      priority: config.priority || "NORMAL",
     });
     setEditVisible(true);
   };
@@ -289,21 +332,59 @@ export default function TemplateList() {
       {/* 编辑/创建 Modal */}
       <Modal title={selected ? "编辑模板" : "创建自定义模板"} open={editVisible}
         onCancel={() => { setEditVisible(false); setSelected(null); form.resetFields(); }}
-        onOk={handleSubmit} okText={selected ? "更新" : "创建"}>
-        <Form form={form} layout="vertical">
+        onOk={handleSubmit} okText={selected ? "更新" : "创建"} width={640}>
+        <Form form={form} layout="vertical" initialValues={{ iterations: 100, batchSizes: [1], dataTypes: ["float32"], priority: "NORMAL" }}>
           <Form.Item name="name" label="模板名称" rules={[{ required: true, message: "请输入模板名称" }]}>
             <Input placeholder="输入模板名称" />
           </Form.Item>
           <Form.Item name="description" label="描述">
-            <TextArea rows={3} placeholder="模板描述" />
+            <TextArea rows={2} placeholder="模板描述" />
           </Form.Item>
-          <Form.Item name="evalType" label="评测类型" rules={[{ required: true, message: "请选择评测类型" }]}>
-            <Select placeholder="选择评测类型"
-              options={Object.entries(EVAL_TYPES).map(([k, v]) => ({ value: k, label: v }))} />
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="evalType" label="评测类型" rules={[{ required: true, message: "请选择评测类型" }]}>
+                <Select placeholder="选择评测类型"
+                  options={Object.entries(EVAL_TYPES).map(([k, v]) => ({ value: k, label: v }))} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="evaluationLayer" label="评测层级">
+                <Select placeholder="选择评测层级" allowClear
+                  options={Object.entries(LAYER_LABELS).map(([k, v]) => ({ value: k, label: v }))} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Divider orientation="left" style={{ margin: "8px 0 16px" }}>评测配置</Divider>
+          <Form.Item name="operators" label="算子列表（多选）">
+            <Select mode="multiple" placeholder="选择要评测的算子" allowClear
+              options={AVAILABLE_OPERATORS.map(op => ({ value: op, label: op }))}
+              maxTagCount={5} />
           </Form.Item>
-          <Form.Item name="evaluationLayer" label="评测层级">
-            <Select placeholder="选择评测层级" allowClear
-              options={Object.entries(LAYER_LABELS).map(([k, v]) => ({ value: k, label: v }))} />
+          <Form.Item name="models" label="模型列表（多选）">
+            <Select mode="multiple" placeholder="选择要评测的模型" allowClear
+              options={AVAILABLE_MODELS.map(m => ({ value: m, label: m }))}
+              maxTagCount={5} />
+          </Form.Item>
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item name="iterations" label="迭代次数">
+                <InputNumber min={1} max={10000} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="batchSizes" label="批次大小">
+                <Select mode="multiple" placeholder="选择批次"
+                  options={[1, 2, 4, 8, 16, 32, 64, 128].map(n => ({ value: n, label: String(n) }))} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="priority" label="优先级">
+                <Select options={PRIORITY_OPTIONS} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="dataTypes" label="数据类型">
+            <Checkbox.Group options={DATA_TYPES.map(dt => ({ label: dt, value: dt }))} />
           </Form.Item>
         </Form>
       </Modal>
