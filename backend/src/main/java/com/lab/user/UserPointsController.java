@@ -5,7 +5,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.*;
 
 @RestController
-@RequestMapping("/api/v1/users/me/points")
+@RequestMapping("/users/me/points")
 public class UserPointsController {
 
     @GetMapping

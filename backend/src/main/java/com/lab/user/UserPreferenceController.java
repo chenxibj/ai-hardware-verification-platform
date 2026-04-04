@@ -5,7 +5,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.*;
 
 @RestController
-@RequestMapping("/api/v1/users/me/preferences")
+@RequestMapping("/users/me/preferences")
 public class UserPreferenceController {
 
     private Map<String, Object> prefs = new HashMap<>(Map.of(

@@ -5,7 +5,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.*;
 
 @RestController
-@RequestMapping("/api/v1/admin/scheduler-config")
+@RequestMapping("/admin/scheduler-config")
 public class SchedulerConfigController {
 
     private Map<String, Object> config = new HashMap<>(Map.of(

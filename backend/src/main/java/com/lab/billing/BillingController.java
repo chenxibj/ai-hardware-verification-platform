@@ -5,7 +5,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.*;
 
 @RestController
-@RequestMapping("/api/v1/billing")
+@RequestMapping("/billing")
 public class BillingController {
 
     @GetMapping("/plans")

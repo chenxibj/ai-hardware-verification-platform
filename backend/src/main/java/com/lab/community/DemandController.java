@@ -5,7 +5,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.*;
 
 @RestController
-@RequestMapping("/api/v1/community/demands")
+@RequestMapping("/community/demands")
 public class DemandController {
 
     @GetMapping
