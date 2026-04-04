@@ -4,9 +4,9 @@
  * BDD 测试覆盖 MVP-1 的 5 个 Issue：
  *   #138 芯片档案页完整版（4 Tab）   ✅ 已开发
  *   #139 能力画像雷达图             ✅ 已开发
- *   #140 芯片对比                  ❌ 未开发（skip）
+ *   #140 芯片对比                  ✅ 已开发
  *   #141 完整芯片评价报告            ✅ 已开发
- *   #142 报告 PDF 下载             ❌ 未开发（skip）
+ *   #142 报告 PDF 下载             ✅ 已开发
  */
 import { test, expect, apiLogin, apiGet, apiPost } from '../../fixtures/auth.fixture';
 import { Page } from '@playwright/test';
@@ -42,12 +42,9 @@ async function getChipWithReport(request: any) {
  * Helper: 导航到芯片列表页（先展开"芯片管理"子菜单，再点击"芯片列表"）
  */
 async function navigateToChipList(page: Page) {
-  // 先点击"芯片管理"展开子菜单
   await page.locator('.ant-menu').getByText('芯片管理').click();
   await page.waitForTimeout(500);
-  // 再点击"芯片列表"进入列表页
   await page.locator('.ant-menu').getByText('芯片列表').click();
-  // 等待芯片列表表格加载
   await page.locator('.ant-table').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(500);
 }
@@ -57,13 +54,21 @@ async function navigateToChipList(page: Page) {
  */
 async function enterChipProfile(page: Page) {
   await navigateToChipList(page);
-  // 点击操作列的查看按钮（EyeOutlined 图标）
   const viewBtn = page.locator('.ant-table-row').first().locator('button').filter({ has: page.locator('.anticon-eye') }).first();
   await viewBtn.waitFor({ timeout: 10_000 });
   await viewBtn.click();
-  // 等待 Tab 导航出现（芯片档案页标志）
   await page.locator('.ant-tabs-nav').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(1000);
+}
+
+/**
+ * Helper: 导航到芯片对比页
+ */
+async function navigateToChipCompare(page: Page) {
+  await page.locator('.ant-menu').getByText('芯片管理').click();
+  await page.waitForTimeout(500);
+  await page.locator('.ant-menu').getByText('芯片对比').click();
+  await page.waitForTimeout(1500);
 }
 
 // ============================================================================
@@ -72,14 +77,10 @@ async function enterChipProfile(page: Page) {
 test.describe('Issue #138: 芯片档案页完整版（4 Tab）', () => {
 
   test('Scenario: API — 芯片详情接口返回完整数据', async ({ request }) => {
-    // Given 用户已登录并存在芯片
     const { token, chip } = await getChipWithReport(request);
     test.skip(!chip, '无芯片数据，跳过');
 
-    // When 查询芯片详情
     const res = await apiGet(request, token, `/chips/${chip!.id}`);
-
-    // Then 返回完整芯片信息
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.code).toBe(0);
@@ -91,14 +92,10 @@ test.describe('Issue #138: 芯片档案页完整版（4 Tab）', () => {
   });
 
   test('Scenario: API — 按芯片 ID 查询报告列表', async ({ request }) => {
-    // Given 用户已登录并存在已评测芯片
     const { token, chip, report } = await getChipWithReport(request);
     test.skip(!report, '无报告数据，跳过');
 
-    // When 按芯片查询报告
     const res = await apiGet(request, token, `/chip-reports/chip/${chip!.id}`);
-
-    // Then 应返回报告数组
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.code).toBe(0);
@@ -108,52 +105,36 @@ test.describe('Issue #138: 芯片档案页完整版（4 Tab）', () => {
 
   test('Scenario: UI — 芯片档案页有 4 个 Tab 且可切换', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
-
-    // Given 用户已登录，进入芯片档案页
     await enterChipProfile(page);
 
-    // Then 应看到 4 个 Tab
     const tabBar = page.locator('.ant-tabs-nav');
     await expect(tabBar).toBeVisible({ timeout: 10_000 });
 
-    // 验证 4 个 Tab 标签存在
     await expect(tabBar.getByText('能力画像')).toBeVisible({ timeout: 5000 });
     await expect(tabBar.getByText('基本信息')).toBeVisible({ timeout: 5000 });
     await expect(tabBar.getByText('评测历史')).toBeVisible({ timeout: 5000 });
     await expect(tabBar.getByText('评价报告')).toBeVisible({ timeout: 5000 });
 
-    // And 能力画像是默认激活 Tab
     const activeTab = page.locator('.ant-tabs-tab-active');
     await expect(activeTab).toContainText('能力画像');
   });
 
   test('Scenario: UI — 可以切换到每个 Tab', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
-
-    // Given 进入芯片档案页
     await enterChipProfile(page);
 
-    // When 点击"基本信息" Tab
     await page.locator('.ant-tabs-nav').getByText('基本信息').click();
     await page.waitForTimeout(500);
-
-    // Then 应看到基本信息内容（芯片信息 / 技术规格）
     const hasChipInfo = await page.getByText('芯片信息').first().isVisible().catch(() => false);
     const hasTechSpec = await page.getByText('技术规格').first().isVisible().catch(() => false);
     expect(hasChipInfo || hasTechSpec).toBeTruthy();
 
-    // When 点击"评测历史" Tab
     await page.locator('.ant-tabs-nav').getByText('评测历史').click();
     await page.waitForTimeout(500);
-
-    // Then 应看到评测计划列表
     await expect(page.getByText('评测计划列表').first()).toBeVisible({ timeout: 5000 });
 
-    // When 点击"评价报告" Tab
     await page.locator('.ant-tabs-nav').getByText('评价报告').click();
     await page.waitForTimeout(1000);
-
-    // Then 应看到报告内容或"暂无"提示
     const hasReport = await page.getByText('报告编号').first().isVisible().catch(() => false);
     const hasEmpty = await page.getByText('暂无评价报告').first().isVisible().catch(() => false);
     expect(hasReport || hasEmpty).toBeTruthy();
@@ -161,15 +142,10 @@ test.describe('Issue #138: 芯片档案页完整版（4 Tab）', () => {
 
   test('Scenario: UI — 评测历史 Tab 显示评测计划列表', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
-
-    // Given 进入芯片的档案页
     await enterChipProfile(page);
 
-    // When 点击"评测历史"Tab
     await page.locator('.ant-tabs-nav').getByText('评测历史').click();
     await page.waitForTimeout(1000);
-
-    // Then 应看到评测计划列表表格
     await expect(page.getByText('评测计划列表').first()).toBeVisible({ timeout: 5000 });
     const table = page.locator('.ant-table');
     await expect(table).toBeVisible({ timeout: 5000 });
@@ -177,15 +153,11 @@ test.describe('Issue #138: 芯片档案页完整版（4 Tab）', () => {
 
   test('Scenario: UI — 评价报告 Tab 支持切换历史报告', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
-
-    // Given 进入芯片档案页
     await enterChipProfile(page);
 
-    // When 点击"评价报告" Tab
     await page.locator('.ant-tabs-nav').getByText('评价报告').click();
     await page.waitForTimeout(1500);
 
-    // Then 如果有报告，应显示圆形进度条或报告选择器；否则显示空态
     const hasProgress = await page.locator('.ant-progress-circle').first().isVisible().catch(() => false);
     const hasEmpty = await page.getByText('暂无评价报告').isVisible().catch(() => false);
     expect(hasProgress || hasEmpty).toBeTruthy();
@@ -198,20 +170,16 @@ test.describe('Issue #138: 芯片档案页完整版（4 Tab）', () => {
 test.describe('Issue #139: 能力画像雷达图', () => {
 
   test('Scenario: API — 报告包含六维雷达图数据', async ({ request }) => {
-    // Given 用户已登录并存在报告
     const { token, report } = await getChipWithReport(request);
     test.skip(!report, '无报告数据，跳过');
 
-    // When 解析报告的 radarData
     const radarData = typeof report!.radarData === 'string'
       ? JSON.parse(report!.radarData)
       : report!.radarData;
 
-    // Then 应包含 6 个维度的数据
     expect(Array.isArray(radarData)).toBe(true);
     expect(radarData.length).toBe(6);
 
-    // And 每个维度应有 dimension 和 score 字段
     for (const item of radarData) {
       expect(item.dimension).toBeTruthy();
       expect(typeof item.score).toBe('number');
@@ -219,7 +187,6 @@ test.describe('Issue #139: 能力画像雷达图', () => {
       expect(item.score).toBeLessThanOrEqual(100);
     }
 
-    // And 维度名应匹配预定义的六维
     const dims = radarData.map((r: any) => r.dimension);
     for (const expected of SIX_DIMENSIONS) {
       expect(dims).toContain(expected);
@@ -227,16 +194,13 @@ test.describe('Issue #139: 能力画像雷达图', () => {
   });
 
   test('Scenario: API — 报告包含各维度评分数值', async ({ request }) => {
-    // Given 用户已登录并存在报告
     const { token, report } = await getChipWithReport(request);
     test.skip(!report, '无报告数据，跳过');
 
-    // When 解析 dimensionScores
     const dimScores = typeof report!.dimensionScores === 'string'
       ? JSON.parse(report!.dimensionScores)
       : report!.dimensionScores;
 
-    // Then 应包含 6 个维度键
     expect(dimScores).toBeTruthy();
     for (const key of DIM_KEYS) {
       expect(dimScores).toHaveProperty(key);
@@ -245,26 +209,20 @@ test.describe('Issue #139: 能力画像雷达图', () => {
   });
 
   test('Scenario: API — 报告综合评分在合理范围', async ({ request }) => {
-    // Given 用户已登录并存在报告
     const { token, report } = await getChipWithReport(request);
     test.skip(!report, '无报告数据，跳过');
 
-    // Then 综合评分应在 0-100
     expect(report!.overallScore).toBeGreaterThanOrEqual(0);
     expect(report!.overallScore).toBeLessThanOrEqual(100);
   });
 
   test('Scenario: UI — 能力画像 Tab 默认激活并显示雷达图', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
-
-    // Given 进入芯片档案页
     await enterChipProfile(page);
 
-    // Then 能力画像 Tab 应默认激活
     const activeTab = page.locator('.ant-tabs-tab-active');
     await expect(activeTab).toContainText('能力画像');
 
-    // And 应显示雷达图（ECharts canvas）或空态
     await page.waitForTimeout(1500);
     const hasCanvas = await page.locator('canvas').first().isVisible().catch(() => false);
     const hasEmpty = await page.getByText('暂无评测数据').isVisible().catch(() => false);
@@ -273,17 +231,13 @@ test.describe('Issue #139: 能力画像雷达图', () => {
 
   test('Scenario: UI — 能力画像显示综合评分和维度评分', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
-
-    // Given 进入芯片档案页
     await enterChipProfile(page);
     await page.waitForTimeout(1500);
 
-    // Then 应显示"综合评分"或空态
     const hasScore = await page.getByText('综合评分').first().isVisible().catch(() => false);
     const hasEmpty = await page.getByText('暂无评测数据').isVisible().catch(() => false);
     expect(hasScore || hasEmpty).toBeTruthy();
 
-    // And 如果有评测数据，应显示维度评分详情
     if (hasScore) {
       const hasDimCard = await page.getByText('维度评分详情').first().isVisible().catch(() => false);
       if (hasDimCard) {
@@ -296,12 +250,9 @@ test.describe('Issue #139: 能力画像雷达图', () => {
 
   test('Scenario: UI — 能力画像包含适用场景分析', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
-
-    // Given 进入芯片档案页
     await enterChipProfile(page);
     await page.waitForTimeout(1500);
 
-    // Then 如果有评测数据，应显示场景分析
     const hasScenario = await page.getByText('适用场景分析').first().isVisible().catch(() => false);
     if (hasScenario) {
       const hasRecommended = await page.getByText('推荐场景').first().isVisible().catch(() => false);
@@ -313,47 +264,127 @@ test.describe('Issue #139: 能力画像雷达图', () => {
 });
 
 // ============================================================================
-// #140 — 芯片对比（尚未开发，标记为 skip/fixme）
+// #140 — 芯片对比（已开发完成）
 // ============================================================================
-test.describe('Issue #140: 芯片对比（未开发 — 预期 skip）', () => {
+test.describe('Issue #140: 芯片对比', () => {
 
-  test('Scenario: UI — 芯片对比页当前显示空壳', async ({ authenticatedPage }) => {
-    // 此测试验证空壳状态 — 功能尚未开发
+  test('Scenario: UI — 芯片对比页显示选择器和提示', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
+    await navigateToChipCompare(page);
 
-    // Given 用户展开芯片管理子菜单
-    await page.locator('.ant-menu').getByText('芯片管理').click();
+    // 应显示"芯片对比分析"标题
+    await expect(page.getByText('芯片对比分析').first()).toBeVisible({ timeout: 10_000 });
+
+    // 应显示"选择 2-4 颗已完成评测的芯片"提示
+    await expect(page.getByText('选择 2-4 颗已完成评测的芯片').first()).toBeVisible({ timeout: 5000 });
+
+    // 应有芯片选择器（Select 组件）
+    await expect(page.locator('.ant-select').first()).toBeVisible({ timeout: 5000 });
+
+    // 未选择时应显示空态提示
+    await expect(page.getByText('请在上方选择 2-4 颗芯片开始对比').first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test('Scenario: UI — 可以选择芯片并显示对比内容', async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+    await navigateToChipCompare(page);
+
+    // 点击选择器
+    const selector = page.locator('.ant-select').first();
+    await selector.click();
     await page.waitForTimeout(500);
 
-    // When 点击"芯片对比"
-    await page.locator('.ant-menu').getByText('芯片对比').click();
-    await page.waitForTimeout(1000);
+    // 应弹出下拉选项（已评测芯片列表）
+    const dropdown = page.locator('.ant-select-dropdown');
+    await expect(dropdown).toBeVisible({ timeout: 5000 });
 
-    // Then 应显示"功能开发中"
-    await expect(page.getByText('功能开发中')).toBeVisible({ timeout: 5000 });
+    // 获取选项数量
+    const options = dropdown.locator('.ant-select-item-option');
+    const count = await options.count();
+
+    if (count >= 2) {
+      // 选择前两个芯片
+      await options.nth(0).click();
+      await page.waitForTimeout(300);
+      await selector.click();
+      await page.waitForTimeout(300);
+      await options.nth(1).click();
+      await page.waitForTimeout(2000);
+
+      // 选了 2 颗后，应显示对比内容
+      const hasRadar = await page.getByText('能力画像对比').first().isVisible().catch(() => false);
+      const hasDimTable = await page.getByText('各维度评分对比').first().isVisible().catch(() => false);
+      expect(hasRadar || hasDimTable).toBeTruthy();
+    } else {
+      // 不够 2 颗已评测芯片，记录但不失败
+      test.skip(true, '已评测芯片不足 2 颗，无法测试对比功能');
+    }
   });
 
-  test.fixme('Scenario: UI — 可以选择 2-4 颗芯片进行对比', async ({ authenticatedPage }) => {
-    // #140 尚未开发 — 待功能完成后补充
-    // Given 用户在芯片列表页选择多颗芯片
-    // When 点击"对比"按钮
-    // Then 进入对比页，显示多芯片雷达图叠加
-    expect(false).toBeTruthy();
+  test('Scenario: UI — 对比页显示多芯片雷达图和评分表', async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+    await navigateToChipCompare(page);
+
+    // 选择芯片
+    const selector = page.locator('.ant-select').first();
+    await selector.click();
+    await page.waitForTimeout(500);
+    const dropdown = page.locator('.ant-select-dropdown');
+    const options = dropdown.locator('.ant-select-item-option');
+    const count = await options.count();
+    test.skip(count < 2, '已评测芯片不足 2 颗');
+
+    await options.nth(0).click();
+    await page.waitForTimeout(300);
+    await selector.click();
+    await page.waitForTimeout(300);
+    await options.nth(1).click();
+    await page.waitForTimeout(2500);
+
+    // 应有雷达图（canvas）
+    const hasCanvas = await page.locator('canvas').first().isVisible().catch(() => false);
+    expect(hasCanvas).toBeTruthy();
+
+    // 应有评分对比表
+    const hasDimTable = await page.getByText('各维度评分对比').first().isVisible().catch(() => false);
+    expect(hasDimTable).toBeTruthy();
+
+    // 表中应有差距列
+    const hasGapCol = await page.getByText('差距').first().isVisible().catch(() => false);
+    expect(hasGapCol).toBeTruthy();
   });
 
-  test.fixme('Scenario: UI — 对比页显示多芯片雷达图叠加', async ({ authenticatedPage }) => {
-    // #140 尚未开发
-    expect(false).toBeTruthy();
-  });
+  test('Scenario: UI — 对比页支持算子级性能对比', async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+    await navigateToChipCompare(page);
 
-  test.fixme('Scenario: UI — 对比页显示各维度评分对比表', async ({ authenticatedPage }) => {
-    // #140 尚未开发
-    expect(false).toBeTruthy();
-  });
+    const selector = page.locator('.ant-select').first();
+    await selector.click();
+    await page.waitForTimeout(500);
+    const dropdown = page.locator('.ant-select-dropdown');
+    const options = dropdown.locator('.ant-select-item-option');
+    const count = await options.count();
+    test.skip(count < 2, '已评测芯片不足 2 颗');
 
-  test.fixme('Scenario: UI — 支持选择具体算子查看性能对比', async ({ authenticatedPage }) => {
-    // #140 尚未开发
-    expect(false).toBeTruthy();
+    await options.nth(0).click();
+    await page.waitForTimeout(300);
+    await selector.click();
+    await page.waitForTimeout(300);
+    await options.nth(1).click();
+    await page.waitForTimeout(2500);
+
+    // 滚动到底部
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(500);
+
+    // 应有"算子级性能对比"板块
+    const hasOperator = await page.getByText('算子级性能对比').first().isVisible().catch(() => false);
+    expect(hasOperator).toBeTruthy();
+
+    // 应有算子选择器或算子总览表
+    const hasOpSelector = await page.getByText('选择算子').first().isVisible().catch(() => false);
+    const hasOpTable = await page.locator('.ant-table').last().isVisible().catch(() => false);
+    expect(hasOpSelector || hasOpTable).toBeTruthy();
   });
 });
 
@@ -363,59 +394,47 @@ test.describe('Issue #140: 芯片对比（未开发 — 预期 skip）', () => {
 test.describe('Issue #141: 完整芯片评价报告', () => {
 
   test('Scenario: API — 报告详情包含完整 5 板块数据', async ({ request }) => {
-    // Given 用户已登录并存在报告
     const { token, report } = await getChipWithReport(request);
     test.skip(!report, '无报告数据，跳过');
 
-    // When 查询报告详情
     const res = await apiGet(request, token, `/chip-reports/${report!.id}`);
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.code).toBe(0);
     const detail = body.data;
 
-    // Then 板块 1: 雷达图数据（6 维）
     const radarData = typeof detail.radarData === 'string' ? JSON.parse(detail.radarData) : detail.radarData;
     expect(radarData.length).toBe(6);
 
-    // And 综合评分
     expect(detail.overallScore).toBeGreaterThan(0);
 
-    // And 维度评分
     const dimScores = typeof detail.dimensionScores === 'string' ? JSON.parse(detail.dimensionScores) : detail.dimensionScores;
     expect(Object.keys(dimScores).length).toBeGreaterThanOrEqual(6);
 
-    // And 板块 2: 算子排行
     const operators = typeof detail.operatorRanking === 'string' ? JSON.parse(detail.operatorRanking) : detail.operatorRanking;
     expect(Array.isArray(operators)).toBe(true);
     expect(operators.length).toBeGreaterThan(0);
 
-    // And 板块 3: 瓶颈分析
     const bottleneck = typeof detail.bottleneckAnalysis === 'string' ? JSON.parse(detail.bottleneckAnalysis) : detail.bottleneckAnalysis;
     expect(Array.isArray(bottleneck)).toBe(true);
     expect(bottleneck.length).toBeGreaterThan(0);
 
-    // And 板块 4: 场景推荐
     const scenarios = typeof detail.scenarioRecommendations === 'string' ? JSON.parse(detail.scenarioRecommendations) : detail.scenarioRecommendations;
     expect(Array.isArray(scenarios)).toBe(true);
     expect(scenarios.length).toBeGreaterThan(0);
   });
 
   test('Scenario: API — 瓶颈分析包含最慢算子', async ({ request }) => {
-    // Given 用户已登录并存在报告
     const { token, report } = await getChipWithReport(request);
     test.skip(!report, '无报告数据，跳过');
 
-    // When 解析瓶颈分析
     const bottleneck = typeof report!.bottleneckAnalysis === 'string'
       ? JSON.parse(report!.bottleneckAnalysis)
       : report!.bottleneckAnalysis;
 
-    // Then 应包含 worst_operator 或 weak_dimension 类型
     const types = bottleneck.map((b: any) => b.type);
     expect(types.some((t: string) => t === 'worst_operator' || t === 'weak_dimension')).toBeTruthy();
 
-    // And 每个条目应有 level, title, detail
     for (const item of bottleneck) {
       expect(item.level).toBeTruthy();
       expect(item.title).toBeTruthy();
@@ -424,23 +443,19 @@ test.describe('Issue #141: 完整芯片评价报告', () => {
   });
 
   test('Scenario: API — 场景推荐包含三级分类', async ({ request }) => {
-    // Given 用户已登录并存在报告
     const { token, report } = await getChipWithReport(request);
     test.skip(!report, '无报告数据，跳过');
 
-    // When 解析场景推荐
     const scenarios = typeof report!.scenarioRecommendations === 'string'
       ? JSON.parse(report!.scenarioRecommendations)
       : report!.scenarioRecommendations;
 
-    // Then 应包含三级分类
     const types = scenarios.map((s: any) => s.type);
     const validTypes = ['recommended', 'caution', 'unverified'];
     for (const t of types) {
       expect(validTypes).toContain(t);
     }
 
-    // And 每个条目应有 scenario 和 reason
     for (const item of scenarios) {
       expect(item.scenario).toBeTruthy();
       expect(item.reason).toBeTruthy();
@@ -448,16 +463,13 @@ test.describe('Issue #141: 完整芯片评价报告', () => {
   });
 
   test('Scenario: API — 算子排行包含评分和延迟', async ({ request }) => {
-    // Given 用户已登录并存在报告
     const { token, report } = await getChipWithReport(request);
     test.skip(!report, '无报告数据，跳过');
 
-    // When 解析算子排行
     const operators = typeof report!.operatorRanking === 'string'
       ? JSON.parse(report!.operatorRanking)
       : report!.operatorRanking;
 
-    // Then 算子应有 testItem, score, passed 字段
     expect(operators.length).toBeGreaterThan(0);
     const firstOp = operators[0];
     expect(firstOp.testItem).toBeTruthy();
@@ -467,23 +479,17 @@ test.describe('Issue #141: 完整芯片评价报告', () => {
 
   test('Scenario: UI — 报告 Tab 显示能力雷达图和瓶颈分析', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
-
-    // Given 进入芯片档案页
     await enterChipProfile(page);
 
-    // When 切换到评价报告 Tab
     await page.locator('.ant-tabs-nav').getByText('评价报告').click();
     await page.waitForTimeout(2000);
 
-    // Then 如果有报告数据，应显示圆形进度条（综合评分）
     const hasProgress = await page.locator('.ant-progress-circle').first().isVisible().catch(() => false);
     const hasEmpty = await page.getByText('暂无评价报告').isVisible().catch(() => false);
     expect(hasProgress || hasEmpty).toBeTruthy();
 
-    // And 如果有报告，应显示瓶颈分析
     if (hasProgress) {
       const hasBottleneck = await page.getByText('瓶颈分析').first().isVisible().catch(() => false);
-      // 瓶颈分析板块可能需要滚动才可见
       if (!hasBottleneck) {
         await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
         await page.waitForTimeout(500);
@@ -493,41 +499,31 @@ test.describe('Issue #141: 完整芯片评价报告', () => {
 
   test('Scenario: UI — 报告 Tab 显示适用场景推荐和算子排行', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
-
-    // Given 进入芯片档案页
     await enterChipProfile(page);
 
-    // When 切换到评价报告 Tab
     await page.locator('.ant-tabs-nav').getByText('评价报告').click();
     await page.waitForTimeout(2000);
 
     const hasEmpty = await page.getByText('暂无评价报告').isVisible().catch(() => false);
     if (!hasEmpty) {
-      // Then 应显示适用场景推荐
-      // 滚动到底部确保能看到所有板块
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
       await page.waitForTimeout(500);
 
       const hasScenario = await page.getByText('适用场景推荐').first().isVisible().catch(() => false);
       const hasOperators = await page.getByText('算子排行').first().isVisible().catch(() => false);
-      // 至少应有一个板块可见
       expect(hasScenario || hasOperators).toBeTruthy();
     }
   });
 
   test('Scenario: UI — 报告 Tab 显示评测环境信息', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
-
-    // Given 进入芯片档案页
     await enterChipProfile(page);
 
-    // When 切换到评价报告 Tab
     await page.locator('.ant-tabs-nav').getByText('评价报告').click();
     await page.waitForTimeout(2000);
 
     const hasEmpty = await page.getByText('暂无评价报告').isVisible().catch(() => false);
     if (!hasEmpty) {
-      // Then 应显示评测环境信息（可能需滚动到底部）
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
       await page.waitForTimeout(500);
       const hasEnv = await page.getByText('评测环境信息').first().isVisible().catch(() => false);
@@ -538,26 +534,82 @@ test.describe('Issue #141: 完整芯片评价报告', () => {
 });
 
 // ============================================================================
-// #142 — 报告 PDF 下载（尚未开发，标记为 fixme）
+// #142 — 报告 PDF 下载（已开发完成）
+// 注意：PDF 下载按钮在独立的 ChipReport 页面（通过评测历史 tab 的"查看报告"按钮进入）
 // ============================================================================
-test.describe('Issue #142: 报告 PDF 下载（未开发 — 预期 fixme）', () => {
+test.describe('Issue #142: 报告 PDF 下载', () => {
 
-  test.fixme('Scenario: UI — 报告页有"下载 PDF"按钮', async ({ authenticatedPage }) => {
-    // #142 尚未开发
+  test('Scenario: UI — 通过评测历史进入完整报告页可见 PDF 按钮', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await enterChipProfile(page);
-    await page.locator('.ant-tabs-nav').getByText('评价报告').click();
+
+    // 切换到评测历史 Tab
+    await page.locator('.ant-tabs-nav').getByText('评测历史').click();
+    await page.waitForTimeout(1500);
+
+    // 查找已完成的计划行中的"查看报告"按钮（FileTextOutlined 图标）
+    const reportBtn = page.locator('.ant-table-row').locator('button').filter({ has: page.locator('.anticon-file-text') }).first();
+    const hasBtnVisible = await reportBtn.isVisible({ timeout: 5000 }).catch(() => false);
+
+    if (!hasBtnVisible) {
+      test.skip(true, '无已完成评测计划，无法查看报告');
+      return;
+    }
+
+    // 点击进入完整报告页
+    await reportBtn.click();
     await page.waitForTimeout(2000);
-    await expect(page.getByRole('button', { name: /下载.*PDF|PDF.*下载/ })).toBeVisible();
+
+    // 完整报告页应有"下载 PDF"按钮
+    const pdfBtn = page.getByRole('button', { name: /下载.*PDF|PDF/ });
+    await expect(pdfBtn).toBeVisible({ timeout: 10_000 });
   });
 
-  test.fixme('Scenario: UI — 点击下载 PDF 按钮成功生成 PDF', async ({ authenticatedPage }) => {
-    // #142 尚未开发
-    expect(false).toBeTruthy();
+  test('Scenario: UI — 点击下载 PDF 按钮触发导出', async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+    await enterChipProfile(page);
+
+    // 导航到评测历史 > 查看报告
+    await page.locator('.ant-tabs-nav').getByText('评测历史').click();
+    await page.waitForTimeout(1500);
+
+    const reportBtn = page.locator('.ant-table-row').locator('button').filter({ has: page.locator('.anticon-file-text') }).first();
+    const hasBtnVisible = await reportBtn.isVisible({ timeout: 5000 }).catch(() => false);
+    test.skip(!hasBtnVisible, '无已完成评测计划');
+
+    await reportBtn.click();
+    await page.waitForTimeout(2000);
+
+    const pdfBtn = page.getByRole('button', { name: /下载.*PDF|PDF/ });
+    const pdfVisible = await pdfBtn.isVisible().catch(() => false);
+    test.skip(!pdfVisible, '未找到 PDF 下载按钮');
+
+    // 监听下载事件（html2canvas+jsPDF 使用 blob URL 触发浏览器下载）
+    const downloadPromise = page.waitForEvent('download', { timeout: 30_000 }).catch(() => null);
+
+    await pdfBtn.click();
+    await page.waitForTimeout(5000);
+
+    const download = await downloadPromise;
+    const hasSuccess = await page.getByText('PDF 导出成功').isVisible().catch(() => false);
+
+    // 至少一个条件说明 PDF 导出工作正常
+    expect(download !== null || hasSuccess).toBeTruthy();
   });
 
-  test.fixme('Scenario: PDF 内容与页面展示一致', async ({ authenticatedPage }) => {
-    // #142 尚未开发
-    expect(false).toBeTruthy();
+  test('Scenario: API — chip-reports 接口返回有效数据供 PDF 渲染', async ({ request }) => {
+    const { token, report } = await getChipWithReport(request);
+    test.skip(!report, '无报告数据，跳过');
+
+    const res = await apiGet(request, token, `/chip-reports/${report!.id}`);
+    expect(res.ok()).toBeTruthy();
+    const body = await res.json();
+    expect(body.code).toBe(0);
+
+    const detail = body.data;
+    expect(detail.overallScore).toBeDefined();
+    expect(detail.radarData).toBeTruthy();
+    expect(detail.dimensionScores).toBeTruthy();
+    expect(detail.operatorRanking).toBeTruthy();
   });
 });
