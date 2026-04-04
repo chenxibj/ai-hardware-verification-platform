@@ -9,6 +9,7 @@ import {
   Card, Steps, Button, Radio, Tag, Badge, Empty, Row, Col, Space,
   Descriptions, message, Typography, Spin, Result, Checkbox, Select,
   Collapse, InputNumber, Tree, Alert, Tooltip, Divider, Progress,
+  Modal, Form, Input,
 } from "antd";
 import {
   RocketOutlined, FileTextOutlined, ExperimentOutlined,
@@ -16,7 +17,7 @@ import {
   PlayCircleOutlined, SaveOutlined, LockOutlined, AppstoreOutlined,
   ClusterOutlined, SettingOutlined, UnorderedListOutlined,
   CloudServerOutlined, ThunderboltOutlined, ApiOutlined,
-  DatabaseOutlined, BarChartOutlined,
+  DatabaseOutlined, BarChartOutlined, PlusOutlined,
 } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import api from "../utils/api";
@@ -148,7 +149,7 @@ const countEvalItems = (template) => {
   return count || 10;
 };
 
-export default function PlanCreate() {
+export default function PlanCreate({ onOpenMonitor, onBack }) {
   const navigate = useNavigate();
 
   /* 向导步骤 */
@@ -167,6 +168,10 @@ export default function PlanCreate() {
 
   /* Step 3: 评测项（基于模板自动填充） */
   const [checkedKeys, setCheckedKeys] = useState([]);
+  /* Bug #201: 自定义评测项 */
+  const [customItems, setCustomItems] = useState([]);
+  const [customItemModalVisible, setCustomItemModalVisible] = useState(false);
+  const [customItemForm] = Form.useForm();
 
   /* Step 4: 参数 */
   const [selectedPreset, setSelectedPreset] = useState("STANDARD");
@@ -186,6 +191,7 @@ export default function PlanCreate() {
   /* Step 6: 提交 */
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [createdPlanId, setCreatedPlanId] = useState(null);
 
   /* ── 获取芯片列表 ── */
   const fetchChips = useCallback(async () => {
@@ -276,7 +282,24 @@ export default function PlanCreate() {
     if (!selectedPresetObj) return "-";
     return selectedPresetObj.duration;
   }, [selectedPresetObj]);
-  const evalTree = useMemo(() => buildEvalItemTree(selectedTemplate), [selectedTemplate]);
+  const evalTree = useMemo(() => {
+    const baseTree = buildEvalItemTree(selectedTemplate);
+    // Bug #201: 合并自定义评测项
+    if (customItems.length > 0) {
+      const customChildren = customItems.map((item, idx) => ({
+        title: `${item.name} (${item.dataType}${item.shape ? ', ' + item.shape : ''})`,
+        key: `custom-${idx}-${item.name}`,
+        isLeaf: true,
+      }));
+      baseTree.push({
+        title: `自定义评测项 (${customItems.length}项)`,
+        key: 'custom-root',
+        icon: <PlusOutlined />,
+        children: customChildren,
+      });
+    }
+    return baseTree;
+  }, [selectedTemplate, customItems]);
   const totalItems = countEvalItems(selectedTemplate);
 
   /* ── 提交 ── */
@@ -286,6 +309,8 @@ export default function PlanCreate() {
       const payload = {
         name: generateName(),
         chipId: selectedChipId,
+        templateId: selectedTemplateId,
+        preset: selectedPreset,
         evalConfig: JSON.stringify({
           preset: selectedPreset,
           templateId: selectedTemplateId,
@@ -306,6 +331,7 @@ export default function PlanCreate() {
       const { data: resp } = await api.post("/plans", payload);
       if (resp.code === 0) {
         message.success(runNow ? "计划已创建并启动执行" : "计划已保存为草稿");
+        setCreatedPlanId(resp.data?.id || resp.data);
         setSubmitted(true);
       } else {
         message.error(resp.message || "创建失败");
@@ -341,16 +367,26 @@ export default function PlanCreate() {
       <Card>
         <Result
           status="success"
-          title="评测计划创建成功！"
-          subTitle={`计划名称：${generateName()}`}
+          title="\u8bc4\u6d4b\u8ba1\u5212\u521b\u5efa\u6210\u529f\uff01"
+          subTitle={createdPlanId ? `\u8ba1\u5212\u7f16\u53f7: ${createdPlanId}` : `\u8ba1\u5212\u540d\u79f0\uff1a${generateName()}`}
           extra={[
-            <Button type="primary" key="list" onClick={() => navigate("/plans")}>
-              查看计划列表
+            <Button type="primary" key="monitor" onClick={() => {
+              if (onOpenMonitor && createdPlanId) { onOpenMonitor(createdPlanId); }
+              else { navigate("/plans"); }
+            }}>
+              \u67e5\u770b\u76d1\u63a7
+            </Button>,
+            <Button key="list" onClick={() => {
+              if (onBack) { onBack(); }
+              else { navigate("/plans"); }
+            }}>
+              \u8fd4\u56de\u5217\u8868
             </Button>,
             <Button key="create" onClick={() => {
               setCurrent(0); setSelectedChipId(null); setSelectedTemplateId(null);
               setSelectedPreset("STANDARD"); setSelectedNodeIds([]); setSubmitted(false);
-            }}>继续创建</Button>,
+              setCreatedPlanId(null);
+            }}>\u7ee7\u7eed\u521b\u5efa</Button>,
           ]}
         />
       </Card>
@@ -485,12 +521,30 @@ export default function PlanCreate() {
    *  Step 3: 选评测项（基于模板自动填充）
    * ══════════════════════════════════════════════════════════ */
 
+  /* Bug #201: 添加自定义评测项 */
+  const handleAddCustomItem = async () => {
+    try {
+      const values = await customItemForm.validateFields();
+      setCustomItems(prev => [...prev, values]);
+      // 自动勾选新增项
+      const newKey = `custom-${customItems.length}-${values.name}`;
+      setCheckedKeys(prev => [...prev, newKey, 'custom-root']);
+      customItemForm.resetFields();
+      setCustomItemModalVisible(false);
+      message.success('已添加自定义评测项');
+    } catch (e) { /* validation error */ }
+  };
+
+  const handleRemoveCustomItem = (idx) => {
+    setCustomItems(prev => prev.filter((_, i) => i !== idx));
+  };
+
   const renderStep3 = () => (
     <div>
-      <Alert message="评测项基于所选模板自动填充，MVP阶段直接使用模板预置项" type="info" showIcon style={{ marginBottom: 16 }} />
+      <Alert message="勾选/取消评测项来调整评测范围，也可以添加自定义评测项" type="info" showIcon style={{ marginBottom: 16 }} />
       <Row gutter={24}>
         <Col span={14}>
-          <Card title="评测项树" size="small" style={{ minHeight: 300 }}>
+          <Card title={<Space>评测项树<Button size="small" type="primary" ghost icon={<PlusOutlined />} onClick={() => setCustomItemModalVisible(true)}>添加自定义评测项</Button></Space>} size="small" style={{ minHeight: 300 }}>
             {evalTree.length > 0 ? (
               <Tree
                 checkable
@@ -517,7 +571,8 @@ export default function PlanCreate() {
                     </Tag>
                   </Descriptions.Item>
                   <Descriptions.Item label="评测项数">
-                    <Text strong style={{ color: "#1890ff", fontSize: 20 }}>{totalItems}</Text> 项
+                    <Text strong style={{ color: "#1890ff", fontSize: 20 }}>{checkedKeys.filter(k => !k.includes('-root')).length}</Text> 项
+                    {customItems.length > 0 && <Text type="secondary"> (含 {customItems.length} 自定义)</Text>}
                   </Descriptions.Item>
                 </Descriptions>
                 {parseConfig(selectedTemplate.configJson).operators && (
@@ -536,6 +591,17 @@ export default function PlanCreate() {
                     ))}
                   </div>
                 )}
+                {customItems.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>自定义: </Text>
+                    {customItems.map((item, idx) => (
+                      <Tag key={idx} color="orange" closable onClose={() => handleRemoveCustomItem(idx)}
+                        style={{ marginBottom: 4, fontSize: 11 }}>
+                        {item.name}
+                      </Tag>
+                    ))}
+                  </div>
+                )}
               </Space>
             ) : (
               <Empty description="未选择模板" />
@@ -543,6 +609,45 @@ export default function PlanCreate() {
           </Card>
         </Col>
       </Row>
+
+      {/* 自定义评测项弹窗 */}
+      <Modal
+        title="添加自定义评测项"
+        open={customItemModalVisible}
+        onCancel={() => { setCustomItemModalVisible(false); customItemForm.resetFields(); }}
+        onOk={handleAddCustomItem}
+        okText="添加"
+      >
+        <Form form={customItemForm} layout="vertical">
+          <Form.Item name="name" label="评测项名称" rules={[{ required: true, message: '请输入评测项名称' }]}>
+            <Input placeholder="如: custom_matmul, my_model_v2" />
+          </Form.Item>
+          <Form.Item name="type" label="类型" rules={[{ required: true, message: '请选择类型' }]} initialValue="OPERATOR">
+            <Select options={[
+              { value: 'OPERATOR', label: '算子' },
+              { value: 'MODEL', label: '模型' },
+            ]} />
+          </Form.Item>
+          <Form.Item name="dataType" label="数据类型" rules={[{ required: true, message: '请选择数据类型' }]} initialValue="float32">
+            <Select options={[
+              { value: 'float32', label: 'float32' },
+              { value: 'float16', label: 'float16' },
+              { value: 'int8', label: 'int8' },
+              { value: 'int4', label: 'int4' },
+              { value: 'bfloat16', label: 'bfloat16' },
+            ]} />
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.type !== cur.type}>
+            {({ getFieldValue }) =>
+              getFieldValue('type') === 'OPERATOR' ? (
+                <Form.Item name="shape" label="Shape (可选)">
+                  <Input placeholder="如: [1, 3, 224, 224]" />
+                </Form.Item>
+              ) : null
+            }
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 

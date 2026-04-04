@@ -132,6 +132,19 @@ export default function TemplateList() {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
+      // Bug #198: 校验 configJson 完整性
+      if (values.evaluationLayer === "OPERATOR" || values.evaluationLayer === "CHIP") {
+        if (!values.operators || values.operators.length === 0) {
+          message.warning("请至少选择一个评测算子");
+          return;
+        }
+      }
+      if (values.evaluationLayer === "MODEL" || values.evaluationLayer === "CHIP") {
+        if (!values.models || values.models.length === 0) {
+          message.warning("请至少选择一个评测模型");
+          return;
+        }
+      }
       const config = {
         evalDimension: values.evaluationLayer || "",
         operators: values.operators || [],

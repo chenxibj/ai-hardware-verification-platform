@@ -70,6 +70,11 @@ public class TemplateController {
         template.setId(null);
         template.setIsSystem(false);
         template.setCreatedBy(userId);
+        // Bug #198: 校验 configJson 不能为空
+        if (template.getConfigJson() == null || template.getConfigJson().trim().isEmpty()
+                || template.getConfigJson().equals("{}")) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "模板配置不能为空，请至少选择一个评测算子或模型");
+        }
         TaskTemplate saved = templateRepository.save(template);
         log.info("Created custom template: {} (id={})", saved.getName(), saved.getId());
         return ResponseEntity.ok(ApiResponse.ok(saved));

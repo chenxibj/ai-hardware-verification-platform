@@ -188,5 +188,13 @@ export default function AppRoutes({
       />
     );
   }
+  if (currentPage === "plans-create") {
+    return (
+      <PlanCreate
+        onOpenMonitor={(id) => setPlanMonitorId(id)}
+        onBack={() => setCurrentPage("plans")}
+      />
+    );
+  }
   return <PageComponent />;
 }

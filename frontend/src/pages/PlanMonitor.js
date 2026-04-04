@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Card, Row, Col, Statistic, Progress, Badge, Tag, Button, Space,
-  Collapse, Typography, Tooltip, message, Spin, Popconfirm, Input, Select,
+  Collapse, Typography, Tooltip, message, Spin, Popconfirm, Input, Select, Modal,
 } from "antd";
 import {
   ArrowLeftOutlined, PauseCircleOutlined, PlayCircleOutlined,
@@ -162,25 +162,76 @@ export default function PlanMonitor({ planId, onBack }) {
   }, [tasks]);
 
   /* ── 操作 ── */
-  const handlePlanAction = async (action, label) => {
-    try {
-      await api.put(`/plans/${planId}/${action}`);
-      message.success(`${label}成功`);
-      fetchPlan();
-      fetchTasks();
-    } catch (e) {
-      message.error(`${label}失败: ` + (e.response?.data?.message || e.message));
-    }
+  /* Bug #200: 操作增加二次确认弹窗 */
+  const PLAN_ACTION_CONFIRM = {
+    pause:  { title: '确认暂停', content: '暂停后正在运行的任务将继续完成，新任务不再启动。', okText: '确认暂停' },
+    resume: { title: '确认恢复', content: '恢复后将继续执行排队中的任务。', okText: '确认恢复' },
+    start:  { title: '确认启动', content: '启动后将开始执行评测任务。', okText: '确认启动' },
+    cancel: { title: '确认取消', content: '取消后该计划将停止执行，已完成的任务结果保留。确认取消？', okText: '确认取消', okType: 'danger' },
   };
 
-  const handleRetryTask = async (taskId) => {
-    try {
-      await api.post(`/tasks/${taskId}/retry`);
-      message.success("重试已提交");
-      fetchTasks();
-    } catch (e) {
-      message.error("重试失败: " + (e.response?.data?.message || e.message));
+  const handlePlanAction = (action, label) => {
+    const confirmCfg = PLAN_ACTION_CONFIRM[action] || { title: `确认${label}`, content: `确定要${label}该计划吗？`, okText: '确认' };
+    Modal.confirm({
+      title: confirmCfg.title,
+      content: confirmCfg.content,
+      okText: confirmCfg.okText || '确认',
+      okType: confirmCfg.okType || 'primary',
+      cancelText: '返回',
+      onOk: async () => {
+        try {
+          await api.put(`/plans/${planId}/${action}`);
+          message.success(`${label}成功`);
+          fetchPlan();
+          fetchTasks();
+        } catch (e) {
+          message.error(`${label}失败: ` + (e.response?.data?.message || e.message));
+        }
+      },
+    });
+  };
+
+  const handleRetryTask = (taskId) => {
+    Modal.confirm({
+      title: '确认重试',
+      content: '将重新执行该失败任务，是否继续？',
+      okText: '确认重试',
+      cancelText: '返回',
+      onOk: async () => {
+        try {
+          await api.post(`/tasks/${taskId}/retry`);
+          message.success("重试已提交");
+          fetchTasks();
+        } catch (e) {
+          message.error("重试失败: " + (e.response?.data?.message || e.message));
+        }
+      },
+    });
+  };
+
+  /* Bug #200: 重试全部失败任务（带确认） */
+  const handleRetryAllFailed = () => {
+    const failedTasks = tasks.filter(t => t.status === "FAILED");
+    if (failedTasks.length === 0) {
+      message.info("没有失败的任务需要重试");
+      return;
     }
+    Modal.confirm({
+      title: '确认重试全部失败任务',
+      content: `将重试 ${failedTasks.length} 个失败任务，是否继续？`,
+      okText: '确认重试',
+      cancelText: '返回',
+      onOk: async () => {
+        try {
+          await Promise.all(failedTasks.map(t => api.post(`/tasks/${t.id}/retry`)));
+          message.success(`已提交 ${failedTasks.length} 个重试任务`);
+          fetchTasks();
+        } catch (e) {
+          message.error("部分重试失败");
+          fetchTasks();
+        }
+      },
+    });
   };
 
   const handleSkipTask = async (taskId) => {
@@ -368,9 +419,8 @@ export default function PlanMonitor({ planId, onBack }) {
                 </Button>
               )}
               {(plan?.status === "RUNNING" || plan?.status === "PAUSED") && (
-                <Popconfirm title="确定取消该计划?" onConfirm={() => handlePlanAction("cancel", "取消")}>
-                  <Button danger icon={<StopOutlined />}>取消</Button>
-                </Popconfirm>
+                <Button danger icon={<StopOutlined />}
+                  onClick={() => handlePlanAction("cancel", "取消")}>取消</Button>
               )}
               <Tooltip title="手动刷新">
                 <Button icon={<ReloadOutlined />} onClick={() => { fetchPlan(); fetchTasks(); }} />
