@@ -88,15 +88,7 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
         const planList = resp.data || [];
         setPlans(planList);
         setTotal(resp.total || 0);
-        // Bug #199: 从列表数据计算统计
-        const computed = planList.reduce((acc, p) => {
-          if (p.status === 'RUNNING') acc.running++;
-          else if (p.status === 'COMPLETED') acc.completed++;
-          else if (p.status === 'FAILED') acc.failed++;
-          acc.total++;
-          return acc;
-        }, { total: 0, running: 0, completed: 0, failed: 0 });
-        setStats(computed);
+        // Stats loaded separately via /api/plans/stats
       }
     } catch (e) {
       console.error(e);
@@ -105,7 +97,20 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
     }
   }, [page, pageSize, statusFilter, chipFilter]);
 
-  /* ── Bug #199: 从列表数据计算统计（替代4次API调用） ── */
+  /* ── Bug #199: 从后端统计 API 获取（替代4次API调用） ── */
+  const fetchStats = useCallback(async () => {
+    try {
+      const { data: resp } = await api.get("/plans/stats");
+      if (resp.code === 0 && resp.data) {
+        setStats({
+          total:     resp.data.total     || 0,
+          running:   resp.data.running   || 0,
+          completed: resp.data.completed || 0,
+          failed:    resp.data.failed    || 0,
+        });
+      }
+    } catch (_) { /* 统计失败不阻塞 */ }
+  }, []);
 
   /* ── API: 芯片列表 ── */
   const fetchChips = useCallback(async () => {
@@ -116,7 +121,7 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
   }, []);
 
   useEffect(() => { fetchPlans(); }, [fetchPlans]);
-  useEffect(() => { fetchChips(); }, [fetchChips]);
+  useEffect(() => { fetchStats(); fetchChips(); }, [fetchStats, fetchChips]);
 
   /* ── 操作 ── */
   const handleAction = async (id, action, label) => {
@@ -124,6 +129,7 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
       await api.put(`/plans/${id}/${action}`);
       message.success(`${label}成功`);
       fetchPlans();
+      fetchStats();
     } catch (e) {
       message.error(`${label}失败: ` + (e.response?.data?.message || e.message));
     }

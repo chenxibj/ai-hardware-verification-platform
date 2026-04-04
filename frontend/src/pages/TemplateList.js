@@ -48,19 +48,16 @@ const PRIORITY_OPTIONS = [
   { value: "CRITICAL", label: "紧急" },
 ];
 
-const DATA_TYPES = ["float32", "float16", "int8", "int4", "bfloat16"];
+const DATA_TYPES = ["FP32", "FP16", "BF16", "INT8"];
 
 const AVAILABLE_OPERATORS = [
-  "matmul", "conv2d", "relu", "sigmoid", "softmax", "batchnorm",
-  "pooling", "transpose", "concat", "elementwise_add", "elementwise_mul",
-  "reduce_sum", "gather", "scatter", "attention", "layernorm",
-  "gelu", "embedding", "topk", "sort",
+  "MatMul", "Conv2D", "Linear", "Softmax", "ReLU", "GELU",
+  "BatchNorm", "LayerNorm", "Attention", "Gather", "Transpose", "Embedding",
 ];
 
 const AVAILABLE_MODELS = [
-  "ResNet-50", "VGG-16", "BERT-Base", "GPT-2", "MobileNet-V2",
-  "YOLOv5", "Transformer-Base", "LSTM-256", "EfficientNet-B0",
-  "DeepSeek-R1", "Llama-3", "Qwen-2",
+  "ResNet-50", "BERT-Base", "MLP-Small", "GPT2-Small",
+  "VGG-16", "MobileNet-V2", "Transformer-Base", "EfficientNet-B0",
 ];
 
 const EVAL_TYPES = {
@@ -149,9 +146,11 @@ export default function TemplateList() {
         evalDimension: values.evaluationLayer || "",
         operators: values.operators || [],
         models: values.models || [],
+        dtypes: values.dataTypes || ["FP32"],
+        tags: values.tags ? values.tags.split(/[,，\s]+/).filter(Boolean) : [],
         iterations: values.iterations || 100,
         batchSizes: values.batchSizes || [1],
-        dataTypes: values.dataTypes || ["float32"],
+        dataTypes: values.dataTypes || ["FP32"],
         priority: values.priority || "NORMAL",
       };
       if (selected) {
@@ -179,6 +178,7 @@ export default function TemplateList() {
     setSelected(record);
     const config = parseConfig(record.configJson);
     form.setFieldsValue({
+      tags: (config.tags || []).join(", "),
       name: record.name, description: record.description,
       evalType: record.evalType, evaluationLayer: record.evaluationLayer,
       operators: config.operators || [],
@@ -346,7 +346,7 @@ export default function TemplateList() {
       <Modal title={selected ? "编辑模板" : "创建自定义模板"} open={editVisible}
         onCancel={() => { setEditVisible(false); setSelected(null); form.resetFields(); }}
         onOk={handleSubmit} okText={selected ? "更新" : "创建"} width={640}>
-        <Form form={form} layout="vertical" initialValues={{ iterations: 100, batchSizes: [1], dataTypes: ["float32"], priority: "NORMAL" }}>
+        <Form form={form} layout="vertical" initialValues={{ iterations: 100, batchSizes: [1], dataTypes: ["FP32"], priority: "NORMAL" }}>
           <Form.Item name="name" label="模板名称" rules={[{ required: true, message: "请输入模板名称" }]}>
             <Input placeholder="输入模板名称" />
           </Form.Item>
@@ -398,6 +398,9 @@ export default function TemplateList() {
           </Row>
           <Form.Item name="dataTypes" label="数据类型">
             <Checkbox.Group options={DATA_TYPES.map(dt => ({ label: dt, value: dt }))} />
+          </Form.Item>
+          <Form.Item name="tags" label="标签 Tags">
+            <Input placeholder="多个标签用逗号分隔，如: 性能, 推理, 训练" />
           </Form.Item>
         </Form>
       </Modal>
