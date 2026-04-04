@@ -27,13 +27,13 @@ public class UserService {
         user.setEmail(email);
         user.setPassword(passwordEncoder.encode(password));
         user.setUsername(username);
-        user.setRole("USER");
+        user.setRole("ENGINEER");  // 默认角色: 评测工程师
         user.setStatus(User.Status.ACTIVE);
         user.setEmailVerified(false);
         user.setPhoneVerified(false);
 
         User saved = userRepository.save(user);
-        log.info("User registered: {} ({})", saved.getUsername(), saved.getEmail());
+        log.info("User registered: {} ({}) with role ENGINEER", saved.getUsername(), saved.getEmail());
         return saved;
     }
 
@@ -62,12 +62,12 @@ public class UserService {
             admin.setEmail("admin@ahvp.com");
             admin.setPassword(passwordEncoder.encode("admin123"));
             admin.setUsername("admin");
-            admin.setRole("ADMIN");
+            admin.setRole("SUPER_ADMIN");
             admin.setStatus(User.Status.ACTIVE);
             admin.setEmailVerified(true);
             admin.setPhoneVerified(false);
             userRepository.save(admin);
-            log.info("Admin user initialized");
+            log.info("Admin user initialized with SUPER_ADMIN role");
         }
     }
 }

@@ -1,5 +1,7 @@
 package com.lab.chip;
 
+import com.lab.auth.RequireRole;
+import com.lab.auth.Role;
 import com.lab.common.ApiResponse;
 import com.lab.common.BusinessException;
 import com.lab.common.ErrorCode;
@@ -32,9 +34,10 @@ public class ChipController {
     private final ChipReportRepository chipReportRepository;
 
     /**
-     * 创建芯片
+     * 创建芯片 — 需要 ENGINEER 及以上
      */
     @PostMapping
+    @RequireRole(Role.ENGINEER)
     public ResponseEntity<ApiResponse<Chip>> createChip(
             @RequestBody Chip chip,
             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
@@ -44,10 +47,10 @@ public class ChipController {
     }
 
     /**
-     * 查询芯片列表
-     * 返回格式保持向后兼容: {code:0, message:"success", data:[...], total:N, page:P, size:S, timestamp:T}
+     * 查询芯片列表 — VIEWER 及以上
      */
     @GetMapping
+    @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> listChips(
             @RequestParam(required = false) String chipType,
             @RequestParam(required = false) String status,
@@ -55,7 +58,6 @@ public class ChipController {
             @RequestParam(required = false) String name,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        // If name parameter is provided, use name search
         if (name != null && !name.isBlank()) {
             List<Chip> chips = chipService.searchByName(name);
             return ResponseEntity.ok(buildListResponse(chips, chips.size(), page, size));
@@ -78,18 +80,20 @@ public class ChipController {
     }
 
     /**
-     * 查询芯片详情
+     * 查询芯片详情 — VIEWER 及以上
      */
     @GetMapping("/{id}")
+    @RequireRole(Role.VIEWER)
     public ResponseEntity<ApiResponse<Chip>> getChip(@PathVariable Long id) {
         Chip chip = chipService.getChip(id);
         return ResponseEntity.ok(ApiResponse.ok(chip));
     }
 
     /**
-     * 更新芯片
+     * 更新芯片 — 需要 ENGINEER 及以上
      */
     @PutMapping("/{id}")
+    @RequireRole(Role.ENGINEER)
     public ResponseEntity<ApiResponse<Chip>> updateChip(
             @PathVariable Long id,
             @RequestBody Chip chip) {
@@ -98,26 +102,25 @@ public class ChipController {
     }
 
     /**
-     * 删除芯片
+     * 删除芯片 — 需要 ENGINEER 及以上
      */
     @DeleteMapping("/{id}")
+    @RequireRole(Role.ENGINEER)
     public ResponseEntity<ApiResponse<Void>> deleteChip(@PathVariable Long id) {
         chipService.deleteChip(id);
         return ResponseEntity.ok(ApiResponse.ok());
     }
 
     /**
-     * 查询芯片的评测报告
+     * 查询芯片的评测报告 — VIEWER 及以上
      */
     @GetMapping("/{id}/reports")
+    @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getChipReports(@PathVariable Long id) {
         List<ChipReport> reports = chipReportRepository.findByChipId(id);
         return ResponseEntity.ok(buildListResponse(reports, reports.size(), 0, reports.size()));
     }
 
-    /**
-     * 构建列表响应 (保持前端兼容的扁平格式)
-     */
     private Map<String, Object> buildListResponse(Object data, long total, int page, int size) {
         Map<String, Object> resp = new HashMap<>();
         resp.put("code", 0);

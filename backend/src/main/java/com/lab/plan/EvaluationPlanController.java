@@ -1,5 +1,7 @@
 package com.lab.plan;
 
+import com.lab.auth.RequireRole;
+import com.lab.auth.Role;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -26,6 +28,7 @@ public class EvaluationPlanController {
     private final EvaluationTaskRepository taskRepository;
 
     @PostMapping("/plans")
+    @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> createPlan(
             @RequestBody EvaluationPlan plan,
             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
@@ -35,6 +38,7 @@ public class EvaluationPlanController {
     }
 
     @GetMapping("/plans")
+    @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> listPlans(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Long chipId,
@@ -51,6 +55,7 @@ public class EvaluationPlanController {
     }
 
     @GetMapping("/plans/{id}")
+    @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getPlan(@PathVariable Long id) {
         try {
             EvaluationPlan plan = planService.getPlan(id);
@@ -61,6 +66,7 @@ public class EvaluationPlanController {
     }
 
     @PutMapping("/plans/{id}")
+    @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> updatePlan(
             @PathVariable Long id,
             @RequestBody EvaluationPlan plan) {
@@ -73,6 +79,7 @@ public class EvaluationPlanController {
     }
 
     @PutMapping("/plans/{id}/start")
+    @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> startPlan(@PathVariable Long id) {
         try {
             return ResponseEntity.ok(success(planService.startPlan(id)));
@@ -82,6 +89,7 @@ public class EvaluationPlanController {
     }
 
     @PutMapping("/plans/{id}/pause")
+    @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> pausePlan(@PathVariable Long id) {
         try {
             return ResponseEntity.ok(success(planService.pausePlan(id)));
@@ -91,6 +99,7 @@ public class EvaluationPlanController {
     }
 
     @PutMapping("/plans/{id}/resume")
+    @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> resumePlan(@PathVariable Long id) {
         try {
             return ResponseEntity.ok(success(planService.resumePlan(id)));
@@ -100,6 +109,7 @@ public class EvaluationPlanController {
     }
 
     @PutMapping("/plans/{id}/cancel")
+    @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> cancelPlan(@PathVariable Long id) {
         try {
             return ResponseEntity.ok(success(planService.cancelPlan(id)));
@@ -108,15 +118,17 @@ public class EvaluationPlanController {
         }
     }
 
-
     @GetMapping("/plans/{planId}/tasks")
+    @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getPlanTasks(@PathVariable Long planId) {
         List<EvaluationTask> tasks = taskRepository.findByPlanId(planId);
         Map<String, Object> resp = success(tasks);
         resp.put("total", tasks.size());
         return ResponseEntity.ok(resp);
     }
+
     @GetMapping("/chips/{chipId}/plans")
+    @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getPlansByChip(@PathVariable Long chipId) {
         List<EvaluationPlan> plans = planService.getPlansByChipId(chipId);
         return ResponseEntity.ok(success(plans));

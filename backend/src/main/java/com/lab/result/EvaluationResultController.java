@@ -1,5 +1,7 @@
 package com.lab.result;
 
+import com.lab.auth.RequireRole;
+import com.lab.auth.Role;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -24,6 +26,7 @@ public class EvaluationResultController {
     private final EvaluationResultService resultService;
 
     @GetMapping("/results")
+    @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> listResults(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -37,6 +40,7 @@ public class EvaluationResultController {
     }
 
     @GetMapping("/results/{id}")
+    @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getResult(@PathVariable Long id) {
         try {
             EvaluationResult result = resultRepository.findById(id)
@@ -48,12 +52,14 @@ public class EvaluationResultController {
     }
 
     @GetMapping("/plans/{planId}/results")
+    @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getResultsByPlan(@PathVariable Long planId) {
         List<EvaluationResult> results = resultRepository.findByPlanId(planId);
         return ResponseEntity.ok(success(results));
     }
 
     @GetMapping("/chips/{chipId}/results")
+    @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getResultsByChip(@PathVariable Long chipId) {
         List<EvaluationResult> results = resultRepository.findByChipId(chipId);
         return ResponseEntity.ok(success(results));
@@ -95,10 +101,8 @@ public class EvaluationResultController {
         }
     }
 
-    /**
-     * 获取计划的维度评分
-     */
     @GetMapping("/plans/{planId}/scores")
+    @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getPlanScores(@PathVariable Long planId) {
         try {
             Map<String, Double> dimScores = resultService.calculateDimensionScores(planId);
@@ -113,6 +117,7 @@ public class EvaluationResultController {
     }
 
     @PostMapping("/results")
+    @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> createResult(@RequestBody EvaluationResult result) {
         EvaluationResult saved = resultRepository.save(result);
         return ResponseEntity.ok(success(saved));

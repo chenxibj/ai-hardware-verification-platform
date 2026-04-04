@@ -1,5 +1,7 @@
 package com.lab.chipreport;
 
+import com.lab.auth.RequireRole;
+import com.lab.auth.Role;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -27,6 +29,7 @@ public class ChipReportController {
     private final ChipReportRepository reportRepository;
 
     @PostMapping
+    @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> createReport(
             @RequestBody ChipReport report,
             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
@@ -42,6 +45,7 @@ public class ChipReportController {
     }
 
     @GetMapping
+    @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> listReports(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -55,6 +59,7 @@ public class ChipReportController {
     }
 
     @GetMapping("/{id}")
+    @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getReport(@PathVariable Long id) {
         try {
             ChipReport report = reportRepository.findById(id)
@@ -66,6 +71,7 @@ public class ChipReportController {
     }
 
     @PutMapping("/{id}")
+    @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> updateReport(
             @PathVariable Long id,
             @RequestBody ChipReport update) {
@@ -87,12 +93,14 @@ public class ChipReportController {
     }
 
     @GetMapping("/chip/{chipId}")
+    @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getReportsByChip(@PathVariable Long chipId) {
         List<ChipReport> reports = reportRepository.findByChipId(chipId);
         return ResponseEntity.ok(success(reports));
     }
 
     @GetMapping("/plan/{planId}")
+    @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getReportsByPlan(@PathVariable Long planId) {
         List<ChipReport> reports = reportRepository.findByPlanId(planId);
         return ResponseEntity.ok(success(reports));

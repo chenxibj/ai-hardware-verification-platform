@@ -24,18 +24,35 @@ public class JwtTokenProvider {
     public String generateToken(Long userId, String email, String role) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + this.expiration);
-        return Jwts.builder().setSubject(String.valueOf(userId)).claim("email", email).claim("role", role).setIssuedAt(now).setExpiration(expiryDate).signWith(this.key, SignatureAlgorithm.HS256).compact();
+        return Jwts.builder()
+                .setSubject(String.valueOf(userId))
+                .claim("email", email)
+                .claim("role", role)
+                .setIssuedAt(now)
+                .setExpiration(expiryDate)
+                .signWith(this.key, SignatureAlgorithm.HS256)
+                .compact();
     }
 
     public String generateRefreshToken(Long userId) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + this.expiration * 7L);
-        return Jwts.builder().setSubject(String.valueOf(userId)).setIssuedAt(now).setExpiration(expiryDate).signWith(this.key, SignatureAlgorithm.HS256).compact();
+        return Jwts.builder()
+                .setSubject(String.valueOf(userId))
+                .setIssuedAt(now)
+                .setExpiration(expiryDate)
+                .signWith(this.key, SignatureAlgorithm.HS256)
+                .compact();
     }
 
     public Long getUserIdFromToken(String token) {
-        Claims claims = (Claims) Jwts.parserBuilder().setSigningKey(this.key).build().parseClaimsJws(token).getBody();
+        Claims claims = Jwts.parserBuilder().setSigningKey(this.key).build().parseClaimsJws(token).getBody();
         return Long.parseLong(claims.getSubject());
+    }
+
+    public String getRoleFromToken(String token) {
+        Claims claims = Jwts.parserBuilder().setSigningKey(this.key).build().parseClaimsJws(token).getBody();
+        return claims.get("role", String.class);
     }
 
     public boolean validateToken(String token) throws ExpiredJwtException {
