@@ -271,6 +271,8 @@ export default function PlanCreate() {
     if (!selectedPresetObj) return "-";
     return selectedPresetObj.duration;
   }, [selectedPresetObj]);
+  const evalTree = useMemo(() => buildEvalItemTree(selectedTemplate), [selectedTemplate]);
+  const totalItems = countEvalItems(selectedTemplate);
 
   /* ── 提交 ── */
   const handleSubmit = async (runNow) => {
@@ -473,8 +475,6 @@ export default function PlanCreate() {
   /* ══════════════════════════════════════════════════════════
    *  Step 3: 选评测项（基于模板自动填充）
    * ══════════════════════════════════════════════════════════ */
-  const evalTree = useMemo(() => buildEvalItemTree(selectedTemplate), [selectedTemplate]);
-  const totalItems = countEvalItems(selectedTemplate);
 
   const renderStep3 = () => (
     <div>
