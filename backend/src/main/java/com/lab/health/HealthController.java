@@ -10,7 +10,7 @@ public class HealthController {
 
     @GetMapping
     public ApiResponse<?> health() {
-        return ApiResponse.success(Map.of(
+        return ApiResponse.ok(Map.of(
             "status", "UP",
             "timestamp", System.currentTimeMillis(),
             "version", "3.2.0",

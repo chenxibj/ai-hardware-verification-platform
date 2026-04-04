@@ -10,7 +10,7 @@ public class DemandController {
 
     @GetMapping
     public ApiResponse<?> list() {
-        return ApiResponse.success(Map.of("content", List.of(), "total", 0));
+        return ApiResponse.ok(Map.of("content", List.of(), "total", 0));
     }
 
     @PostMapping
@@ -19,6 +19,6 @@ public class DemandController {
         demand.put("id", UUID.randomUUID().toString());
         demand.put("status", "OPEN");
         demand.put("createdAt", new Date().toString());
-        return ApiResponse.success(demand);
+        return ApiResponse.ok(demand);
     }
 }

@@ -17,12 +17,12 @@ public class SchedulerConfigController {
 
     @GetMapping
     public ApiResponse<?> getConfig() {
-        return ApiResponse.success(config);
+        return ApiResponse.ok(config);
     }
 
     @PutMapping
     public ApiResponse<?> updateConfig(@RequestBody Map<String, Object> body) {
         config.putAll(body);
-        return ApiResponse.success(config);
+        return ApiResponse.ok(config);
     }
 }

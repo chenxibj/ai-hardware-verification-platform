@@ -10,7 +10,7 @@ public class PostController {
 
     @GetMapping
     public ApiResponse<?> list() {
-        return ApiResponse.success(Map.of("content", List.of(), "total", 0));
+        return ApiResponse.ok(Map.of("content", List.of(), "total", 0));
     }
 
     @PostMapping
@@ -20,11 +20,11 @@ public class PostController {
         post.put("createdAt", new Date().toString());
         post.put("likeCount", 0);
         post.put("commentCount", 0);
-        return ApiResponse.success(post);
+        return ApiResponse.ok(post);
     }
 
     @GetMapping("/{id}")
     public ApiResponse<?> get(@PathVariable String id) {
-        return ApiResponse.success(Map.of("id", id, "title", "", "content", ""));
+        return ApiResponse.ok(Map.of("id", id, "title", "", "content", ""));
     }
 }

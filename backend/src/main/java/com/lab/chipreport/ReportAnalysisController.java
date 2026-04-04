@@ -10,7 +10,7 @@ public class ReportAnalysisController {
 
     @GetMapping("/{id}/analysis")
     public ApiResponse<?> getAnalysis(@PathVariable Long id) {
-        return ApiResponse.success(Map.of(
+        return ApiResponse.ok(Map.of(
             "trend", "上升",
             "volatility", 3.2,
             "anomalyCount", 0,

@@ -18,12 +18,12 @@ public class UserPreferenceController {
 
     @GetMapping
     public ApiResponse<?> getPreferences() {
-        return ApiResponse.success(prefs);
+        return ApiResponse.ok(prefs);
     }
 
     @PutMapping
     public ApiResponse<?> updatePreferences(@RequestBody Map<String, Object> body) {
         prefs.putAll(body);
-        return ApiResponse.success(prefs);
+        return ApiResponse.ok(prefs);
     }
 }

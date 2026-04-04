@@ -10,7 +10,7 @@ public class BillingController {
 
     @GetMapping("/plans")
     public ApiResponse<?> getPlans() {
-        return ApiResponse.success(List.of(
+        return ApiResponse.ok(List.of(
             Map.of("id", "free", "name", "免费版", "price", 0, "features", List.of("基础评测", "5个芯片")),
             Map.of("id", "pro", "name", "专业版", "price", 999, "features", List.of("高级评测", "无限芯片", "优先支持")),
             Map.of("id", "enterprise", "name", "企业版", "price", -1, "features", List.of("定制化", "私有部署", "7x24支持"))
@@ -19,6 +19,6 @@ public class BillingController {
 
     @GetMapping("/usage")
     public ApiResponse<?> getUsage() {
-        return ApiResponse.success(Map.of("plan", "free", "tasksUsed", 0, "tasksLimit", 100));
+        return ApiResponse.ok(Map.of("plan", "free", "tasksUsed", 0, "tasksLimit", 100));
     }
 }

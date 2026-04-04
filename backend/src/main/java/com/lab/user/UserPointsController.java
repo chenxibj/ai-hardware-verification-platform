@@ -10,7 +10,7 @@ public class UserPointsController {
 
     @GetMapping
     public ApiResponse<?> getPoints() {
-        return ApiResponse.success(Map.of(
+        return ApiResponse.ok(Map.of(
             "total", 0,
             "records", List.of()
         ));

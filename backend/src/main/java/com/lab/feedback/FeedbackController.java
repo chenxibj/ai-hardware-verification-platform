@@ -10,7 +10,7 @@ public class FeedbackController {
 
     @PostMapping
     public ApiResponse<?> submit(@RequestBody Map<String, Object> body) {
-        return ApiResponse.success(Map.of(
+        return ApiResponse.ok(Map.of(
             "id", UUID.randomUUID().toString(),
             "status", "RECEIVED",
             "message", "感谢您的反馈"
