@@ -34,6 +34,8 @@ public class User {
     @Column(name = "user_type", nullable = false)
     private String role;
 
+    private String organization;
+
     private String avatarUrl;
 
     private String avatar;
@@ -50,6 +52,12 @@ public class User {
 
     private Instant lastLoginAt;
 
+    @Column(name = "failed_attempts")
+    private Integer failedAttempts = 0;
+
+    @Column(name = "locked_until")
+    private Instant lockedUntil;
+
     @CreationTimestamp
     @Column(updatable = false)
     private Instant createdAt;
@@ -58,7 +66,11 @@ public class User {
     private Instant updatedAt;
 
     public boolean isAdmin() {
-        return "ADMIN".equals(role);
+        return "ADMIN".equals(role) || "SUPER_ADMIN".equals(role);
+    }
+
+    public boolean isLocked() {
+        return lockedUntil != null && Instant.now().isBefore(lockedUntil);
     }
 
     public enum Status {

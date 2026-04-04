@@ -29,7 +29,12 @@ public enum ErrorCode {
     // 用户/认证
     AUTH_INVALID_CREDENTIALS("AUTH-001", "用户名或密码错误", 401),
     AUTH_TOKEN_EXPIRED("AUTH-002", "Token已过期", 401),
-    AUTH_EMAIL_EXISTS("AUTH-003", "邮箱已注册", 409);
+    AUTH_EMAIL_EXISTS("AUTH-003", "邮箱已注册", 409),
+    AUTH_USERNAME_EXISTS("AUTH-004", "用户名已存在", 409),
+    AUTH_ACCOUNT_LOCKED("AUTH-005", "账户已锁定，请稍后再试", 423),
+    AUTH_INVALID_USERNAME("AUTH-006", "用户名格式不正确（4-30字符，字母/数字/下划线）", 400),
+    AUTH_WEAK_PASSWORD("AUTH-007", "密码不符合要求（8-32字符，需含大写+小写+数字）", 400),
+    AUTH_ORGANIZATION_REQUIRED("AUTH-008", "组织/单位为必填项", 400);
 
     private final String code;
     private final String message;

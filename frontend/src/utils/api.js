@@ -13,9 +13,10 @@ api.interceptors.response.use(
   async (err) => {
     if (err.response) {
       const status = err.response.status;
-      // Handle both 401 (Unauthorized) and 403 (Forbidden) when token is present
-      if (status === 401 || (status === 403 && localStorage.getItem("token"))) {
-        // Lazy import to avoid circular dependency (store imports api)
+      const url = err.config?.url || "";
+      // Don't auto-logout for auth endpoints (login/register failures return 401/400)
+      const isAuthEndpoint = url.includes("/auth/login") || url.includes("/auth/register");
+      if (!isAuthEndpoint && (status === 401 || (status === 403 && localStorage.getItem("token")))) {
         const { default: useAuthStore } = await import("../stores/useAuthStore");
         useAuthStore.getState().logout();
       }
