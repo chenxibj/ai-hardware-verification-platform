@@ -11,7 +11,7 @@ import {
   ClusterOutlined, SettingOutlined,
   BellOutlined, UserOutlined, LogoutOutlined,
   UnorderedListOutlined, SwapOutlined, PlusCircleOutlined,
-  TeamOutlined, AuditOutlined, AppstoreOutlined,
+  TeamOutlined, AuditOutlined, AppstoreOutlined, FileTextOutlined, BarChartOutlined,
 } from "@ant-design/icons";
 import useAuthStore from "../stores/useAuthStore";
 import useNotificationStore from "../stores/useNotificationStore";
@@ -29,6 +29,7 @@ const PAGE_TITLES = {
   nodes: "节点管理",
   users: "用户管理",
   audit: "操作审计",
+  "report-list": "评测报告",
   // 内部跳转页面（不在侧边栏显示）
   tasks: "评测任务",
   resources: "计算资源",
@@ -59,6 +60,11 @@ const menuItems = [
       { key: "plans-create", icon: <PlusCircleOutlined />, label: "创建计划" },
       { key: "template-list", icon: <AppstoreOutlined />, label: "评测模板" },
     ],
+  },
+  {
+    key: "report-list",
+    icon: <FileTextOutlined />,
+    label: "评测报告",
   },
   {
     key: "nodes",

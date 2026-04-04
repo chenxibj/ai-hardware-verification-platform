@@ -1,7 +1,7 @@
 /**
  * @file AppRoutes.js
  * @description 页面路由配置
- * @feat #134, #136, #137, #161, #162, #164, #166, #167
+ * @feat #134, #136, #137, #161, #162, #164, #166, #167, #169, #170
  */
 import React from "react";
 import Dashboard from "../pages/Dashboard";
@@ -18,6 +18,8 @@ import NodeList from "../pages/NodeList";
 import NodeDetail from "../pages/NodeDetail";
 import Users from "../pages/Users";
 import Audit from "../pages/Audit";
+import ReportList from "../pages/ReportList";
+import ReportCompare from "../pages/ReportCompare";
 // 保留旧页面路由
 import Tasks from "../pages/Tasks";
 import Templates from "../pages/Templates";
@@ -41,6 +43,7 @@ const PAGE_COMPONENTS = {
   nodes: NodeList,
   users: Users,
   audit: Audit,
+  "report-list": ReportList,
   tasks: Tasks,
   templates: Templates,
   workflows: Workflows,
@@ -56,10 +59,20 @@ const PAGE_COMPONENTS = {
 
 export default function AppRoutes({
   currentPage, planMonitorId, chipReportId, chipProfileId, compareChipIds,
-  taskResultId, nodeDetailId,
+  taskResultId, nodeDetailId, reportCompareIds,
   setCurrentPage, setPlanMonitorId, setChipReportId, setChipProfileId,
-  setCompareChipIds, setTaskResultId, setNodeDetailId,
+  setCompareChipIds, setTaskResultId, setNodeDetailId, setReportCompareIds,
 }) {
+  // 报告对比页 (#170)
+  if (reportCompareIds && reportCompareIds.length >= 2) {
+    return (
+      <ReportCompare
+        reportIds={reportCompareIds}
+        onBack={() => { setReportCompareIds([]); setCurrentPage("report-list"); }}
+      />
+    );
+  }
+
   // 对比页
   if (currentPage === "chip-compare") {
     return (
@@ -119,6 +132,16 @@ export default function AppRoutes({
       <NodeDetail
         nodeId={nodeDetailId}
         onBack={() => { if (setNodeDetailId) setNodeDetailId(null); }}
+      />
+    );
+  }
+
+  // 报告列表页 (#169)
+  if (currentPage === "report-list") {
+    return (
+      <ReportList
+        onViewReport={(id) => setChipReportId(id)}
+        onCompareReports={(ids) => { if (setReportCompareIds) setReportCompareIds(ids); }}
       />
     );
   }

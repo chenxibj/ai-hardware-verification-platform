@@ -58,6 +58,8 @@ export const chipReportApi = {
   get: (id) => api.get("/chip-reports/" + id),
   getByChip: (chipId) => api.get("/chip-reports/chip/" + chipId),
   getByPlan: (planId) => api.get("/chip-reports/plan/" + planId),
+  compare: (ids) => api.get("/chip-reports/compare", { params: { ids: ids.join(",") } }),
+  delete: (id) => api.delete("/chip-reports/" + id),
 };
 
 export const userApi = {

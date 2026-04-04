@@ -1,7 +1,7 @@
 /**
  * @file App.js
  * @description 应用入口
- * @feat #136, #137, #164 taskResultId, #167 nodeDetailId
+ * @feat #136, #137, #164 taskResultId, #167 nodeDetailId, #169 #170 报告管理
  */
 import React, { useState, useEffect } from "react";
 import api from "./utils/api";
@@ -22,6 +22,7 @@ function App() {
   const [compareChipIds, setCompareChipIds] = useState([]);
   const [taskResultId, setTaskResultId] = useState(null);
   const [nodeDetailId, setNodeDetailId] = useState(null);
+  const [reportCompareIds, setReportCompareIds] = useState([]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -41,6 +42,7 @@ function App() {
     setCompareChipIds([]);
     setTaskResultId(null);
     setNodeDetailId(null);
+    setReportCompareIds([]);
     setCurrentPage(page);
   };
 
@@ -49,7 +51,8 @@ function App() {
   const getActiveNav = () => {
     if (currentPage === "chip-compare") return "chips";
     if (chipProfileId) return "chips";
-    if (chipReportId) return "reports";
+    if (chipReportId) return "report-list";
+    if (reportCompareIds && reportCompareIds.length > 0) return "report-list";
     if (planMonitorId) return "plans";
     if (taskResultId) return "plans";
     if (nodeDetailId) return "nodes";
@@ -66,6 +69,7 @@ function App() {
         compareChipIds={compareChipIds}
         taskResultId={taskResultId}
         nodeDetailId={nodeDetailId}
+        reportCompareIds={reportCompareIds}
         setCurrentPage={setCurrentPage}
         setPlanMonitorId={setPlanMonitorId}
         setChipReportId={setChipReportId}
@@ -73,6 +77,7 @@ function App() {
         setCompareChipIds={setCompareChipIds}
         setTaskResultId={setTaskResultId}
         setNodeDetailId={setNodeDetailId}
+        setReportCompareIds={setReportCompareIds}
       />
     </MainLayout>
   );

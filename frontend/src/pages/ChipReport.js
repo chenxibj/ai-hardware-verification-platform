@@ -21,7 +21,7 @@ import {
   CloseCircleOutlined, ExperimentOutlined, WarningOutlined,
   SafetyCertificateOutlined, ClockCircleOutlined,
   DownloadOutlined, StarFilled, BulbOutlined,
-  ThunderboltOutlined, RocketOutlined,
+  ThunderboltOutlined, RocketOutlined, ShareAltOutlined, FileExcelOutlined,
 } from "@ant-design/icons";
 import RadarChart from "../components/RadarChart";
 import api from "../utils/api";
@@ -292,7 +292,53 @@ export default function ChipReport({ reportId, onBack }) {
     }
   };
 
-  const reportTime = report.createdAt ? new Date(report.createdAt).toLocaleString("zh-CN") : "-";
+  /* #171 CSV export */
+  const handleExportCsv = () => {
+    if (!operators || operators.length === 0) {
+      message.warning("暂无算子数据可导出");
+      return;
+    }
+    const headers = ["排名", "算子名", "维度", "延迟(ms)", "吞吐量", "评分", "状态"];
+    const rows = operators.map((op, idx) => [
+      idx + 1,
+      (op.testItem || op.name || "Unknown").replace(/,/g, " "),
+      (op.dimension || "其他").replace(/,/g, " "),
+      (op.latencyMean ?? op.avgLatency ?? 0).toFixed(2),
+      (op.throughput ?? 0).toFixed(1),
+      (op.score ?? 0).toFixed(1),
+      op.passed ? "通过" : "失败",
+    ]);
+    const bom = "\uFEFF";
+    const csv = bom + [headers, ...rows].map(r => r.join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const safeName = (chipName || "报告").replace(/[\\/:*?"<>|]/g, "_");
+    a.href = url;
+    a.download = safeName + "-算子排行-" + (report.reportNo || "export") + ".csv";
+    a.click();
+    URL.revokeObjectURL(url);
+    message.success("CSV 导出成功");
+  };
+
+  /* #171 share link */
+  const handleShareLink = async () => {
+    const shareUrl = window.location.origin + "/?report=" + (report.id || reportId);
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      message.success("报告链接已复制到剪贴板");
+    } catch (_) {
+      const input = document.createElement("input");
+      input.value = shareUrl;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand("copy");
+      document.body.removeChild(input);
+      message.success("报告链接已复制");
+    }
+  };
+
+    const reportTime = report.createdAt ? new Date(report.createdAt).toLocaleString("zh-CN") : "-";
 
   /* 延迟柱状图（纯CSS实现） */
   const renderLatencyBar = () => {
@@ -339,9 +385,17 @@ export default function ChipReport({ reportId, onBack }) {
             <Button type="link" icon={<ArrowLeftOutlined />} onClick={onBack} style={{ paddingLeft: 0 }}>返回</Button>
           )}
         </div>
-        <Button type="primary" icon={<DownloadOutlined />} loading={exporting} onClick={handleExportPdf}>
-          下载 PDF
-        </Button>
+        <Space>
+          <Button type="primary" icon={<DownloadOutlined />} loading={exporting} onClick={handleExportPdf}>
+            下载 PDF
+          </Button>
+          <Button icon={<FileExcelOutlined />} onClick={handleExportCsv}>
+            导出 Excel
+          </Button>
+          <Button icon={<ShareAltOutlined />} onClick={handleShareLink}>
+            分享链接
+          </Button>
+        </Space>
       </div>
 
       <div ref={reportRef}>
