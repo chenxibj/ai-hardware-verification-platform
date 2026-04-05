@@ -1,6 +1,8 @@
 package com.lab.log;
 
 import com.lab.common.ApiResponse;
+import com.lab.task.EvaluationTask;
+import com.lab.task.EvaluationTaskRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
@@ -9,10 +11,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.Map;
-import java.util.Random;
 
 /**
  * 评测任务日志控制器
@@ -23,12 +22,18 @@ import java.util.Random;
 @RequestMapping("/tasks")
 public class TaskLogController {
 
+    private final EvaluationTaskRepository taskRepository;
+
+    public TaskLogController(EvaluationTaskRepository taskRepository) {
+        this.taskRepository = taskRepository;
+    }
+
     /**
      * 获取任务日志内容
      */
     @GetMapping("/{taskId}/logs")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getTaskLogs(@PathVariable Long taskId) {
-        String logContent = generateMockLog(taskId);
+        String logContent = getLogContent(taskId);
         Map<String, Object> data = Map.of(
                 "taskId", taskId,
                 "content", logContent,
@@ -43,7 +48,7 @@ public class TaskLogController {
      */
     @GetMapping("/{taskId}/logs/download")
     public ResponseEntity<Resource> downloadLogs(@PathVariable Long taskId) {
-        String logContent = generateMockLog(taskId);
+        String logContent = getLogContent(taskId);
         ByteArrayResource resource = new ByteArrayResource(logContent.getBytes());
         String filename = "task-" + taskId + "-log.txt";
 
@@ -54,124 +59,60 @@ public class TaskLogController {
     }
 
     /**
-     * 生成模拟评测日志
+     * 获取任务日志内容。
+     * TODO: [MVP-1] 当前评测任务尚无日志存储机制（EvaluationTask 无 logPath 字段）。
+     * 后续需要在评测执行流程中将真实日志写入文件/数据库，并在此处读取返回。
      */
-    private String generateMockLog(Long taskId) {
+    private String getLogContent(Long taskId) {
+        EvaluationTask task = taskRepository.findById(taskId).orElse(null);
+        if (task == null) {
+            return "[INFO] 任务 " + taskId + " 不存在。";
+        }
+
+        String statusInfo;
+        switch (task.getStatus()) {
+            case PENDING:
+                statusInfo = "任务等待中，日志尚未生成。";
+                break;
+            case QUEUED:
+                statusInfo = "任务已排队，等待执行，日志尚未生成。";
+                break;
+            case RUNNING:
+                statusInfo = "任务执行中，日志将在执行完成后生成。";
+                break;
+            case PAUSED:
+                statusInfo = "任务已暂停，日志将在任务恢复执行后继续生成。";
+                break;
+            case COMPLETED:
+                statusInfo = "任务已完成。日志存储功能尚未实现，暂无日志记录。";
+                break;
+            case FAILED:
+                statusInfo = "任务执行失败。日志存储功能尚未实现，暂无日志记录。";
+                break;
+            case CANCELLED:
+                statusInfo = "任务已取消。";
+                break;
+            case SKIPPED:
+                statusInfo = "任务已跳过。";
+                break;
+            default:
+                statusInfo = "日志暂未生成。";
+                break;
+        }
+
         StringBuilder sb = new StringBuilder();
-        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        LocalDateTime ts = LocalDateTime.now().minusMinutes(30);
-        Random rng = new Random(taskId); // 固定种子让同一任务日志一致
+        sb.append("[INFO] 任务编号: ").append(task.getTaskNo()).append("\n");
+        sb.append("[INFO] 任务名称: ").append(task.getName()).append("\n");
+        sb.append("[INFO] 当前状态: ").append(task.getStatus().name()).append("\n");
+        sb.append("[INFO] ").append(statusInfo).append("\n");
 
-        String taskNo = String.format("TASK-%03d", taskId);
-        String[] models = {"ResNet-50", "BERT-Base", "GPT-2", "MobileNet-V3", "YOLOv8", "EfficientNet-B0"};
-        String[] datasets = {"ImageNet-1K", "CIFAR-10", "COCO-2017", "SQuAD-v2", "MNIST", "WikiText-103"};
-        String model = models[rng.nextInt(models.length)];
-        String dataset = datasets[rng.nextInt(datasets.length)];
-
-        appendLog(sb, fmt, ts, "INFO", "Starting evaluation task " + taskNo);
-        ts = ts.plusSeconds(1);
-        appendLog(sb, fmt, ts, "INFO", "Evaluation engine version: 2.4.1");
-        ts = ts.plusSeconds(1);
-        appendLog(sb, fmt, ts, "INFO", "Loading model: " + model);
-        ts = ts.plusSeconds(2);
-        appendLog(sb, fmt, ts, "INFO", "Model loaded successfully (" + (rng.nextInt(500) + 100) + "MB)");
-        ts = ts.plusSeconds(1);
-        appendLog(sb, fmt, ts, "INFO", "Loading dataset: " + dataset);
-        ts = ts.plusSeconds(3);
-        appendLog(sb, fmt, ts, "INFO", "Dataset loaded: " + (rng.nextInt(50000) + 1000) + " samples");
-        ts = ts.plusSeconds(1);
-        appendLog(sb, fmt, ts, "INFO", "Initializing evaluation environment...");
-        ts = ts.plusSeconds(2);
-        appendLog(sb, fmt, ts, "INFO", "Hardware: " + (rng.nextBoolean() ? "NVIDIA A100 40GB" : "Ascend 910B"));
-        ts = ts.plusSeconds(1);
-        appendLog(sb, fmt, ts, "INFO", "CUDA version: 12.1 | Driver: 535.104.05");
-        ts = ts.plusSeconds(1);
-        appendLog(sb, fmt, ts, "INFO", "Warm-up phase: running 5 iterations...");
-
-        for (int i = 1; i <= 5; i++) {
-            ts = ts.plusSeconds(2);
-            double latency = rng.nextDouble() * 15 + 2;
-            appendLog(sb, fmt, ts, "INFO", String.format("  Warm-up iteration %d/5 — latency: %.2fms", i, latency));
+        if (task.getStartedAt() != null) {
+            sb.append("[INFO] 开始时间: ").append(task.getStartedAt()).append("\n");
         }
-
-        ts = ts.plusSeconds(1);
-        appendLog(sb, fmt, ts, "INFO", "Warm-up complete. Starting benchmark...");
-        ts = ts.plusSeconds(1);
-        appendLog(sb, fmt, ts, "INFO", "Benchmark config: batch_size=32, iterations=100, precision=FP16");
-
-        int totalIter = 100;
-        for (int i = 10; i <= totalIter; i += 10) {
-            ts = ts.plusSeconds(rng.nextInt(5) + 3);
-            double latency = rng.nextDouble() * 5 + 3;
-            double throughput = rng.nextDouble() * 500 + 200;
-            appendLog(sb, fmt, ts, "INFO", String.format("  Progress: %d/%d — avg latency: %.2fms, throughput: %.1f ops/sec", i, totalIter, latency, throughput));
-
-            // 偶尔加个 WARN
-            if (rng.nextInt(10) < 2) {
-                ts = ts.plusSeconds(1);
-                String[] warnings = {
-                        "GPU memory usage above 85%%",
-                        "Batch processing time exceeded threshold",
-                        "Detected thermal throttling on GPU 0",
-                        "CPU utilization spike detected",
-                };
-                appendLog(sb, fmt, ts, "WARN", warnings[rng.nextInt(warnings.length)]);
-            }
+        if (task.getCompletedAt() != null) {
+            sb.append("[INFO] 完成时间: ").append(task.getCompletedAt()).append("\n");
         }
-
-        ts = ts.plusSeconds(2);
-        appendLog(sb, fmt, ts, "INFO", "Benchmark complete. Computing metrics...");
-        ts = ts.plusSeconds(1);
-
-        double meanLatency = rng.nextDouble() * 8 + 2;
-        double p50 = meanLatency * 0.9;
-        double p95 = meanLatency * 1.5;
-        double p99 = meanLatency * 2.1;
-        double finalThroughput = rng.nextDouble() * 400 + 300;
-        double cpuUtil = rng.nextDouble() * 40 + 40;
-        double gpuUtil = rng.nextDouble() * 30 + 60;
-        double score = rng.nextDouble() * 30 + 60;
-
-        appendLog(sb, fmt, ts, "INFO", String.format("Metrics Summary:"));
-        ts = ts.plusSeconds(1);
-        appendLog(sb, fmt, ts, "INFO", String.format("  Mean Latency: %.2fms", meanLatency));
-        appendLog(sb, fmt, ts, "INFO", String.format("  P50: %.2fms | P95: %.2fms | P99: %.2fms", p50, p95, p99));
-        appendLog(sb, fmt, ts, "INFO", String.format("  Throughput: %.1f ops/sec", finalThroughput));
-        appendLog(sb, fmt, ts, "INFO", String.format("  CPU Utilization: %.1f%% | GPU Utilization: %.1f%%", cpuUtil, gpuUtil));
-        ts = ts.plusSeconds(1);
-        appendLog(sb, fmt, ts, "INFO", String.format("  Final Score: %.1f/100", score));
-
-        // 模拟少量错误场景
-        if (taskId % 7 == 0) {
-            ts = ts.plusSeconds(1);
-            appendLog(sb, fmt, ts, "ERROR", "Memory allocation failed during result serialization");
-            ts = ts.plusSeconds(1);
-            appendLog(sb, fmt, ts, "ERROR", "java.lang.OutOfMemoryError: Java heap space");
-            ts = ts.plusSeconds(1);
-            appendLog(sb, fmt, ts, "WARN", "Retrying with reduced batch size...");
-            ts = ts.plusSeconds(3);
-            appendLog(sb, fmt, ts, "INFO", "Retry successful with batch_size=16");
-        }
-
-        ts = ts.plusSeconds(1);
-        appendLog(sb, fmt, ts, "INFO", "Saving evaluation results...");
-        ts = ts.plusSeconds(1);
-        appendLog(sb, fmt, ts, "INFO", "Results saved to database. Report generated.");
-        ts = ts.plusSeconds(1);
-        appendLog(sb, fmt, ts, "INFO", "Evaluation task " + taskNo + " completed successfully.");
-        ts = ts.plusSeconds(1);
-        appendLog(sb, fmt, ts, "INFO", "Cleaning up temporary files...");
-        ts = ts.plusSeconds(1);
-        appendLog(sb, fmt, ts, "INFO", "Task finished. Total time: " + (rng.nextInt(300) + 60) + "s");
 
         return sb.toString();
-    }
-
-    private void appendLog(StringBuilder sb, DateTimeFormatter fmt, LocalDateTime ts, String level, String msg) {
-        sb.append("[").append(ts.format(fmt)).append("] ")
-          .append(level)
-          .append(" ")
-          .append(msg)
-          .append("\n");
     }
 }
