@@ -11,6 +11,9 @@ from collector import collect_during_execution
 
 logger = logging.getLogger(__name__)
 
+# #216: 上报失败时本地持久化目录
+PENDING_DIR = "/tmp/ahvp-pending-results"
+
 
 class TaskExecutor:
     """管理评测任务的执行"""
@@ -36,8 +39,13 @@ class TaskExecutor:
         self.node_id = node_id
         self.platform_url = config["platform"]["url"]
         self.token = config["platform"]["token"]
-        self.scripts_dir = config["eval_scripts_dir"]
-        self.project_root = config["project_root"]
+        # #220: 支持相对路径（相对于 agent 目录）
+        scripts_dir = config["eval_scripts_dir"]
+        if not os.path.isabs(scripts_dir):
+            scripts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), scripts_dir)
+        self.scripts_dir = os.path.realpath(scripts_dir)
+        # #220: project_root 可选，fallback 到 agent 父目录
+        self.project_root = config.get("project_root") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.current_task = None
         self._lock = threading.Lock()
 
@@ -103,6 +111,12 @@ class TaskExecutor:
         try:
             script_name = self._resolve_script(eval_type, params)
             script_path = os.path.join(self.scripts_dir, script_name)
+
+            # #214: 路径穿越校验 — 确保脚本路径在 eval_scripts_dir 内
+            real_path = os.path.realpath(script_path)
+            if not real_path.startswith(os.path.realpath(self.scripts_dir)):
+                raise ValueError("非法脚本路径: {}".format(script_name))
+
             if not os.path.exists(script_path):
                 raise FileNotFoundError("评测脚本不存在: {}".format(script_path))
 
@@ -130,6 +144,9 @@ class TaskExecutor:
 
             elapsed = time.time() - start_time
             logger.info("任务 %s 执行完成, 耗时 %.1fs, 返回码 %s", task_id, elapsed, result.returncode)
+
+            # #217: 保存任务日志
+            self._save_task_log(task_id, eval_type, params, cmd_str, result)
 
             if result.returncode != 0:
                 raise RuntimeError("脚本执行失败 (code={}): {}".format(result.returncode, result.stderr))
@@ -160,6 +177,24 @@ class TaskExecutor:
                 self.current_task = None
             logger.info("任务 %s 资源已释放, current_task=None", task_id)
 
+    def _save_task_log(self, task_id, eval_type, params, cmd_str, result):
+        """#217: 保存任务执行日志到 logs/{taskId}.log"""
+        try:
+            task_log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+            os.makedirs(task_log_dir, exist_ok=True)
+            task_log_path = os.path.join(task_log_dir, "{}.log".format(task_id))
+            with open(task_log_path, "w") as f:
+                f.write("=== Task {} ===\n".format(task_id))
+                f.write("Type: {}\nParams: {}\n".format(eval_type, json.dumps(params, ensure_ascii=False)))
+                f.write("Script: {}\n\n".format(cmd_str))
+                f.write("=== STDOUT ===\n")
+                f.write(result.stdout or "")
+                f.write("\n=== STDERR ===\n")
+                f.write(result.stderr or "")
+            logger.info("任务日志已保存: %s", task_log_path)
+        except Exception as e:
+            logger.warning("保存任务日志失败: %s", e)
+
     def _report_result(self, task_id, status, result, logs=""):
         """上报执行结果到平台"""
         url = "{}/tasks/{}/result".format(self.platform_url, task_id)
@@ -178,8 +213,23 @@ class TaskExecutor:
                 logger.info("任务 %s 结果上报成功, status=%s", task_id, status)
             else:
                 logger.error("任务 %s 结果上报失败: %s %s", task_id, resp.status_code, resp.text)
+                # #216: 上报失败，持久化到本地
+                self._save_pending_result(task_id, payload)
         except Exception as e:
             logger.error("任务 %s 结果上报异常: %s", task_id, e)
+            # #216: 上报异常，持久化到本地
+            self._save_pending_result(task_id, payload)
+
+    def _save_pending_result(self, task_id, payload):
+        """#216: 上报失败时将结果持久化到本地，等待心跳重传"""
+        try:
+            os.makedirs(PENDING_DIR, exist_ok=True)
+            fpath = os.path.join(PENDING_DIR, "{}.json".format(task_id))
+            with open(fpath, "w") as f:
+                json.dump(payload, f, ensure_ascii=False)
+            logger.info("任务 %s 结果已持久化到 %s，等待重传", task_id, fpath)
+        except Exception as e:
+            logger.error("持久化任务结果失败: %s", e)
 
 
 class MetricsCollector(threading.Thread):

@@ -117,10 +117,10 @@ public class ComputeNodeService {
     /**
      * Scheduled task: mark nodes offline if no heartbeat in 5 minutes
      */
-    @Scheduled(fixedRate = 60000)
+    @Scheduled(fixedRate = 30000)
     @Transactional
     public void checkOfflineNodes() {
-        Instant threshold = Instant.now().minus(5, ChronoUnit.MINUTES);
+        Instant threshold = Instant.now().minus(3, ChronoUnit.MINUTES);
         List<ComputeNode> onlineNodes = repo.findByStatus(ComputeNode.Status.ONLINE);
         for (ComputeNode node : onlineNodes) {
             if (node.getLastHeartbeat() == null || node.getLastHeartbeat().isBefore(threshold)) {

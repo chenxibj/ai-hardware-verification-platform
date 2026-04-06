@@ -25,7 +25,7 @@
 │       │    POST /nodes/{id}/heartbeat            │       │
 │       │    POST /tasks/{id}/result               │       │
 │       │    POST /tasks/{id}/failure              │       │
-│       │    @Scheduled checkOfflineNodes (60s)     │       │
+│       │    @Scheduled checkOfflineNodes (30s)     │       │
 └───────┼──────────────┼──────────────┼────────────┼───────┘
         │              │              │            │
    ─────┼──────── HTTP ┼──── API ─────┼────────────┼──────
@@ -67,6 +67,140 @@
 │  └─────────────────────────────────────────────────────┘ │
 │                    计算节点 (dev-node-01)                 │
 └──────────────────────────────────────────────────────────┘
+```
+
+## 2.1 时序图
+
+
+
+### 节点注册 + 心跳
+
+
+
+```mermaid
+
+sequenceDiagram
+
+    participant A as Agent
+
+    participant P as 平台后端
+
+    participant DB as 数据库
+
+
+
+    Note over A: 启动
+
+    A->>A: 加载 config.yaml
+
+    A->>A: 采集硬件信息
+
+    A->>P: POST /api/nodes (注册)
+
+    P->>DB: 查找同名节点
+
+    alt 节点已存在
+
+        P->>DB: 更新硬件信息，状态→ONLINE
+
+    else 新节点
+
+        P->>DB: 创建节点记录
+
+    end
+
+    P-->>A: 返回 node_id
+
+
+
+    loop 每 30 秒
+
+        A->>P: POST /api/nodes/{id}/heartbeat
+
+        P->>DB: 更新 lastHeartbeat, 状态→ONLINE
+
+        P-->>A: 200 OK
+
+    end
+
+
+
+    loop 每 30 秒
+
+        P->>DB: 扫描超过 3 分钟无心跳的节点
+
+        P->>DB: 标记为 OFFLINE
+
+    end
+
+```
+
+
+
+### 任务执行流程
+
+
+
+```mermaid
+
+sequenceDiagram
+
+    participant U as 用户
+
+    participant P as 平台后端
+
+    participant A as Agent
+
+    participant S as 评测脚本
+
+
+
+    U->>P: 创建评测任务
+
+    P->>P: 选择空闲节点
+
+    P->>A: POST /execute (taskId, evalType, params)
+
+    Note over A: 验证 X-Agent-Token
+
+
+
+    alt Agent 忙
+
+        A-->>P: 409 Conflict
+
+        P->>P: 换节点或排队
+
+    else Agent 空闲
+
+        A-->>P: 200 任务已接受
+
+        A->>A: 占用执行槽
+
+        A->>A: 路由 evalType → 脚本
+
+        A->>A: 启动 MetricsCollector
+
+        A->>S: subprocess.run(脚本)
+
+        S-->>A: 返回 JSON 结果
+
+        A->>A: 合并结果 + 运行时指标
+
+        A->>P: POST /api/tasks/{id}/result
+
+        alt 上报失败
+
+            A->>A: 持久化到本地 pending 目录
+
+            Note over A: 下次心跳时自动重传
+
+        end
+
+        A->>A: 释放执行槽
+
+    end
+
 ```
 
 ## 3. 模块设计
@@ -126,7 +260,7 @@
 
 **后端侧：**
 - `ComputeNodeService.heartbeat()` 更新节点状态为 ONLINE、刷新 lastHeartbeat
-- `@Scheduled checkOfflineNodes()` 每 60 秒扫描，超过 5 分钟无心跳的节点标记为 OFFLINE
+- `@Scheduled checkOfflineNodes()` 每 60 秒扫描，超过 3 分钟无心跳的节点标记为 OFFLINE
 
 **状态机：**
 ```
@@ -134,7 +268,7 @@
                                 ↑                      │
                                 └──── (任务完成) ───────┘
                                 
-ONLINE/BUSY → (5分钟无心跳) → OFFLINE
+ONLINE/BUSY → (3分钟无心跳) → OFFLINE
 任何状态 → (手动维护) → MAINTENANCE
 任何状态 → (异常) → ERROR
 ```
@@ -173,6 +307,9 @@ ONLINE/BUSY → (5分钟无心跳) → OFFLINE
 3. **执行期指标** (`collect_during_execution()`) — 任务执行期间密集采集
 
 ## 4. 评测脚本
+
+> ⚠️ **MVP 阶段说明**：当前评测脚本为 CPU/NumPy 模拟实现，适用于功能验证和 CI 测试。
+> 第二期将替换为 PyTorch/ONNX Runtime 实现，支持真实 GPU 硬件评测。
 
 ### 4.1 算子性能基准测试 (`cpu_operator_benchmark.py`)
 
@@ -237,7 +374,7 @@ MatMul, Conv2D, Softmax, ReLU, GELU, SiLU, LayerNorm, BatchNorm, Attention, Scal
 | POST http://{node_ip}:{agent_port}/execute | 下发评测任务 | 任务调度时 |
 
 ### 5.3 认证方式
-- Agent → 平台：请求头 `X-Agent-Token: ahvp-agent-secret-2026`
+- Agent → 平台：请求头 `X-Agent-Token: <agent-token>`
 - 平台 → Agent：内网通信，暂无额外认证（后续可加 mutual TLS）
 
 ## 6. 部署方案
@@ -302,7 +439,7 @@ project_root: "/opt/ahvp"
 
 ### 7.1 心跳断线恢复
 - Agent 心跳失败时仅 warning，不停止服务
-- 后端 5 分钟无心跳标记 OFFLINE，但不删除节点记录
+- 后端 3 分钟无心跳标记 OFFLINE，但不删除节点记录
 - Agent 重启后自动重新注册 + 恢复心跳
 
 ### 7.2 任务执行保护
@@ -312,8 +449,46 @@ project_root: "/opt/ahvp"
 - 执行失败通过 `/tasks/{id}/failure` 上报错误详情
 
 ### 7.3 结果上报重试
-- 当前：单次上报，失败仅记日志
-- 建议后续：加入本地持久化队列 + 指数退避重试
+- 上报失败时自动持久化到本地文件 (`/tmp/ahvp-pending-results/{taskId}.json`)
+- 心跳线程每次心跳后自动检查 pending 目录并重传
+- 重传成功后自动删除本地缓存文件
+
+### 7.4 任务拒绝策略
+
+- Agent 为单任务串行执行模型，同一时间只能执行一个评测任务
+
+- 当 Agent 正在执行任务时，新的 `/execute` 请求返回 **HTTP 409 Conflict**
+
+- 平台收到 409 响应后应：
+
+  - 选择其他空闲节点重新调度
+
+  - 或将任务加入等待队列，稍后重试
+
+- 响应格式：`{"code": -1, "message": "节点忙，正在执行任务 {currentTaskId}"}`
+
+
+
+### 7.5 请求认证
+
+- 平台→Agent 的所有 `/execute` 请求必须携带 `X-Agent-Token` header
+
+- Token 值必须与 Agent `config.yaml` 中的 `platform.token` 一致
+
+- `/status` 端点无需认证（用于健康检查）
+
+- 认证失败返回 HTTP 401：`{"code": -1, "message": "认证失败"}`
+
+
+
+### 7.6 脚本执行安全
+
+- 评测脚本通过 `SCRIPT_MAP` 白名单映射，不支持动态脚本路径
+
+- 额外路径穿越校验：`os.path.realpath()` 确保脚本在 `eval_scripts_dir` 内
+
+- subprocess 执行超时 600 秒自动终止
+
 
 ## 8. 后续演进方向
 

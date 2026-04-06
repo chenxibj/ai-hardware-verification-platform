@@ -4,24 +4,34 @@ AI 硬件验证平台 - 计算节点 Agent
 启动流程: 注册 -> 心跳线程 -> Flask HTTP 服务
 """
 import logging
+import logging.handlers
 import os
 import sys
 import signal
 import yaml
 from flask import Flask, jsonify, request
 
-# 配置日志
+# 加载配置
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
+with open(CONFIG_PATH, "r") as f:
+    config = yaml.safe_load(f)
+
+# 配置日志 - RotatingFileHandler (#217)
+log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+os.makedirs(log_dir, exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-logger = logging.getLogger("agent")
+file_handler = logging.handlers.RotatingFileHandler(
+    os.path.join(log_dir, "agent.log"), maxBytes=10*1024*1024, backupCount=5
+)
+file_handler.setFormatter(logging.Formatter("%(asctime)s [%(name)s] %(levelname)s - %(message)s"))
+logging.getLogger().addHandler(file_handler)
 
-# 加载配置
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
-with open(CONFIG_PATH, "r") as f:
-    config = yaml.safe_load(f)
+logger = logging.getLogger("agent")
 
 # 导入模块
 from register import register_node
@@ -36,6 +46,16 @@ app = Flask(__name__)
 node_info = None
 heartbeat_thread = None
 executor = None
+
+
+@app.before_request
+def verify_token():
+    """请求认证中间件 (#213) - 平台→Agent 通信认证"""
+    if request.path == '/status':
+        return  # 健康检查不需要认证
+    token = request.headers.get('X-Agent-Token')
+    if token != config['platform']['token']:
+        return jsonify({"code": -1, "message": "认证失败"}), 401
 
 
 @app.route("/status", methods=["GET"])
@@ -80,6 +100,7 @@ def execute():
                 task_id, eval_type, params, task_config, merged_params)
 
     if executor.is_busy:
+        # #218: 节点忙时返回 409 Conflict
         return jsonify({
             "code": -1,
             "message": "节点忙，正在执行任务 {}".format(executor.current_task),
