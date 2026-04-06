@@ -1,6 +1,8 @@
 package com.lab.plan;
 
 import com.lab.task.EvaluationTask;
+import com.lab.result.EvaluationResultRepository;
+import com.lab.chipreport.ChipReportRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -22,6 +24,9 @@ import java.util.List;
 public class EvaluationPlanService {
 
     private final EvaluationPlanRepository planRepository;
+    private final com.lab.task.EvaluationTaskRepository taskRepository;
+    private final EvaluationResultRepository resultRepository;
+    private final ChipReportRepository chipReportRepository;
     private final PlanTaskSplitter planTaskSplitter;
 
     // ============ CRUD ============
@@ -164,6 +169,43 @@ public class EvaluationPlanService {
         return saved;
     }
 
+
+
+    @Transactional
+    public EvaluationPlan retryPlan(Long id) {
+        EvaluationPlan plan = getPlan(id);
+        if (plan.getStatus() != EvaluationPlan.PlanStatus.COMPLETED
+                && plan.getStatus() != EvaluationPlan.PlanStatus.FAILED) {
+            throw new RuntimeException("Only COMPLETED or FAILED plans can be retried (current: " + plan.getStatus() + ")");
+        }
+
+        // Delete associated results and reports
+        resultRepository.deleteAll(resultRepository.findByPlanId(id));
+        chipReportRepository.deleteAll(chipReportRepository.findByPlanId(id));
+
+        // Reset tasks
+        List<EvaluationTask> tasks = taskRepository.findByPlanId(id);
+        for (EvaluationTask task : tasks) {
+            if (task.getStatus() == EvaluationTask.TaskStatus.COMPLETED
+                    || task.getStatus() == EvaluationTask.TaskStatus.FAILED) {
+                task.setStatus(EvaluationTask.TaskStatus.PENDING);
+                task.setProgress(0);
+                task.setStartedAt(null);
+                task.setCompletedAt(null);
+                taskRepository.save(task);
+            }
+        }
+
+        // Reset plan
+        plan.setStatus(EvaluationPlan.PlanStatus.DRAFT);
+        plan.setStartedAt(null);
+        plan.setCompletedAt(null);
+        plan.setProgress(0);
+        plan.setCompletedTasks(0);
+        EvaluationPlan saved = planRepository.save(plan);
+        log.info("Retried plan: {} - reset to DRAFT", saved.getPlanNo());
+        return saved;
+    }
 
     // ============ Stats (#199) ============
 

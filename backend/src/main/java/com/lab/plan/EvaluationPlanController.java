@@ -119,6 +119,17 @@ public class EvaluationPlanController {
     }
 
 
+
+    @PutMapping("/plans/{id}/retry")
+    @RequireRole(Role.ENGINEER)
+    public ResponseEntity<Map<String, Object>> retryPlan(@PathVariable Long id) {
+        try {
+            return ResponseEntity.ok(success(planService.retryPlan(id)));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(error(e.getMessage()));
+        }
+    }
+
     /**
      * GET /api/plans/stats — 统计各状态数量 (#199)
      */
