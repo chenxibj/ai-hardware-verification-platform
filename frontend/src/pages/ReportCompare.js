@@ -153,7 +153,7 @@ export default function ReportCompare({ reportIds, onBack }) {
               if (cr.data?.code === 0) cMap[r.chipId] = cr.data.data?.name || "芯片#" + r.chipId;
             }).catch(() => {}) : Promise.resolve()),
             ...list.map(r => r.planId ? api.get("/plans/" + r.planId).then(pr => {
-              if (pr.data?.code === 0) pMap[r.planId] = pr.data.data?.name || "计划#" + r.planId;
+              if (pr.data?.code === 0) pMap[r.planId] = pr.data.data?.name || "任务#" + r.planId;
             }).catch(() => {}) : Promise.resolve()),
           ]);
           setChipNames(cMap);

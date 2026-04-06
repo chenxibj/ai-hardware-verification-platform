@@ -153,7 +153,7 @@ export default function ChipReport({ reportId, onBack }) {
           api.get("/plans/" + r.planId).then(pr => {
             if (pr.data?.code === 0) {
               setPlan(pr.data.data);
-              setPlanName(pr.data.data.name || "计划#" + r.planId);
+              setPlanName(pr.data.data.name || "任务#" + r.planId);
             }
           }).catch(() => {});
         }

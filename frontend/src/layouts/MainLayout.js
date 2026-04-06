@@ -60,7 +60,7 @@ const BREADCRUMB_MAP = {
   "chip-compare": [{ title: "评测中心" }, { title: "芯片对比" }],
   "template-list": [{ title: "评测中心" }, { title: "评测模板" }],
   plans: [{ title: "评测中心" }, { title: "评测任务" }],
-  "plans-create": [{ title: "评测中心" }, { title: "创建计划" }],
+  "plans-create": [{ title: "评测中心" }, { title: "创建任务" }],
   "report-list": [{ title: "评测中心" }, { title: "评测报告" }],
   nodes: [{ title: "资源管理" }, { title: "节点管理" }],
   "resource-pools": [{ title: "资源管理" }, { title: "资源池" }],

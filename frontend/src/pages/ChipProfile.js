@@ -5,7 +5,7 @@
  *
  * Tab 1: 能力画像（默认 Tab）— 雷达图 + 维度评分 + 综合评分 + 场景推荐
  * Tab 2: 基本信息（技术规格增强 + 软件栈增强 + 编辑）
- * Tab 3: 评测历史（增强：创建计划按钮 + 最新报告入口 + 空状态引导）
+ * Tab 3: 评测历史（增强：创建任务按钮 + 最新报告入口 + 空状态引导）
  * Tab 4: 评价报告 — 最新报告全文 + 历史报告选择
  */
 import React, { useState, useEffect, useCallback } from "react";
@@ -233,7 +233,7 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
   /* ── 评测历史列 ── */
   const planColumns = [
     {
-      title: "计划名称", dataIndex: "name", key: "name", width: 200, ellipsis: true,
+      title: "任务名称", dataIndex: "name", key: "name", width: 200, ellipsis: true,
       render: (v) => <Text strong>{v}</Text>,
     },
     {
@@ -287,7 +287,7 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
   const trendOption = (() => {
     const completedPlans = plans.filter(p => p.status === "COMPLETED").reverse();
     if (completedPlans.length < 2) return null;
-    const xData = completedPlans.map(p => p.name || `计划#${p.id}`);
+    const xData = completedPlans.map(p => p.name || `任务#${p.id}`);
     const yData = completedPlans.map(p => {
       const report = reports.find(r => r.planId === p.id);
       return report ? report.overallScore : null;
