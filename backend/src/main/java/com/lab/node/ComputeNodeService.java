@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -28,7 +29,6 @@ public class ComputeNodeService {
         } else {
             nodes = repo.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
         }
-        // Filter by type (from tags or hardwareInfo) if provided
         if (type != null && !type.isBlank()) {
             nodes = nodes.stream()
                     .filter(n -> n.getTags() != null && n.getTags().toUpperCase().contains(type.toUpperCase()))
@@ -42,13 +42,26 @@ public class ComputeNodeService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "节点不存在: " + id));
     }
 
+    /**
+     * 注册节点 - 支持重复注册（幂等）
+     * 如果同名节点已存在，更新硬件信息并返回
+     */
     @Transactional
     public ComputeNode register(ComputeNode node) {
-        // Name uniqueness check
-        if (repo.findByName(node.getName()).isPresent()) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "节点名称已存在: " + node.getName());
+        Optional<ComputeNode> existing = repo.findByName(node.getName());
+        if (existing.isPresent()) {
+            // Re-registration: update hardware info and bring online
+            ComputeNode ex = existing.get();
+            if (node.getHardwareInfo() != null) ex.setHardwareInfo(node.getHardwareInfo());
+            if (node.getDescription() != null) ex.setDescription(node.getDescription());
+            if (node.getTags() != null) ex.setTags(node.getTags());
+            if (node.getAgentPort() != null) ex.setAgentPort(node.getAgentPort());
+            ex.setStatus(ComputeNode.Status.ONLINE);
+            ex.setLastHeartbeat(Instant.now());
+            ex.setErrorMessage(null);
+            return repo.save(ex);
         }
-        // Auto-generate 32-char token stored in sshKey field (reuse for agent auth)
+        // New registration
         String token = UUID.randomUUID().toString().replace("-", "");
         node.setSshKey(token);
         if (node.getStatus() == null) {
@@ -61,7 +74,6 @@ public class ComputeNodeService {
     public ComputeNode update(Long id, ComputeNode updates) {
         ComputeNode existing = getById(id);
         if (updates.getName() != null) {
-            // Check uniqueness if name changed
             if (!existing.getName().equals(updates.getName())) {
                 repo.findByName(updates.getName()).ifPresent(other -> {
                     if (!other.getId().equals(id)) {
@@ -105,7 +117,7 @@ public class ComputeNodeService {
     /**
      * Scheduled task: mark nodes offline if no heartbeat in 5 minutes
      */
-    @Scheduled(fixedRate = 60000) // every minute
+    @Scheduled(fixedRate = 60000)
     @Transactional
     public void checkOfflineNodes() {
         Instant threshold = Instant.now().minus(5, ChronoUnit.MINUTES);
@@ -116,7 +128,6 @@ public class ComputeNodeService {
                 repo.save(node);
             }
         }
-        // Also check BUSY nodes
         List<ComputeNode> busyNodes = repo.findByStatus(ComputeNode.Status.BUSY);
         for (ComputeNode node : busyNodes) {
             if (node.getLastHeartbeat() == null || node.getLastHeartbeat().isBefore(threshold)) {

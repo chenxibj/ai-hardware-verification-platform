@@ -46,7 +46,10 @@ public class ChipService {
         }
 
         Chip saved = chipRepository.save(chip);
-        log.info("Created chip: {} ({}) type={} vendor={}", saved.getChipNo(), saved.getName(), saved.getChipType(), saved.getManufacturer());
+        log.info("Created chip: {} ({}) type={} vendor={} arch={} gen={} model={}",
+                saved.getChipNo(), saved.getName(), saved.getChipType(),
+                saved.getManufacturer(), saved.getArchitecture(),
+                saved.getGeneration(), saved.getModelName());
         return saved;
     }
 
@@ -89,6 +92,9 @@ public class ChipService {
         if (update.getName() != null) chip.setName(update.getName());
         if (update.getManufacturer() != null) chip.setManufacturer(update.getManufacturer());
         if (update.getChipType() != null) chip.setChipType(update.getChipType());
+        if (update.getArchitecture() != null) chip.setArchitecture(update.getArchitecture());
+        if (update.getGeneration() != null) chip.setGeneration(update.getGeneration());
+        if (update.getModelName() != null) chip.setModelName(update.getModelName());
         if (update.getTechSpec() != null) chip.setTechSpec(update.getTechSpec());
         if (update.getSoftwareStack() != null) chip.setSoftwareStack(update.getSoftwareStack());
         if (update.getStatus() != null) chip.setStatus(update.getStatus());
@@ -132,14 +138,11 @@ public class ChipService {
 
     /**
      * 生成芯片编号: CHIP-YYYYMMDD-NNN
-     * 使用数据库查询当天已有数量来生成序号
      */
     private synchronized String generateChipNo() {
         String today = LocalDate.now(ZoneId.of("Asia/Shanghai"))
                 .format(DateTimeFormatter.BASIC_ISO_DATE);
         String prefix = "CHIP-" + today + "-";
-
-        // 查询当天已有的芯片数量
         long count = chipRepository.countByChipNoStartingWith(prefix);
         String seq = String.format("%03d", count + 1);
         return prefix + seq;

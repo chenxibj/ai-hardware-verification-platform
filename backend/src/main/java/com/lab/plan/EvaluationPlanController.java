@@ -17,7 +17,7 @@ import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
 
 /**
- * 评测计划控制器
+ * 评测任务控制器
  */
 @Slf4j
 @RestController
@@ -118,13 +118,17 @@ public class EvaluationPlanController {
         }
     }
 
-
-
-    @PutMapping("/plans/{id}/retry")
+    /**
+     * POST /api/plans/{id}/copy — 拷贝评测任务为新的 DRAFT
+     */
+    @PostMapping("/plans/{id}/copy")
     @RequireRole(Role.ENGINEER)
-    public ResponseEntity<Map<String, Object>> retryPlan(@PathVariable Long id) {
+    public ResponseEntity<Map<String, Object>> copyPlan(
+            @PathVariable Long id,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
         try {
-            return ResponseEntity.ok(success(planService.retryPlan(id)));
+            if (userId == null) userId = 1L;
+            return ResponseEntity.ok(success(planService.copyPlan(id, userId)));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(error(e.getMessage()));
         }

@@ -302,10 +302,70 @@ export default function TemplateList() {
 
       {/* 详情 Modal */}
       <Modal title="模板详情" open={detailVisible} onCancel={() => setDetailVisible(false)}
-        footer={[<Button key="close" onClick={() => setDetailVisible(false)}>关闭</Button>]}
-        width={600}>
+        footer={[
+          ...(selected && selected.isSystem ? [
+            <Button key="clone" type="primary" icon={<CopyOutlined />}
+              onClick={() => { setDetailVisible(false); handleClone(selected); }}>
+              克隆为自定义模板
+            </Button>
+          ] : []),
+          <Button key="close" onClick={() => setDetailVisible(false)}>关闭</Button>,
+        ]}
+        width={700}>
         {selected && (() => {
           const config = parseConfig(selected.configJson);
+          const CONFIG_LABELS = {
+            mode: "评测模式", target: "评测对象", framework: "框架",
+            python_version: "Python版本", object_type: "对象类型",
+            timeout_minutes: "超时时间(分钟)", duration_minutes: "持续时间(分钟)",
+            concurrent: "并发数", threshold: "精度阈值",
+            compare_baseline: "对比基线", comparison_type: "对比类型",
+          };
+          const MODE_LABELS = {
+            QUICK: "快速", STANDARD: "标准", FULL: "完整",
+            ACCURACY: "精度", STRESS: "压力", LLM: "大模型",
+            HORIZONTAL: "横向对比", VERTICAL: "纵向对比", BENCHMARK: "基准对比",
+          };
+          const renderValue = (key, val) => {
+            if (val === true) return <Tag color="green">是</Tag>;
+            if (val === false) return <Tag color="red">否</Tag>;
+            if (key === "mode") return <Tag color="blue">{MODE_LABELS[val] || val}</Tag>;
+            if (typeof val === "number") return <Text strong>{val}</Text>;
+            return <Text>{String(val)}</Text>;
+          };
+          const renderArrayField = (label, arr, color) => (
+            arr && arr.length > 0 && (
+              <>
+                <Divider orientation="left" style={{ margin: "12px 0 8px" }}>{label} ({arr.length})</Divider>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {arr.map((item, i) => <Tag key={i} color={color} style={{ marginBottom: 4 }}>{item}</Tag>)}
+                </div>
+              </>
+            )
+          );
+          const renderObjectField = (label, obj) => (
+            obj && typeof obj === "object" && !Array.isArray(obj) && (
+              <>
+                <Divider orientation="left" style={{ margin: "12px 0 8px" }}>{label}</Divider>
+                <Row gutter={[16, 4]}>
+                  {Object.entries(obj).map(([k, v]) => (
+                    <React.Fragment key={k}>
+                      <Col span={10}><Text type="secondary">{k}</Text></Col>
+                      <Col span={14}><Text>{Array.isArray(v) ? v.join(", ") : String(v)}</Text></Col>
+                    </React.Fragment>
+                  ))}
+                </Row>
+              </>
+            )
+          );
+          // Categorize config keys
+          const scalarKeys = Object.keys(config).filter(k =>
+            typeof config[k] !== "object" || config[k] === null);
+          const arrayKeys = Object.keys(config).filter(k =>
+            Array.isArray(config[k]));
+          const objectKeys = Object.keys(config).filter(k =>
+            typeof config[k] === "object" && !Array.isArray(config[k]) && config[k] !== null);
+
           return (
             <div>
               <Divider orientation="left">基本信息</Divider>
@@ -321,22 +381,47 @@ export default function TemplateList() {
                     : <Text type="secondary">未分类</Text>}
                 </Col>
                 <Col span={8}><Text type="secondary">系统模板</Text></Col>
-                <Col span={16}>{selected.isSystem ? <Tag color="purple">🔒 系统</Tag> : <Tag color="green">自定义</Tag>}</Col>
+                <Col span={16}>{selected.isSystem ? <Tag color="purple">🔒 系统预置</Tag> : <Tag color="green">自定义</Tag>}</Col>
+                {selected.forkFrom && (
+                  <><Col span={8}><Text type="secondary">克隆自</Text></Col>
+                  <Col span={16}><Tag>模板 #{selected.forkFrom}</Tag></Col></>
+                )}
                 <Col span={8}><Text type="secondary">描述</Text></Col>
                 <Col span={16}><Text>{selected.description || "暂无描述"}</Text></Col>
               </Row>
-              {config.operators && config.operators.length > 0 && (
+
+              {scalarKeys.length > 0 && (
                 <>
-                  <Divider orientation="left">算子列表 ({config.operators.length})</Divider>
-                  <div>{config.operators.map(op => <Tag key={op} style={{ marginBottom: 4 }}>{op}</Tag>)}</div>
+                  <Divider orientation="left" style={{ margin: "12px 0 8px" }}>配置参数</Divider>
+                  <Row gutter={[16, 4]}>
+                    {scalarKeys.map(k => (
+                      <React.Fragment key={k}>
+                        <Col span={10}><Text type="secondary">{CONFIG_LABELS[k] || k}</Text></Col>
+                        <Col span={14}>{renderValue(k, config[k])}</Col>
+                      </React.Fragment>
+                    ))}
+                  </Row>
                 </>
               )}
-              {config.models && config.models.length > 0 && (
-                <>
-                  <Divider orientation="left">模型列表 ({config.models.length})</Divider>
-                  <div>{config.models.map(m => <Tag key={m} color="green" style={{ marginBottom: 4 }}>{m}</Tag>)}</div>
-                </>
-              )}
+
+              {renderArrayField("评测维度 (dimensions)", config.dimensions, "cyan")}
+              {renderArrayField("算子列表 (operators)", config.operators, "blue")}
+              {renderArrayField("模型列表 (models)", config.models, "green")}
+              {renderArrayField("评测指标 (metrics)", config.metrics, "purple")}
+              {renderArrayField("精度模式 (precision_modes)", config.precision_modes, "orange")}
+              {renderArrayField("基准测试 (benchmarks)", config.benchmarks, "magenta")}
+              {renderArrayField("数据类型 (dtypes/dataTypes)", config.dtypes || config.dataTypes, "gold")}
+              {renderArrayField("批次大小 (batch_sizes)", config.batch_sizes || config.batchSizes, "lime")}
+
+              {renderObjectField("评测参数 (eval_params)", config.eval_params)}
+              {renderObjectField("资源要求 (resource_spec)", config.resource_spec)}
+
+              {/* Catch any remaining array/object fields */}
+              {arrayKeys.filter(k => !["dimensions","operators","models","metrics",
+                "precision_modes","benchmarks","dtypes","dataTypes","batch_sizes","batchSizes","tags"].includes(k))
+                .map(k => renderArrayField(k, config[k], "default"))}
+              {objectKeys.filter(k => !["eval_params","resource_spec"].includes(k))
+                .map(k => renderObjectField(k, config[k]))}
             </div>
           );
         })()}

@@ -18,6 +18,7 @@ import {
 } from "@ant-design/icons";
 import useAuthStore from "../stores/useAuthStore";
 import useNotificationStore from "../stores/useNotificationStore";
+import logoSvg from "../assets/logo.svg";
 
 const { Header, Sider, Content, Footer } = Layout;
 const { Text } = Typography;
@@ -198,8 +199,8 @@ export default function MainLayout({ currentPage, setCurrentPage, children }) {
           padding: "0 12px", overflow: "hidden", whiteSpace: "nowrap",
         }}>
           {collapsed
-            ? <span style={{ fontSize: 20 }}>🔬</span>
-            : <span>🔬 <strong>AI验证平台</strong></span>
+            ? <img src={logoSvg} alt="logo" style={{ width: 28, height: 28 }} />
+            : <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><img src={logoSvg} alt="logo" style={{ width: 24, height: 24 }} /><strong style={{ background: 'linear-gradient(135deg, #4FC3F7, #7C4DFF)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontSize: 13, letterSpacing: 1 }}>AI软硬件验证</strong></span>
           }
         </div>
         <Menu

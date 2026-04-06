@@ -62,7 +62,6 @@ public class SecurityConfig {
                 .requestMatchers("/community/**").permitAll()
                 .requestMatchers("/nodes/*/heartbeat").permitAll()
                 .requestMatchers("/nodes/register").permitAll()
-                .requestMatchers("/nodes/*/heartbeat").permitAll()
                 .requestMatchers("/tasks/*/result").permitAll()
                 .requestMatchers("/tasks/*/failure").permitAll()
                 .requestMatchers("/tasks/*/complete").permitAll()

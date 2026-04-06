@@ -41,6 +41,15 @@ public class Chip {
     @Column(name = "chip_type", nullable = false, length = 16)
     private ChipType chipType;
 
+    @Column(length = 100)
+    private String architecture;
+
+    @Column(length = 100)
+    private String generation;
+
+    @Column(name = "model_name", length = 200)
+    private String modelName;
+
     @JsonAlias({"specs"})
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "tech_spec", columnDefinition = "jsonb")

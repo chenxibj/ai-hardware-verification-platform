@@ -27,6 +27,7 @@ public class TemplateController {
 
     /**
      * GET /api/templates — 列表（支持 level/evalType 筛选）
+     * 返回完整的 configJson 和 isSystem 标识
      */
     @GetMapping
     public ResponseEntity<ApiResponse<List<TaskTemplate>>> listTemplates(
@@ -49,13 +50,43 @@ public class TemplateController {
     }
 
     /**
-     * GET /api/templates/{id} — 详情
+     * GET /api/templates/{id} — 详情（返回完整 configJson）
      */
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<TaskTemplate>> getTemplate(@PathVariable Long id) {
         TaskTemplate template = templateRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "模板不存在: " + id));
         return ResponseEntity.ok(ApiResponse.ok(template));
+    }
+
+    /**
+     * POST /api/templates/{id}/clone — 克隆模板
+     * 复制模板所有配置，is_system=false，forkFrom 指向原模板 id
+     * 名称加 " (副本)" 后缀
+     */
+    @PostMapping("/{id}/clone")
+    public ResponseEntity<ApiResponse<TaskTemplate>> cloneTemplate(
+            @PathVariable Long id,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        if (userId == null) userId = 1L;
+
+        TaskTemplate source = templateRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "模板不存在: " + id));
+
+        TaskTemplate clone = new TaskTemplate();
+        clone.setName(source.getName() + " (副本)");
+        clone.setDescription(source.getDescription());
+        clone.setEvalType(source.getEvalType());
+        clone.setConfigJson(source.getConfigJson());
+        clone.setEvaluationLayer(source.getEvaluationLayer());
+        clone.setVersion(source.getVersion());
+        clone.setIsSystem(false);
+        clone.setForkFrom(source.getId());
+        clone.setCreatedBy(userId);
+
+        TaskTemplate saved = templateRepository.save(clone);
+        log.info("Cloned template: {} -> {} (id={})", source.getName(), saved.getName(), saved.getId());
+        return ResponseEntity.ok(ApiResponse.ok(saved));
     }
 
     /**
@@ -67,16 +98,14 @@ public class TemplateController {
             @RequestBody TaskTemplate template,
             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
         if (userId == null) userId = 1L;
-        // 校验 configJson：非空时验证 JSON 格式，为空则设置默认值
+        // 校验 configJson
         if (template.getConfigJson() != null && !template.getConfigJson().isBlank()) {
             try {
-                // 验证是有效 JSON
                 new com.fasterxml.jackson.databind.ObjectMapper().readTree(template.getConfigJson());
             } catch (Exception e) {
                 return ResponseEntity.ok(ApiResponse.error("PARAM_INVALID", "configJson 不是有效的 JSON 格式"));
             }
         } else {
-            // 设置默认空配置
             template.setConfigJson("{}");
         }
         template.setId(null);
