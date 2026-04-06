@@ -172,3 +172,8 @@ echo "================================"
 if [ $FAIL -gt 0 ]; then
   exit 1
 fi
+
+# Cleanup test data after tests
+echo ''
+echo '--- Cleaning up test data ---'
+bash ../deploy/cleanup-test-data.sh || echo 'Cleanup failed (non-fatal)'

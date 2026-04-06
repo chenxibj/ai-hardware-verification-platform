@@ -13,6 +13,7 @@ export default defineConfig({
   expect: {
     timeout: 10_000,
   },
+  globalTeardown: './global-teardown.ts',
   use: {
     baseURL: BASE_URL,
     trace: 'on-first-retry',
