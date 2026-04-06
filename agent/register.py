@@ -1,3 +1,4 @@
+import json
 """节点注册模块"""
 import logging
 from typing import Optional
@@ -20,7 +21,7 @@ def register_node(config):
         "description": node_cfg.get("description", ""),
         "tags": node_cfg.get("tags", ""),
         "agentPort": config["agent"]["port"],
-        "hardwareInfo": hardware,
+        "hardwareInfo": json.dumps(hardware),
     }
     headers = {
         "Content-Type": "application/json",

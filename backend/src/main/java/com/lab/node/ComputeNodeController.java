@@ -106,6 +106,14 @@ public class ComputeNodeController {
         return ApiResponse.ok(service.register(node));
     }
 
+    /**
+     * POST /nodes/register — Agent 注册端点（permitAll in SecurityConfig）
+     */
+    @PostMapping("/register")
+    public ApiResponse<ComputeNode> agentRegister(@RequestBody ComputeNode node) {
+        return ApiResponse.ok(service.register(node));
+    }
+
     @PutMapping("/{id}")
     @RequireRole(Role.ENGINEER)
     public ApiResponse<ComputeNode> update(@PathVariable Long id, @RequestBody ComputeNode node) {

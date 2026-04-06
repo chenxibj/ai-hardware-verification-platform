@@ -9,3 +9,4 @@ frontend-dist/
 *.LICENSE.txt
 .env
 package-lock.json
+agent/__pycache__/
