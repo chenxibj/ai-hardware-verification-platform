@@ -116,7 +116,7 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
         setPlans(sorted);
       }
     } catch (e) {
-      console.error("获取评测计划失败", e);
+      console.error("获取评测任务失败", e);
     } finally {
       setPlansLoading(false);
     }
@@ -456,9 +456,9 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
           )}
 
           {!overallScore && radarData.length === 0 && (
-            <Empty description="暂无评测数据，请先创建评测计划" style={{ padding: 60 }}>
+            <Empty description="暂无评测数据，请先创建评测任务" style={{ padding: 60 }}>
               <Button type="primary" icon={<PlusOutlined />}
-                onClick={() => onCreatePlan && onCreatePlan(chipId)}>创建评测计划</Button>
+                onClick={() => onCreatePlan && onCreatePlan(chipId)}>创建评测任务</Button>
             </Empty>
           )}
         </div>
@@ -601,11 +601,11 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
           )}
 
           <Card
-            title={<Space><FileTextOutlined /> 评测计划列表</Space>}
+            title={<Space><FileTextOutlined /> 评测任务列表</Space>}
             extra={
               <Button type="primary" size="small" icon={<PlusOutlined />}
                 onClick={() => onCreatePlan && onCreatePlan(chipId)}>
-                创建评测计划
+                创建评测任务
               </Button>
             }
           >
@@ -615,13 +615,13 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
                 description={
                   <span style={{ color: "#666" }}>
-                    该芯片暂无评测记录，点击创建首个评测计划
+                    该芯片暂无评测记录，点击创建首个评测任务
                   </span>
                 }
               >
                 <Button type="primary" icon={<PlusOutlined />}
                   onClick={() => onCreatePlan && onCreatePlan(chipId)}>
-                  创建评测计划
+                  创建评测任务
                 </Button>
               </Empty>
             ) : (
@@ -792,7 +792,7 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
           ) : (
             <Empty description="暂无评价报告" style={{ padding: 60 }}>
               <Button type="primary" icon={<PlusOutlined />}
-                onClick={() => onCreatePlan && onCreatePlan(chipId)}>创建评测计划</Button>
+                onClick={() => onCreatePlan && onCreatePlan(chipId)}>创建评测任务</Button>
             </Empty>
           )}
         </div>
@@ -883,7 +883,7 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
                 </div>
               )}
               <Button type="primary" icon={<PlusOutlined />}
-                onClick={() => onCreatePlan && onCreatePlan(chipId)}>创建评测计划</Button>
+                onClick={() => onCreatePlan && onCreatePlan(chipId)}>创建评测任务</Button>
             </Space>
           </Col>
         </Row>

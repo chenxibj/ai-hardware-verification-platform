@@ -1,6 +1,6 @@
 /**
  * @file PlanList.js
- * @description 评测计划列表 — 统计卡片 + 筛选表格 + 详情抽屉 + 操作
+ * @description 评测任务列表 — 统计卡片 + 筛选表格 + 详情抽屉 + 操作
  * Issue: #132
  */
 import React, { useState, useEffect, useCallback } from "react";
@@ -301,7 +301,7 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
 
       {/* 工具栏 + 表格 */}
       <Card
-        title="评测计划列表"
+        title="评测任务列表"
         extra={
           <Space>
             <Select

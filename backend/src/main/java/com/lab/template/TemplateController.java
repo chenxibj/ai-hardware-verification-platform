@@ -5,6 +5,8 @@ import com.lab.auth.Role;
 import com.lab.common.ApiResponse;
 import com.lab.common.BusinessException;
 import com.lab.common.ErrorCode;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -24,6 +26,33 @@ import java.util.stream.Collectors;
 public class TemplateController {
 
     private final TaskTemplateRepository templateRepository;
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+
+    /**
+     * 校验 configJson 中的 batchSizes 字段
+     * - 数组最多 8 个值
+     * - 每个值 <= 256
+     */
+    private String validateBatchSizes(String configJson) {
+        if (configJson == null || configJson.isBlank()) return null;
+        try {
+            JsonNode root = objectMapper.readTree(configJson);
+            JsonNode batchSizes = root.get("batchSizes");
+            if (batchSizes != null && batchSizes.isArray()) {
+                if (batchSizes.size() > 8) {
+                    return "batchSizes 最多 8 个值";
+                }
+                for (JsonNode bs : batchSizes) {
+                    if (bs.isNumber() && bs.intValue() > 256) {
+                        return "batchSizes 每个值不能超过 256";
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // JSON parse errors handled elsewhere
+        }
+        return null;
+    }
 
     /**
      * GET /api/templates — 列表（支持 level/evalType 筛选）
@@ -62,7 +91,8 @@ public class TemplateController {
     /**
      * POST /api/templates/{id}/clone — 克隆模板
      * 复制模板所有配置，is_system=false，forkFrom 指向原模板 id
-     * 名称加 " (副本)" 后缀
+     * 智能命名去重：第一次 "xxx (副本)"，之后 "xxx (副本 2)", "xxx (副本 3)"...
+     * 无需 ENGINEER 权限，任何登录用户都能克隆
      */
     @PostMapping("/{id}/clone")
     public ResponseEntity<ApiResponse<TaskTemplate>> cloneTemplate(
@@ -73,8 +103,18 @@ public class TemplateController {
         TaskTemplate source = templateRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "模板不存在: " + id));
 
+        // 智能命名：检查已有副本数量
+        String baseName = source.getName().replaceAll(" \\(副本.*\\)$", "");
+        long copyCount = templateRepository.countByNameStartingWith(baseName + " (副本");
+        String newName;
+        if (copyCount == 0) {
+            newName = baseName + " (副本)";
+        } else {
+            newName = baseName + " (副本 " + (copyCount + 1) + ")";
+        }
+
         TaskTemplate clone = new TaskTemplate();
-        clone.setName(source.getName() + " (副本)");
+        clone.setName(newName);
         clone.setDescription(source.getDescription());
         clone.setEvalType(source.getEvalType());
         clone.setConfigJson(source.getConfigJson());
@@ -101,9 +141,14 @@ public class TemplateController {
         // 校验 configJson
         if (template.getConfigJson() != null && !template.getConfigJson().isBlank()) {
             try {
-                new com.fasterxml.jackson.databind.ObjectMapper().readTree(template.getConfigJson());
+                objectMapper.readTree(template.getConfigJson());
             } catch (Exception e) {
                 return ResponseEntity.ok(ApiResponse.error("PARAM_INVALID", "configJson 不是有效的 JSON 格式"));
+            }
+            // 校验 batchSizes
+            String batchError = validateBatchSizes(template.getConfigJson());
+            if (batchError != null) {
+                return ResponseEntity.ok(ApiResponse.error("PARAM_INVALID", batchError));
             }
         } else {
             template.setConfigJson("{}");
@@ -129,6 +174,14 @@ public class TemplateController {
 
         if (Boolean.TRUE.equals(existing.getIsSystem())) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "系统模板不可编辑");
+        }
+
+        // 校验 batchSizes
+        if (update.getConfigJson() != null) {
+            String batchError = validateBatchSizes(update.getConfigJson());
+            if (batchError != null) {
+                return ResponseEntity.ok(ApiResponse.error("PARAM_INVALID", batchError));
+            }
         }
 
         if (update.getName() != null) existing.setName(update.getName());

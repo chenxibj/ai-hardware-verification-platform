@@ -1,6 +1,6 @@
 /**
  * @file PlanCreate.js
- * @description 创建评测计划 — 6步向导
+ * @description 创建评测任务 — 6步向导
  * Issue: #162 - 评测任务创建6步向导
  * Steps: 选芯片 → 选模板 → 选评测项 → 配参数 → 选节点 → 确认提交
  */
@@ -974,7 +974,7 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
   const renderStep6 = () => (
     <div>
       <Card style={{ marginBottom: 16 }}>
-        <Title level={5}>📋 评测计划摘要</Title>
+        <Title level={5}>📋 评测任务摘要</Title>
         <Descriptions column={{ xs: 1, sm: 2 }} bordered size="small">
           <Descriptions.Item label="计划名称" span={2}>
             <Text strong>{generateName()}</Text>

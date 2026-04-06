@@ -78,6 +78,7 @@ export default function TemplateList() {
   const [editVisible, setEditVisible] = useState(false);
   const [selected, setSelected] = useState(null);
   const [form] = Form.useForm();
+  const editLayer = Form.useWatch('evaluationLayer', form);
 
   const fetchTemplates = useCallback(async () => {
     setLoading(true);
@@ -116,11 +117,7 @@ export default function TemplateList() {
 
   const handleClone = async (record) => {
     try {
-      const r = await api.post("/templates", {
-        name: record.name + " (副本)", description: record.description,
-        evalType: record.evalType, configJson: record.configJson,
-        evaluationLayer: record.evaluationLayer,
-      });
+      const r = await api.post(`/templates/${record.id}/clone`);
       if (r.data.code === 0) { message.success("克隆成功"); fetchTemplates(); }
       else message.error(r.data.message || "克隆失败");
     } catch (e) { message.error("克隆失败"); }
@@ -143,15 +140,13 @@ export default function TemplateList() {
         }
       }
       const config = {
-        evalDimension: values.evaluationLayer || "",
         operators: values.operators || [],
         models: values.models || [],
-        dtypes: values.dataTypes || ["FP32"],
-        tags: values.tags ? values.tags.split(/[,，\s]+/).filter(Boolean) : [],
         iterations: values.iterations || 100,
         batchSizes: values.batchSizes || [1],
         dataTypes: values.dataTypes || ["FP32"],
         priority: values.priority || "NORMAL",
+        tags: values.tags ? values.tags.split(/[,，\s]+/).filter(Boolean) : [],
       };
       if (selected) {
         const existingConfig = parseConfig(selected.configJson);
@@ -311,118 +306,85 @@ export default function TemplateList() {
           ] : []),
           <Button key="close" onClick={() => setDetailVisible(false)}>关闭</Button>,
         ]}
-        width={700}>
+        width={640}>
         {selected && (() => {
           const config = parseConfig(selected.configJson);
-          const CONFIG_LABELS = {
-            mode: "评测模式", target: "评测对象", framework: "框架",
-            python_version: "Python版本", object_type: "对象类型",
-            timeout_minutes: "超时时间(分钟)", duration_minutes: "持续时间(分钟)",
-            concurrent: "并发数", threshold: "精度阈值",
-            compare_baseline: "对比基线", comparison_type: "对比类型",
-          };
-          const MODE_LABELS = {
-            QUICK: "快速", STANDARD: "标准", FULL: "完整",
-            ACCURACY: "精度", STRESS: "压力", LLM: "大模型",
-            HORIZONTAL: "横向对比", VERTICAL: "纵向对比", BENCHMARK: "基准对比",
-          };
-          const renderValue = (key, val) => {
-            if (val === true) return <Tag color="green">是</Tag>;
-            if (val === false) return <Tag color="red">否</Tag>;
-            if (key === "mode") return <Tag color="blue">{MODE_LABELS[val] || val}</Tag>;
-            if (typeof val === "number") return <Text strong>{val}</Text>;
-            return <Text>{String(val)}</Text>;
-          };
-          const renderArrayField = (label, arr, color) => (
-            arr && arr.length > 0 && (
-              <>
-                <Divider orientation="left" style={{ margin: "12px 0 8px" }}>{label} ({arr.length})</Divider>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                  {arr.map((item, i) => <Tag key={i} color={color} style={{ marginBottom: 4 }}>{item}</Tag>)}
-                </div>
-              </>
-            )
-          );
-          const renderObjectField = (label, obj) => (
-            obj && typeof obj === "object" && !Array.isArray(obj) && (
-              <>
-                <Divider orientation="left" style={{ margin: "12px 0 8px" }}>{label}</Divider>
-                <Row gutter={[16, 4]}>
-                  {Object.entries(obj).map(([k, v]) => (
-                    <React.Fragment key={k}>
-                      <Col span={10}><Text type="secondary">{k}</Text></Col>
-                      <Col span={14}><Text>{Array.isArray(v) ? v.join(", ") : String(v)}</Text></Col>
-                    </React.Fragment>
-                  ))}
-                </Row>
-              </>
-            )
-          );
-          // Categorize config keys
-          const scalarKeys = Object.keys(config).filter(k =>
-            typeof config[k] !== "object" || config[k] === null);
-          const arrayKeys = Object.keys(config).filter(k =>
-            Array.isArray(config[k]));
-          const objectKeys = Object.keys(config).filter(k =>
-            typeof config[k] === "object" && !Array.isArray(config[k]) && config[k] !== null);
-
+          const layer = selected.evaluationLayer;
+          const showOperators = !layer || layer === 'OPERATOR' || layer === 'CHIP' || layer === 'COMPARISON';
+          const showModels = !layer || layer === 'MODEL' || layer === 'CHIP' || layer === 'COMPARISON';
           return (
-            <div>
-              <Divider orientation="left">基本信息</Divider>
-              <Row gutter={[16, 8]}>
-                <Col span={8}><Text type="secondary">模板名称</Text></Col>
-                <Col span={16}><Text strong>{selected.name}</Text></Col>
-                <Col span={8}><Text type="secondary">评测类型</Text></Col>
-                <Col span={16}><Tag color="blue">{EVAL_TYPES[selected.evalType] || selected.evalType}</Tag></Col>
-                <Col span={8}><Text type="secondary">评测层级</Text></Col>
-                <Col span={16}>
-                  {selected.evaluationLayer
-                    ? <Tag color={LAYER_COLORS[selected.evaluationLayer]}>{LAYER_LABELS[selected.evaluationLayer]}</Tag>
-                    : <Text type="secondary">未分类</Text>}
+            <Form layout="vertical">
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Form.Item label="模板名称">
+                    <Input value={selected.name} disabled />
+                  </Form.Item>
                 </Col>
-                <Col span={8}><Text type="secondary">系统模板</Text></Col>
-                <Col span={16}>{selected.isSystem ? <Tag color="purple">🔒 系统预置</Tag> : <Tag color="green">自定义</Tag>}</Col>
-                {selected.forkFrom && (
-                  <><Col span={8}><Text type="secondary">克隆自</Text></Col>
-                  <Col span={16}><Tag>模板 #{selected.forkFrom}</Tag></Col></>
-                )}
-                <Col span={8}><Text type="secondary">描述</Text></Col>
-                <Col span={16}><Text>{selected.description || "暂无描述"}</Text></Col>
+                <Col span={12}>
+                  <Form.Item label="模板类型">
+                    <Space>
+                      {selected.isSystem ? <Tag color="purple">🔒 系统预置</Tag> : <Tag color="green">自定义</Tag>}
+                      {selected.forkFrom && <Tag>克隆自 #{selected.forkFrom}</Tag>}
+                    </Space>
+                  </Form.Item>
+                </Col>
               </Row>
-
-              {scalarKeys.length > 0 && (
-                <>
-                  <Divider orientation="left" style={{ margin: "12px 0 8px" }}>配置参数</Divider>
-                  <Row gutter={[16, 4]}>
-                    {scalarKeys.map(k => (
-                      <React.Fragment key={k}>
-                        <Col span={10}><Text type="secondary">{CONFIG_LABELS[k] || k}</Text></Col>
-                        <Col span={14}>{renderValue(k, config[k])}</Col>
-                      </React.Fragment>
-                    ))}
-                  </Row>
-                </>
+              <Form.Item label="描述">
+                <TextArea value={selected.description || "暂无描述"} disabled autoSize={{ minRows: 2, maxRows: 4 }} />
+              </Form.Item>
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Form.Item label="评测类型">
+                    <Select value={selected.evalType} disabled
+                      options={Object.entries(EVAL_TYPES).map(([k, v]) => ({ value: k, label: v }))} />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item label="评测层级">
+                    <Select value={selected.evaluationLayer} disabled
+                      options={Object.entries(LAYER_LABELS).map(([k, v]) => ({ value: k, label: v }))} />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Divider orientation="left" style={{ margin: "8px 0 16px" }}>评测配置</Divider>
+              {showOperators && (
+                <Form.Item label="算子列表">
+                  <Select mode="multiple" value={config.operators || []} disabled
+                    options={[...new Set([...(config.operators || []), ...AVAILABLE_OPERATORS])].map(op => ({ value: op, label: op }))} />
+                </Form.Item>
               )}
-
-              {renderArrayField("评测维度 (dimensions)", config.dimensions, "cyan")}
-              {renderArrayField("算子列表 (operators)", config.operators, "blue")}
-              {renderArrayField("模型列表 (models)", config.models, "green")}
-              {renderArrayField("评测指标 (metrics)", config.metrics, "purple")}
-              {renderArrayField("精度模式 (precision_modes)", config.precision_modes, "orange")}
-              {renderArrayField("基准测试 (benchmarks)", config.benchmarks, "magenta")}
-              {renderArrayField("数据类型 (dtypes/dataTypes)", config.dtypes || config.dataTypes, "gold")}
-              {renderArrayField("批次大小 (batch_sizes)", config.batch_sizes || config.batchSizes, "lime")}
-
-              {renderObjectField("评测参数 (eval_params)", config.eval_params)}
-              {renderObjectField("资源要求 (resource_spec)", config.resource_spec)}
-
-              {/* Catch any remaining array/object fields */}
-              {arrayKeys.filter(k => !["dimensions","operators","models","metrics",
-                "precision_modes","benchmarks","dtypes","dataTypes","batch_sizes","batchSizes","tags"].includes(k))
-                .map(k => renderArrayField(k, config[k], "default"))}
-              {objectKeys.filter(k => !["eval_params","resource_spec"].includes(k))
-                .map(k => renderObjectField(k, config[k]))}
-            </div>
+              {showModels && (
+                <Form.Item label="模型列表">
+                  <Select mode="multiple" value={config.models || []} disabled
+                    options={[...new Set([...(config.models || []), ...AVAILABLE_MODELS])].map(m => ({ value: m, label: m }))} />
+                </Form.Item>
+              )}
+              <Row gutter={16}>
+                <Col span={8}>
+                  <Form.Item label="迭代次数">
+                    <InputNumber value={config.iterations || 100} disabled style={{ width: "100%" }} />
+                  </Form.Item>
+                </Col>
+                <Col span={8}>
+                  <Form.Item label="批次大小">
+                    <Select mode="multiple" value={config.batchSizes || [1]} disabled
+                      options={[1, 2, 4, 8, 16, 32, 64, 128, 256].map(n => ({ value: n, label: String(n) }))} />
+                  </Form.Item>
+                </Col>
+                <Col span={8}>
+                  <Form.Item label="优先级">
+                    <Select value={config.priority || "NORMAL"} disabled options={PRIORITY_OPTIONS} />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Form.Item label="数据类型">
+                <Checkbox.Group value={config.dataTypes || ["FP32"]} disabled
+                  options={DATA_TYPES.map(dt => ({ label: dt, value: dt }))} />
+              </Form.Item>
+              <Form.Item label="标签">
+                <Input value={(config.tags || []).join(", ")} disabled />
+              </Form.Item>
+            </Form>
           );
         })()}
       </Modal>
@@ -453,16 +415,20 @@ export default function TemplateList() {
             </Col>
           </Row>
           <Divider orientation="left" style={{ margin: "8px 0 16px" }}>评测配置</Divider>
+          {(!editLayer || editLayer === 'OPERATOR' || editLayer === 'CHIP' || editLayer === 'COMPARISON') && (
           <Form.Item name="operators" label="算子列表（多选）">
             <Select mode="multiple" placeholder="选择要评测的算子" allowClear
               options={AVAILABLE_OPERATORS.map(op => ({ value: op, label: op }))}
               maxTagCount={5} />
           </Form.Item>
+          )}
+          {(!editLayer || editLayer === 'MODEL' || editLayer === 'CHIP' || editLayer === 'COMPARISON') && (
           <Form.Item name="models" label="模型列表（多选）">
             <Select mode="multiple" placeholder="选择要评测的模型" allowClear
               options={AVAILABLE_MODELS.map(m => ({ value: m, label: m }))}
               maxTagCount={5} />
           </Form.Item>
+          )}
           <Row gutter={16}>
             <Col span={8}>
               <Form.Item name="iterations" label="迭代次数">

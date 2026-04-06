@@ -436,7 +436,7 @@ export default function ChipReport({ reportId, onBack }) {
                 <Text strong>{chipName || "加载中..."}</Text>
               </Col>
               <Col span={12}>
-                <Text type="secondary">评测计划：</Text>
+                <Text type="secondary">评测任务：</Text>
                 <Text strong>{planName || "加载中..."}</Text>
               </Col>
               <Col span={12}>
