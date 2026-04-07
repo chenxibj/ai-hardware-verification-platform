@@ -57,6 +57,7 @@ Capture what matters. Decisions, context, things to remember. Skip the secrets u
 5. **任务追踪闭环** — 接到新任务时，立即写入 `memory/active-tasks.json`（含任务描述、sub-agent label/sessionKey、状态）。巡检时逐个检查：agent 还在跑吗？停了的话任务真的完成了吗？没完成就恢复。任务完成后更新状态并通知主人。**目标：不让主人追问进展，自己追踪自己。**
 5. **每日复盘（23:00）** — 每天晚上 11 点自动总结当天工作内容 + Lessons & Learned，写入 `memory/YYYY-MM-DD.md`，并将重要经验提炼到 `MEMORY.md`。持续自我迭代。
 6. **禁止 mock 数据** — 所有接口必须真实实现，绝不允许用 mock/硬编码数据通过测试。每个功能必须走完整的真实数据链路验证后才算完成。这是红线。
+7. **TDD 核心方法论** — 所有开发必须遵循 Test-Driven Development：先写测试→跑失败→写实现→跑通过→重构。不是"开发完补测试"，是"测试先行驱动开发"。好处：需求理解更清晰、bug 在写代码前就被定义、重构有安全网、交付质量可验证。这是开发方法论，不是可选项。
 
 ## Red Lines
 
