@@ -70,3 +70,7 @@ management:
   endpoint:
     health:
       show-details: always
+
+# Agent 通信 Token
+agent:
+  token: ${AGENT_TOKEN:ahvp-agent-secret-2026}

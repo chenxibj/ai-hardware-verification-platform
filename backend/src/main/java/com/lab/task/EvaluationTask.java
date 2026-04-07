@@ -119,7 +119,7 @@ public class EvaluationTask {
     private Instant lastHeartbeatAt;
 
     public enum TaskType {
-        TEMPLATE, CUSTOM
+        TEMPLATE, CUSTOM, EVALUATION
     }
 
     public enum EvalType {

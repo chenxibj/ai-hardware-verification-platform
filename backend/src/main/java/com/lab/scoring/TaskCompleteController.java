@@ -9,6 +9,8 @@ import com.lab.result.EvaluationResult;
 import com.lab.result.EvaluationResultRepository;
 import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
+import com.lab.node.ComputeNode;
+import com.lab.node.ComputeNodeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -35,6 +37,7 @@ public class TaskCompleteController {
     private final ReportGenerator reportGenerator;
     private final TaskLogRepository taskLogRepository;
     private final ObjectMapper objectMapper;
+    private final ComputeNodeRepository nodeRepository;
 
     @PostMapping("/{taskId}/complete")
     @Transactional
@@ -81,6 +84,16 @@ public class TaskCompleteController {
         task.setStatus(passed ? EvaluationTask.TaskStatus.COMPLETED : EvaluationTask.TaskStatus.FAILED);
         task.setCompletedAt(Instant.now());
         task.setProgress(100);
+        // #222: 释放节点，让 recovery scheduler 可以分发新任务
+        if (task.getAssignedNodeId() != null) {
+            nodeRepository.findById(task.getAssignedNodeId()).ifPresent(node -> {
+                if (node.getStatus() == ComputeNode.Status.BUSY) {
+                    node.setStatus(ComputeNode.Status.ONLINE);
+                    nodeRepository.save(node);
+                    log.info("Node {} released after task {} completed", node.getName(), taskId);
+                }
+            });
+        }
         taskRepository.save(task);
 
         // 4.5 写入执行日志

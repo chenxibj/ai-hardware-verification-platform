@@ -369,7 +369,7 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
       <Card>
         <Result
           status="success"
-          title="评测任务创建成功！"
+          title={"评测任务创建成功！"}
           subTitle={createdPlanId ? `任务编号: ${createdPlanId}` : `任务名称：${generateName()}`}
           extra={[
             <Button type="primary" key="monitor" onClick={() => {

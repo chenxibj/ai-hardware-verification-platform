@@ -6,6 +6,8 @@ import com.lab.plan.EvaluationPlan;
 import com.lab.plan.EvaluationPlanRepository;
 import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
+import com.lab.node.ComputeNode;
+import com.lab.node.ComputeNodeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -30,6 +32,7 @@ public class EvaluationResultService {
     private final EvaluationPlanRepository planRepository;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
+    private final ComputeNodeRepository nodeRepository;
 
     /**
      * Agent 提交任务结果
@@ -69,6 +72,8 @@ public class EvaluationResultService {
         // 更新计划进度
         updatePlanProgress(task.getPlanId());
 
+        // #222: 释放节点
+        releaseNode(task.getAssignedNodeId());
         log.info("Result submitted for task {} (score={})", taskId, score);
         return result;
     }
@@ -95,6 +100,8 @@ public class EvaluationResultService {
 
         updatePlanProgress(task.getPlanId());
 
+        // #222: 释放节点
+        releaseNode(task.getAssignedNodeId());
         log.info("Failure reported for task {}: {}", taskId, errorMessage);
         return result;
     }
@@ -140,6 +147,23 @@ public class EvaluationResultService {
     /**
      * 评分算法：基于延迟和吞吐量计算 0-100 分
      */
+    /**
+     * #222: 释放节点，让后续任务可以被分发
+     */
+    private void releaseNode(Long nodeId) {
+        if (nodeId == null) return;
+        try {
+            nodeRepository.findById(nodeId).ifPresent(node -> {
+                if (node.getStatus() == ComputeNode.Status.BUSY) {
+                    node.setStatus(ComputeNode.Status.ONLINE);
+                    nodeRepository.save(node);
+                    log.info("Node {} released back to ONLINE", node.getName());
+                }
+            });
+        } catch (Exception e) {
+            log.warn("Failed to release node {}: {}", nodeId, e.getMessage());
+        }
+    }
     public double calculateScore(Map<String, Object> metrics) {
         double latencyScore = 50;
         double throughputScore = 50;

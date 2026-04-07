@@ -5,10 +5,10 @@ import com.lab.node.ComputeNode;
 import com.lab.node.ComputeNodeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
@@ -21,18 +21,27 @@ import java.util.*;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class TaskDispatcher {
 
     private final EvaluationTaskRepository taskRepository;
     private final ComputeNodeRepository nodeRepository;
     private final ObjectMapper objectMapper;
 
+    @Value("${agent.token:ahvp-agent-secret-2026}")
+    private String agentToken;
+
     private final RestTemplate restTemplate = new RestTemplate();
+
+    public TaskDispatcher(EvaluationTaskRepository taskRepository,
+                          ComputeNodeRepository nodeRepository,
+                          ObjectMapper objectMapper) {
+        this.taskRepository = taskRepository;
+        this.nodeRepository = nodeRepository;
+        this.objectMapper = objectMapper;
+    }
 
     /**
      * 分发指定 Plan 下所有 PENDING 的 Task
-     * 被 EvaluationPlanService.startPlan() 调用
      */
     public void dispatchPlanTasks(Long planId) {
         List<EvaluationTask> pendingTasks = taskRepository.findByPlanIdAndStatus(
@@ -86,6 +95,8 @@ public class TaskDispatcher {
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("X-Agent-Token", agentToken); // Agent 认证
+
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
 
             log.info("Dispatching task {} to node {} ({})", task.getTaskNo(), node.getName(), agentUrl);
@@ -113,13 +124,10 @@ public class TaskDispatcher {
 
     /**
      * 找到一个可用节点
-     * 优先选择 Plan 指定的节点，其次选择 ONLINE 的空闲节点
      */
     private ComputeNode findAvailableNode(EvaluationTask task) {
-        // 优先查找 ONLINE 节点
         List<ComputeNode> onlineNodes = nodeRepository.findByStatus(ComputeNode.Status.ONLINE);
         if (!onlineNodes.isEmpty()) {
-            // 简单策略：选第一个 ONLINE 节点
             return onlineNodes.get(0);
         }
         return null;
@@ -142,7 +150,6 @@ public class TaskDispatcher {
         payload.put("taskId", task.getId());
         payload.put("evalType", task.getEvalType().name());
 
-        // 解析 evalConfig 作为 params
         Map<String, Object> params = new HashMap<>();
         if (task.getEvalConfig() != null && !task.getEvalConfig().isBlank()) {
             try {
@@ -152,7 +159,7 @@ public class TaskDispatcher {
             }
         }
         payload.put("params", params);
-        payload.put("config", params); // 兼容 agent 的 config 字段
+        payload.put("config", params);
 
         return payload;
     }

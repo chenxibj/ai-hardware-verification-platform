@@ -25,6 +25,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/nodes/register",
                         "/nodes/*/heartbeat",
                         "/tasks/*/result",
+                        "/tasks/*/logs",
                         "/tasks/*/failure",
                         "/tasks/*/complete"
                 );
