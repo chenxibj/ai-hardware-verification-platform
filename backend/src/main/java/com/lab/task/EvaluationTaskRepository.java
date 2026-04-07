@@ -48,4 +48,5 @@ public interface EvaluationTaskRepository extends JpaRepository<EvaluationTask, 
             @Param("threshold") Instant threshold);
 
     List<EvaluationTask> findByAssignedNodeId(Long nodeId);
+    List<EvaluationTask> findByResourcePoolIdAndStatus(Long resourcePoolId, EvaluationTask.TaskStatus status);
 }
