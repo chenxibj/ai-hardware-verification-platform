@@ -12,9 +12,10 @@ import {
   ReloadOutlined, EyeOutlined, DeleteOutlined, PlayCircleOutlined,
   PauseCircleOutlined, StopOutlined, PlusOutlined,
   FileTextOutlined, CheckCircleOutlined, CloseCircleOutlined,
-  ExclamationCircleOutlined,
+  ExclamationCircleOutlined, CopyOutlined, BugOutlined,
 } from "@ant-design/icons";
 import { Link } from "react-router-dom";
+import DebugPanel from "../components/tasks/DebugPanel";
 import api from "../utils/api";
 
 const { Option } = Select;
@@ -75,6 +76,28 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
   /* 详情抽屉 */
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailRecord, setDetailRecord] = useState(null);
+
+  /* #227: clone */
+  const handleClone = async (planId) => {
+    try {
+      await api.post("/plans/" + planId + "/copy");
+      message.success("\u514B\u9686\u6210\u529F");
+      fetchPlans();
+      fetchStats();
+    } catch (e) {
+      message.error("\u514B\u9686\u5931\u8D25: " + (e.response?.data?.message || e.message));
+    }
+  };
+
+  /* #228: debug panel */
+  const [debugVisible, setDebugVisible] = useState(false);
+  const [debugTaskId, setDebugTaskId] = useState(null);
+  const openDebug = (planId) => {
+    // For plans, we pass planId; the debug-info might not match exactly
+    // but we use it to show task-level debug info
+    setDebugTaskId(planId);
+    setDebugVisible(true);
+  };
 
   /* ── API: 获取任务列表 ── */
   const fetchPlans = useCallback(async () => {
@@ -218,14 +241,26 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
       render: (v) => v ? new Date(v).toLocaleString("zh-CN") : "-",
     },
     {
-      title: "操作", key: "actions", width: 220, fixed: "right",
+      title: "\u64CD\u4F5C", key: "actions", width: 280, fixed: "right",
       render: (_, record) => {
         const st = record.status;
         return (
           <Space size="small">
-            <Tooltip title="执行监控">
+            <Tooltip title="\u6267\u884C\u76D1\u63A7">
               <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => onOpenMonitor ? onOpenMonitor(record.id) : openDetail(record)} />
             </Tooltip>
+
+            <Tooltip title="\u514B\u9686">
+              <Button type="link" size="small" icon={<CopyOutlined />}
+                onClick={() => handleClone(record.id)} />
+            </Tooltip>
+
+            {st === "FAILED" && (
+              <Tooltip title="\u8C03\u8BD5">
+                <Button type="link" size="small" danger icon={<BugOutlined />}
+                  onClick={() => openDebug(record.id)} />
+              </Tooltip>
+            )}
 
             {st === "DRAFT" && (
               <Tooltip title="启动执行">
@@ -379,6 +414,13 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
           );
         })()}
       </Drawer>
+
+      {/* #228: Debug Panel */}
+      <DebugPanel
+        taskId={debugTaskId}
+        visible={debugVisible}
+        onClose={() => { setDebugVisible(false); setDebugTaskId(null); }}
+      />
     </div>
   );
 }

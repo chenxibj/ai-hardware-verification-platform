@@ -49,4 +49,7 @@ public interface EvaluationTaskRepository extends JpaRepository<EvaluationTask, 
 
     List<EvaluationTask> findByAssignedNodeId(Long nodeId);
     List<EvaluationTask> findByResourcePoolIdAndStatus(Long resourcePoolId, EvaluationTask.TaskStatus status);
+
+    // #227: Stats
+    long countByStatus(EvaluationTask.TaskStatus status);
 }

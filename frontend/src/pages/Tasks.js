@@ -1,6 +1,7 @@
 /**
  * @file Tasks.js
  * @description 评测任务页面入口，只做布局和子组件编排
+ * #228 - 集成调试面板
  */
 import React, { useState } from "react";
 import useTaskData from "../hooks/useTaskData";
@@ -8,12 +9,15 @@ import TaskStatsCards from "../components/tasks/TaskStatsCards";
 import TaskTable from "../components/tasks/TaskTable";
 import TaskCreateModal from "../components/tasks/TaskCreateModal";
 import TaskDetailDrawer from "../components/tasks/TaskDetailDrawer";
+import DebugPanel from "../components/tasks/DebugPanel";
 
 export default function Tasks() {
   const data = useTaskData();
   const [createVisible, setCreateVisible] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [debugVisible, setDebugVisible] = useState(false);
+  const [debugTaskId, setDebugTaskId] = useState(null);
 
   const showDetail = (record) => {
     setSelected(record);
@@ -26,6 +30,11 @@ export default function Tasks() {
   const handleCreateSuccess = () => {
     data.fetchTasks();
     data.fetchStats();
+  };
+
+  const handleDebug = (taskId) => {
+    setDebugTaskId(taskId);
+    setDebugVisible(true);
   };
 
   return (
@@ -43,6 +52,7 @@ export default function Tasks() {
         onClone={data.handleClone} onCancel={data.handleCancel}
         onRetry={data.handleRetry} onDelete={data.handleDelete}
         onBatchCancel={data.handleBatchCancel} onBatchDelete={data.handleBatchDelete}
+        onDebug={handleDebug}
       />
 
       <TaskCreateModal
@@ -62,6 +72,12 @@ export default function Tasks() {
         taskReport={data.taskReport}
         reportLoading={data.reportLoading}
         onClose={() => { setDetailVisible(false); data.setExecutions([]); data.setTaskReport(null); }}
+      />
+
+      <DebugPanel
+        taskId={debugTaskId}
+        visible={debugVisible}
+        onClose={() => { setDebugVisible(false); setDebugTaskId(null); }}
       />
     </div>
   );

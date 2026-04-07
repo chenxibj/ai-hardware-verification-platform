@@ -161,6 +161,39 @@ public class EvaluationTaskService {
     /**
      * 生成任务编号
      */
+
+    /**
+     * 克隆任务 (#227) — 基于原任务创建新的 PENDING 副本
+     */
+    @Transactional
+    public EvaluationTask cloneTask(Long taskId, Long userId) {
+        EvaluationTask original = taskRepository.findById(taskId)
+                .orElseThrow(() -> new RuntimeException("Task not found: " + taskId));
+
+        EvaluationTask clone = new EvaluationTask();
+        clone.setTaskNo(generateTaskNo());
+        clone.setName(original.getName() + "(\u526F\u672C)");
+        clone.setTaskType(original.getTaskType());
+        clone.setEvalType(original.getEvalType());
+        clone.setStatus(EvaluationTask.TaskStatus.PENDING);
+        clone.setPriority(original.getPriority());
+        clone.setEvalConfig(original.getEvalConfig());
+        clone.setDatasetIds(original.getDatasetIds());
+        clone.setResourceSpec(original.getResourceSpec());
+        clone.setCreatedBy(userId);
+        clone.setProgress(0);
+        clone.setPlanId(original.getPlanId());
+        clone.setChipId(original.getChipId());
+        clone.setTestSubject(original.getTestSubject());
+        clone.setTestItem(original.getTestItem());
+        clone.setDimension(original.getDimension());
+        clone.setTimeoutSeconds(original.getTimeoutSeconds());
+
+        EvaluationTask saved = taskRepository.save(clone);
+        log.info("Cloned task {} -> {} ({})", original.getTaskNo(), saved.getTaskNo(), saved.getName());
+        return saved;
+    }
+
     private String generateTaskNo() {
         return "TASK-" + Instant.now().getEpochSecond() + "-" + 
                String.format("%03d", (int)(Math.random() * 1000));
