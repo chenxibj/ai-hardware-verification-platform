@@ -1,7 +1,7 @@
 /**
  * @file PlanMonitor.js
  * @description 执行监控页面 — 资源仪表盘 + 任务列表(含重试/跳过) + 实时日志
- * Issue: #134, #163, #229-#232
+ * Issue: #134, #163, #229-#234
  */
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
@@ -93,6 +93,17 @@ function parseMetrics(metricsStr) {
   }
 }
 
+/**
+ * 从 API 响应中提取日志数组
+ * 兼容旧格式 (data = [...]) 和新格式 (data = { items: [...], hasMore, nextCursor })
+ */
+function extractLogsFromResponse(respData) {
+  if (!respData) return [];
+  if (Array.isArray(respData)) return respData;
+  if (respData.items && Array.isArray(respData.items)) return respData.items;
+  return [];
+}
+
 export default function PlanMonitor({ planId, onBack }) {
   const [plan, setPlan] = useState(null);
   const [tasks, setTasks] = useState([]);
@@ -100,6 +111,8 @@ export default function PlanMonitor({ planId, onBack }) {
   const [logs, setLogs] = useState([]);
   const [logFilter, setLogFilter] = useState("all");
   const [logSearch, setLogSearch] = useState("");
+  const [logLevelFilter, setLogLevelFilter] = useState("ALL");
+  const [logTypeFilter, setLogTypeFilter] = useState("ALL");
   const [resource, setResource] = useState({ cpu: 0, memory: 0 });
   const [wsConnected, setWsConnected] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -147,25 +160,28 @@ export default function PlanMonitor({ planId, onBack }) {
     }
   }, [planId]);
 
-  /* ── 加载历史日志 (REST API) ── */
+  /* ── 加载历史日志 (REST API) — 兼容游标分页 ── */
   const fetchLogs = useCallback(async (afterId) => {
     try {
       let url = "/tasks/" + getActiveTaskId() + "/logs?limit=500";
       if (afterId) url += "&afterId=" + afterId;
       const { data: resp } = await api.get(url);
-      if (resp.code === 0 && resp.data && resp.data.length > 0) {
-        const newLogs = resp.data.map(normalizeLog);
-        if (afterId) {
-          setLogs(prev => {
-            const merged = [...prev, ...newLogs];
-            return merged.slice(-1000);
-          });
-        } else {
-          setLogs(newLogs.slice(-1000));
-        }
-        const lastLog = resp.data[resp.data.length - 1];
-        if (lastLog && lastLog.id) {
-          lastLogIdRef.current = lastLog.id;
+      if (resp.code === 0 && resp.data) {
+        const logsArray = extractLogsFromResponse(resp.data);
+        if (logsArray.length > 0) {
+          const newLogs = logsArray.map(normalizeLog);
+          if (afterId) {
+            setLogs(prev => {
+              const merged = [...prev, ...newLogs];
+              return merged.slice(-1000);
+            });
+          } else {
+            setLogs(newLogs.slice(-1000));
+          }
+          const lastLog = logsArray[logsArray.length - 1];
+          if (lastLog && lastLog.id) {
+            lastLogIdRef.current = lastLog.id;
+          }
         }
       }
     } catch (e) {
@@ -271,7 +287,7 @@ export default function PlanMonitor({ planId, onBack }) {
     }
   }, [autoScroll, tasks, fetchTasks, fetchPlan]);
 
-  /* ── HTTP 轮询 fallback ── */
+  /* ── HTTP 轮询 fallback — 兼容游标分页 ── */
   const startPollingFallback = useCallback((taskId) => {
     if (pollingTimerRef.current) return; // already polling
     console.log("Starting HTTP polling fallback for task", taskId);
@@ -280,12 +296,15 @@ export default function PlanMonitor({ planId, onBack }) {
         let url = "/tasks/" + taskId + "/logs?limit=50";
         if (lastLogIdRef.current) url += "&afterId=" + lastLogIdRef.current;
         const { data: resp } = await api.get(url);
-        if (resp.code === 0 && resp.data && resp.data.length > 0) {
-          const newLogs = resp.data.map(normalizeLog);
-          const lastLog = resp.data[resp.data.length - 1];
-          if (lastLog && lastLog.id) lastLogIdRef.current = lastLog.id;
-          setLogs(prev => [...prev, ...newLogs].slice(-1000));
-          if (!autoScroll) setHasNewLogs(true);
+        if (resp.code === 0 && resp.data) {
+          const logsArray = extractLogsFromResponse(resp.data);
+          if (logsArray.length > 0) {
+            const newLogs = logsArray.map(normalizeLog);
+            const lastLog = logsArray[logsArray.length - 1];
+            if (lastLog && lastLog.id) lastLogIdRef.current = lastLog.id;
+            setLogs(prev => [...prev, ...newLogs].slice(-1000));
+            if (!autoScroll) setHasNewLogs(true);
+          }
         }
       } catch (e) {
         console.warn("Polling error", e);
@@ -479,14 +498,16 @@ export default function PlanMonitor({ planId, onBack }) {
     grouped[key].push(t);
   });
 
-  /* ── 日志过滤 ── */
+  /* ── 日志过滤 (#234: 级别 + 类型 + 任务 + 关键字) ── */
   const filteredLogs = logs.filter(log => {
     if (logFilter !== "all" && String(log.taskId) !== String(logFilter)) return false;
+    if (logLevelFilter !== "ALL" && (log.level || "INFO").toUpperCase() !== logLevelFilter) return false;
+    if (logTypeFilter !== "ALL" && (log.logType || "TEXT").toUpperCase() !== logTypeFilter) return false;
     if (logSearch && !(log.message || "").toLowerCase().includes(logSearch.toLowerCase())) return false;
     return true;
   });
 
-  /* ── 渲染单条日志 ── */
+  /* ── 渲染单条日志 (#233: 增强 METRIC 渲染) ── */
   const renderLogEntry = (log, i) => {
     const level = (log.level || "INFO").toUpperCase();
     const logType = (log.logType || "TEXT").toUpperCase();
@@ -544,14 +565,26 @@ export default function PlanMonitor({ planId, onBack }) {
         )}
         <span>{log.message}</span>
 
-        {/* METRIC: show metric tags below */}
+        {/* #233 P1-3: METRIC 性能指标增强渲染 */}
         {logType === "METRIC" && metrics && (
-          <div style={{ marginTop: 4, marginLeft: 16 }}>
-            {Object.entries(metrics).map(([k, v]) => (
-              <Tag key={k} color="purple" style={{ marginBottom: 2 }}>
-                {k}: {typeof v === "number" ? v.toFixed(2) : String(v)}
-              </Tag>
-            ))}
+          <div style={{ marginTop: 4, display: "flex", gap: 8, flexWrap: "wrap", marginLeft: 16 }}>
+            {metrics.latency_ms_p50 != null && <Tag color="blue">{"P50: " + metrics.latency_ms_p50 + "ms"}</Tag>}
+            {metrics.latency_ms_p95 != null && <Tag color="orange">{"P95: " + metrics.latency_ms_p95 + "ms"}</Tag>}
+            {metrics.latency_ms_p99 != null && <Tag color="red">{"P99: " + metrics.latency_ms_p99 + "ms"}</Tag>}
+            {metrics.throughput_qps != null && <Tag color="green">{"QPS: " + metrics.throughput_qps}</Tag>}
+            {metrics.cpu_util_percent != null && <Tag color="purple">{"CPU: " + metrics.cpu_util_percent + "%"}</Tag>}
+            {metrics.memory_util_percent != null && <Tag color="cyan">{"MEM: " + metrics.memory_util_percent + "%"}</Tag>}
+            {metrics.status && <Tag color={metrics.status === "PASS" ? "success" : "error"}>{metrics.status}</Tag>}
+            {/* Fallback: show all other numeric metrics */}
+            {Object.entries(metrics)
+              .filter(([k]) => !["latency_ms_p50", "latency_ms_p95", "latency_ms_p99", "throughput_qps",
+                                  "cpu_util_percent", "memory_util_percent", "status"].includes(k))
+              .map(([k, v]) => (
+                <Tag key={k} color="default" style={{ marginBottom: 2 }}>
+                  {k + ": " + (typeof v === "number" ? v.toFixed(2) : String(v))}
+                </Tag>
+              ))
+            }
           </div>
         )}
 
@@ -771,7 +804,7 @@ export default function PlanMonitor({ planId, onBack }) {
         )}
       </Card>
 
-      {/* ── 底部：实时日志面板 (#229) ── */}
+      {/* ── 底部：实时日志面板 (#229, #233, #234) ── */}
       <Card
         title={
           <Space>
@@ -785,11 +818,12 @@ export default function PlanMonitor({ planId, onBack }) {
         }
         size="small"
         extra={
-          <Space>
+          <Space wrap>
+            {/* #234: 任务过滤 */}
             <Select
               value={logFilter}
               onChange={(v) => { setLogFilter(v); setLogs([]); lastLogIdRef.current = null; }}
-              style={{ width: 180 }}
+              style={{ width: 160 }}
               size="small"
             >
               <Select.Option value="all">{"\u5168\u90E8\u4EFB\u52A1"}</Select.Option>
@@ -799,12 +833,40 @@ export default function PlanMonitor({ planId, onBack }) {
                 </Select.Option>
               ))}
             </Select>
+            {/* #234: 级别过滤 */}
+            <Select
+              value={logLevelFilter}
+              onChange={setLogLevelFilter}
+              style={{ width: 100 }}
+              size="small"
+            >
+              <Select.Option value="ALL">{"\u5168\u90E8\u7EA7\u522B"}</Select.Option>
+              <Select.Option value="INFO">INFO</Select.Option>
+              <Select.Option value="WARN">WARN</Select.Option>
+              <Select.Option value="ERROR">ERROR</Select.Option>
+              <Select.Option value="DEBUG">DEBUG</Select.Option>
+            </Select>
+            {/* #234: 类型过滤 */}
+            <Select
+              value={logTypeFilter}
+              onChange={setLogTypeFilter}
+              style={{ width: 120 }}
+              size="small"
+            >
+              <Select.Option value="ALL">{"\u5168\u90E8\u7C7B\u578B"}</Select.Option>
+              <Select.Option value="TEXT">TEXT</Select.Option>
+              <Select.Option value="METRIC">METRIC</Select.Option>
+              <Select.Option value="PROGRESS">PROGRESS</Select.Option>
+              <Select.Option value="ERROR">ERROR</Select.Option>
+              <Select.Option value="SYSTEM">SYSTEM</Select.Option>
+            </Select>
+            {/* #234: 关键字搜索 */}
             <Input
               placeholder={"\u641C\u7D22\u65E5\u5FD7..."}
               prefix={<SearchOutlined />}
               value={logSearch}
               onChange={e => setLogSearch(e.target.value)}
-              style={{ width: 180 }}
+              style={{ width: 160 }}
               size="small"
               allowClear
             />

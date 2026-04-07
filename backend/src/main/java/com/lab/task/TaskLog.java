@@ -7,6 +7,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
+import com.fasterxml.jackson.annotation.JsonRawValue;
 import java.time.Instant;
 
 /**
@@ -46,10 +47,12 @@ public class TaskLog {
     @Column(name = "log_type", length = 16)
     private String logType = "TEXT";
 
+    @JsonRawValue
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metrics", columnDefinition = "jsonb")
     private String metrics;
 
+    @JsonRawValue
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "context", columnDefinition = "jsonb")
     private String context;

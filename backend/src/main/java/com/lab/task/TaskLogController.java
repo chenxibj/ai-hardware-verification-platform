@@ -5,16 +5,20 @@ import com.lab.config.TaskLogWebSocketHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * 任务实时日志控制器
  * #225 - Agent 上报日志 + 前端轮询查看
  * #229 - 增强过滤 + 批量上报 + WebSocket 推送
+ * #233 - stats/metrics/METRIC渲染/游标分页/多格式导出
+ * #234 - 搜索过滤
  */
 @Slf4j
 @RestController
@@ -125,56 +129,229 @@ public class TaskLogController {
     /**
      * GET /api/tasks/{taskId}/logs — 获取任务执行日志
      * #229: 增加 afterId, level, type, keyword, limit 参数
+     * #233: 增加游标分页 (after/before), from/to 时间, order; 返回 { items, hasMore, nextCursor }
      */
     @GetMapping("/{taskId}/logs")
     public ResponseEntity<Map<String, Object>> getLogs(
             @PathVariable Long taskId,
             @RequestParam(required = false) Long afterId,
+            @RequestParam(required = false) Long after,
+            @RequestParam(required = false) Long before,
             @RequestParam(required = false) String level,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false, defaultValue = "200") int limit) {
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false, defaultValue = "200") int limit,
+            @RequestParam(required = false, defaultValue = "asc") String order) {
+
+        // Merge afterId and after for backward compatibility
+        Long effectiveAfter = after != null ? after : afterId;
+        String effectiveLevel = (level != null && !level.isEmpty() && !"ALL".equalsIgnoreCase(level)) ? level : null;
+        String effectiveType = (type != null && !type.isEmpty() && !"ALL".equalsIgnoreCase(type)) ? type : null;
 
         List<TaskLog> logs;
         if (keyword != null && !keyword.isEmpty()) {
-            // Use native query for keyword search
-            logs = taskLogRepository.findFilteredWithKeyword(taskId, afterId, level, type, keyword, limit);
+            logs = taskLogRepository.findFilteredCursorWithKeyword(
+                    taskId, effectiveAfter, before, effectiveLevel, effectiveType, keyword, limit);
         } else {
-            logs = taskLogRepository.findFiltered(taskId, afterId, level, type, PageRequest.of(0, limit));
+            logs = taskLogRepository.findFilteredCursor(
+                    taskId, effectiveAfter, before, effectiveLevel, effectiveType,
+                    PageRequest.of(0, limit));
         }
+
+        // Build cursor-paginated response
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("items", logs);
+        data.put("hasMore", logs.size() == limit);
+        if (!logs.isEmpty()) {
+            data.put("nextCursor", String.valueOf(logs.get(logs.size() - 1).getId()));
+        }
+
+        long totalCount = taskLogRepository.countByTaskId(taskId);
 
         Map<String, Object> resp = new HashMap<>();
         resp.put("code", 0);
         resp.put("message", "success");
-        resp.put("data", logs);
-        resp.put("total", logs.size());
+        resp.put("data", data);
+        resp.put("total", totalCount);
         return ResponseEntity.ok(resp);
     }
 
     /**
-     * GET /api/tasks/{taskId}/logs/download — 下载完整日志文本
+     * GET /api/tasks/{taskId}/logs/stats — 日志统计接口
+     * #233
+     */
+    @GetMapping("/{taskId}/logs/stats")
+    public ResponseEntity<Map<String, Object>> getLogStats(@PathVariable Long taskId) {
+        long totalCount = taskLogRepository.countByTaskId(taskId);
+
+        // Group by level
+        List<Object[]> levelRows = taskLogRepository.countByTaskIdGroupByLevel(taskId);
+        Map<String, Long> byLevel = new LinkedHashMap<>();
+        for (Object[] row : levelRows) {
+            byLevel.put(String.valueOf(row[0]), (Long) row[1]);
+        }
+
+        // Group by type
+        List<Object[]> typeRows = taskLogRepository.countByTaskIdGroupByLogType(taskId);
+        Map<String, Long> byType = new LinkedHashMap<>();
+        for (Object[] row : typeRows) {
+            byType.put(String.valueOf(row[0]), (Long) row[1]);
+        }
+
+        // Metrics count
+        long metricsCount = taskLogRepository.countByTaskIdAndLogType(taskId, "METRIC");
+
+        // Time range
+        Instant firstTime = taskLogRepository.findFirstCreatedAtByTaskId(taskId);
+        Instant lastTime = taskLogRepository.findLastCreatedAtByTaskId(taskId);
+        Map<String, Object> timeRange = new LinkedHashMap<>();
+        timeRange.put("first", firstTime != null ? firstTime.toString() : null);
+        timeRange.put("last", lastTime != null ? lastTime.toString() : null);
+
+        Map<String, Object> stats = new LinkedHashMap<>();
+        stats.put("total", totalCount);
+        stats.put("byLevel", byLevel);
+        stats.put("byType", byType);
+        stats.put("metricsCount", metricsCount);
+        stats.put("timeRange", timeRange);
+
+        return ResponseEntity.ok(Map.of("code", 0, "data", stats, "message", "success"));
+    }
+
+    /**
+     * GET /api/tasks/{taskId}/logs/metrics — 性能数据聚合
+     * P2-1: 按 groupBy 维度聚合 METRIC 类型日志的 metrics JSONB 数据
+     */
+    @GetMapping("/{taskId}/logs/metrics")
+    public ResponseEntity<Map<String, Object>> getLogMetrics(
+            @PathVariable Long taskId,
+            @RequestParam(defaultValue = "batch_size") String groupBy) {
+        List<TaskLog> metricLogs = taskLogRepository.findByTaskIdAndLogType(taskId, "METRIC");
+
+        // Parse and aggregate metrics
+        Map<String, List<Map<String, Object>>> grouped = new LinkedHashMap<>();
+        for (TaskLog logEntry : metricLogs) {
+            Map<String, Object> metricsMap = parseJsonField(logEntry.getMetrics());
+            if (metricsMap == null) continue;
+
+            String groupKey = metricsMap.containsKey(groupBy)
+                    ? String.valueOf(metricsMap.get(groupBy))
+                    : "default";
+
+            grouped.computeIfAbsent(groupKey, k -> new ArrayList<>()).add(metricsMap);
+        }
+
+        // Aggregate per group
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Map.Entry<String, List<Map<String, Object>>> entry : grouped.entrySet()) {
+            Map<String, Object> agg = new LinkedHashMap<>();
+            agg.put("group", entry.getKey());
+            agg.put("count", entry.getValue().size());
+
+            // Average numeric fields
+            Map<String, Double> sums = new LinkedHashMap<>();
+            Map<String, Integer> counts = new LinkedHashMap<>();
+            for (Map<String, Object> m : entry.getValue()) {
+                for (Map.Entry<String, Object> field : m.entrySet()) {
+                    if (field.getValue() instanceof Number) {
+                        String key = field.getKey();
+                        sums.merge(key, ((Number) field.getValue()).doubleValue(), Double::sum);
+                        counts.merge(key, 1, Integer::sum);
+                    }
+                }
+            }
+
+            Map<String, Double> averages = new LinkedHashMap<>();
+            for (String key : sums.keySet()) {
+                averages.put(key, Math.round(sums.get(key) / counts.get(key) * 100.0) / 100.0);
+            }
+            agg.put("averages", averages);
+            result.add(agg);
+        }
+
+        return ResponseEntity.ok(Map.of("code", 0, "data", result, "message", "success"));
+    }
+
+    /**
+     * GET /api/tasks/{taskId}/logs/download — 下载日志（多格式）
+     * P2-2: 支持 format=txt|json|csv, 支持 level/type 过滤
      */
     @GetMapping("/{taskId}/logs/download")
-    public ResponseEntity<String> downloadLogs(@PathVariable Long taskId) {
-        List<TaskLog> logs = taskLogRepository.findByTaskIdOrderByCreatedAtAsc(taskId);
-        StringBuilder sb = new StringBuilder();
-        for (TaskLog l : logs) {
-            if (l.getCreatedAt() != null) {
-                sb.append("[").append(l.getCreatedAt()).append("] ");
-            }
-            if (l.getLevel() != null) {
-                sb.append("[").append(l.getLevel()).append("] ");
-            }
-            if (l.getLogType() != null && !"TEXT".equals(l.getLogType())) {
-                sb.append("[").append(l.getLogType()).append("] ");
-            }
-            sb.append(l.getMessage() != null ? l.getMessage() : l.getContent());
-            sb.append("\n");
+    public ResponseEntity<String> downloadLogs(
+            @PathVariable Long taskId,
+            @RequestParam(defaultValue = "txt") String format,
+            @RequestParam(required = false) String level,
+            @RequestParam(required = false) String type) {
+
+        String effectiveLevel = (level != null && !level.isEmpty() && !"ALL".equalsIgnoreCase(level)) ? level : null;
+        String effectiveType = (type != null && !type.isEmpty() && !"ALL".equalsIgnoreCase(type)) ? type : null;
+
+        List<TaskLog> logs;
+        if (effectiveLevel != null || effectiveType != null) {
+            logs = taskLogRepository.findByTaskIdFiltered(taskId, effectiveLevel, effectiveType);
+        } else {
+            logs = taskLogRepository.findByTaskIdOrderByCreatedAtAsc(taskId);
         }
+
+        String content;
+        String contentType;
+        String filename;
+
+        switch (format.toLowerCase()) {
+            case "json":
+                try {
+                    content = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(logs);
+                } catch (Exception e) {
+                    content = "[]";
+                }
+                contentType = "application/json";
+                filename = "task-" + taskId + "-logs.json";
+                break;
+
+            case "csv":
+                StringBuilder csv = new StringBuilder();
+                csv.append("id,timestamp,level,type,source,message\n");
+                for (TaskLog l : logs) {
+                    csv.append(l.getId()).append(",")
+                       .append(l.getCreatedAt() != null ? l.getCreatedAt().toString() : "").append(",")
+                       .append(l.getLevel() != null ? l.getLevel() : "").append(",")
+                       .append(l.getLogType() != null ? l.getLogType() : "").append(",")
+                       .append(l.getSource() != null ? l.getSource() : "").append(",")
+                       .append("\"").append(escapeCsv(l.getMessage())).append("\"")
+                       .append("\n");
+                }
+                content = csv.toString();
+                contentType = "text/csv";
+                filename = "task-" + taskId + "-logs.csv";
+                break;
+
+            default: // txt
+                StringBuilder sb = new StringBuilder();
+                for (TaskLog l : logs) {
+                    if (l.getCreatedAt() != null) {
+                        sb.append("[").append(l.getCreatedAt()).append("] ");
+                    }
+                    if (l.getLevel() != null) {
+                        sb.append("[").append(l.getLevel()).append("] ");
+                    }
+                    if (l.getLogType() != null && !"TEXT".equals(l.getLogType())) {
+                        sb.append("[").append(l.getLogType()).append("] ");
+                    }
+                    sb.append(l.getMessage() != null ? l.getMessage() : l.getContent());
+                    sb.append("\n");
+                }
+                content = sb.toString();
+                contentType = "text/plain";
+                filename = "task-" + taskId + "-logs.txt";
+                break;
+        }
+
         return ResponseEntity.ok()
-                .header("Content-Type", "text/plain; charset=UTF-8")
-                .header("Content-Disposition", "attachment; filename=task-" + taskId + "-logs.txt")
-                .body(sb.toString());
+                .header("Content-Disposition", "attachment; filename=" + filename)
+                .contentType(MediaType.parseMediaType(contentType + "; charset=UTF-8"))
+                .body(content);
     }
 
     /**
@@ -201,6 +378,21 @@ public class TaskLogController {
         } catch (Exception e) {
             log.warn("WebSocket broadcast failed for task {}: {}", logEntry.getTaskId(), e.getMessage());
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parseJsonField(String jsonStr) {
+        if (jsonStr == null || jsonStr.isEmpty()) return null;
+        try {
+            return objectMapper.readValue(jsonStr, Map.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String escapeCsv(String value) {
+        if (value == null) return "";
+        return value.replace("\"", "\"\"").replace("\n", " ").replace("\r", "");
     }
 
     private Map<String, Object> result(int code, String message) {

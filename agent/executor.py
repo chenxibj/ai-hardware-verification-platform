@@ -107,7 +107,7 @@ class TaskExecutor:
     @staticmethod
     def _classify_log_line(line):
         """
-        #229: 分类日志行
+        #229: 分类日志行 — 支持嵌套 JSON 中的 metric 检测
         Returns: (log_type, level, metrics_dict_or_None)
         """
         stripped = line.strip()
@@ -118,10 +118,36 @@ class TaskExecutor:
         if stripped.startswith("{"):
             try:
                 obj = json.loads(stripped)
-                # Check for metric keys
-                metric_keys = {"latency", "throughput", "fps", "bandwidth", "iops",
-                               "latency_ms", "throughput_mbps", "qps"}
-                found_metrics = {k: v for k, v in obj.items() if k.lower() in metric_keys}
+                # Deep-scan for metric keys (eval scripts nest them in results/summary)
+                metric_prefixes = ("latency", "throughput", "fps", "bandwidth", "iops", "qps")
+                found_metrics = {}
+
+                def _extract_metrics(d):
+                    """Recursively extract metric-like keys from dicts and lists."""
+                    if isinstance(d, dict):
+                        for k, v in d.items():
+                            kl = k.lower()
+                            if any(kl.startswith(p) or kl.endswith(p) for p in metric_prefixes):
+                                if isinstance(v, (int, float)):
+                                    found_metrics[k] = v
+                            elif isinstance(v, (dict, list)):
+                                _extract_metrics(v)
+                    elif isinstance(d, list):
+                        for item in d:
+                            if isinstance(item, (dict, list)):
+                                _extract_metrics(item)
+
+                _extract_metrics(obj)
+
+                # Also check top-level summary if present
+                summary = obj.get("summary", {})
+                if isinstance(summary, dict):
+                    for k, v in summary.items():
+                        kl = k.lower()
+                        if any(kl.startswith(p) or kl.endswith(p) for p in metric_prefixes):
+                            if isinstance(v, (int, float)):
+                                found_metrics[k] = v
+
                 if found_metrics:
                     return ("METRIC", "INFO", found_metrics)
                 return ("TEXT", "INFO", None)
@@ -352,6 +378,22 @@ class TaskExecutor:
             except json.JSONDecodeError:
                 eval_result = {"raw_output": stdout_text}
 
+            # #229: 上报 SYSTEM 任务完成摘要日志
+            summary_entry = [{
+                "type": "SYSTEM",
+                "level": "INFO",
+                "message": "任务 {} 执行完成，耗时 {:.1f}s，状态: COMPLETED".format(task_id, elapsed),
+                "source": "AGENT",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "context": {"node_id": str(self.node_id), "duration_sec": round(elapsed, 2)},
+            }]
+            try:
+                url = "{}/tasks/{}/logs/batch".format(self.platform_url, task_id)
+                headers = {"Content-Type": "application/json", "X-Agent-Token": self.token}
+                requests.post(url, json={"entries": summary_entry}, headers=headers, timeout=10)
+            except Exception as se:
+                logger.warning("Failed to report SYSTEM summary log: %s", se)
+
             self._report_result(task_id, "COMPLETED", {
                 "eval_result": eval_result,
                 "runtime_metrics": runtime_metrics,
@@ -374,6 +416,22 @@ class TaskExecutor:
                 url = "{}/tasks/{}/logs/batch".format(self.platform_url, task_id)
                 headers = {"Content-Type": "application/json", "X-Agent-Token": self.token}
                 requests.post(url, json={"entries": error_entry}, headers=headers, timeout=10)
+            except Exception:
+                pass
+
+            # #229: 上报 SYSTEM 任务失败摘要日志
+            fail_summary = [{
+                "type": "SYSTEM",
+                "level": "ERROR",
+                "message": "任务 {} 执行失败，耗时 {:.1f}s，错误: {}".format(task_id, elapsed, str(e)[:200]),
+                "source": "AGENT",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "context": {"node_id": str(self.node_id), "duration_sec": round(elapsed, 2)},
+            }]
+            try:
+                url = "{}/tasks/{}/logs/batch".format(self.platform_url, task_id)
+                headers = {"Content-Type": "application/json", "X-Agent-Token": self.token}
+                requests.post(url, json={"entries": fail_summary}, headers=headers, timeout=10)
             except Exception:
                 pass
 

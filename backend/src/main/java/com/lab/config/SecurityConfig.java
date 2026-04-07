@@ -67,9 +67,12 @@ public class SecurityConfig {
                 .requestMatchers("/tasks/*/failure").permitAll()
                 .requestMatchers("/tasks/*/logs").permitAll()  // #225
                 .requestMatchers("/tasks/*/logs/batch").permitAll()  // #229
+                .requestMatchers("/tasks/*/logs/stats").permitAll()  // #233
+                .requestMatchers("/tasks/*/logs/metrics").permitAll()  // #233 P2-1
+                .requestMatchers("/tasks/*/logs/download").permitAll()  // #233 P2-2
+                .requestMatchers("/tasks/*/report").permitAll()  // #233 P2-3
                 .requestMatchers("/tasks/*/complete").permitAll()
                 .requestMatchers(HttpMethod.GET, "/templates", "/templates/**").permitAll()
-                .requestMatchers("/tasks/*/logs", "/tasks/*/logs/download").permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 // RBAC: 用户管理仅 super_admin
                 .requestMatchers(HttpMethod.POST, "/users").hasRole("super_admin")
