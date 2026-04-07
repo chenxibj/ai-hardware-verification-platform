@@ -112,6 +112,11 @@
 - **🔥 批量 issue 冲刺模式（04-04）：** 2-4个相关issue打包给一个sub-agent，提供完整代码方案，平均8分钟/issue。关键：task prompt 要包含完整修改方案不只是需求。
 - **⚠️ 4个以上issue合并可能超时：** #175-#180 四合一跑了60分钟超时。3个一组更稳定。
 - **CRA CI=true 把 warning 当 error：** 需要在 .eslintrc 中 rules off 才能通过
+- **JSX string prop 双转义 bug（2026-04-07）：** `title="中文"` 被 terser 编译为双反斜杠 unicode，浏览器显示字面量。修法：改用 `title={"中文"}`
+- **Spring context-path 影响 WebSocket：** 注册的 `/ws/tasks` 实际变成 `/api/ws/tasks`，nginx 代理要对应
+- **nginx index.html no-cache：** 防浏览器缓存旧 JS hash，部署后用户看不到更新
+- **Agent snake_case vs JS camelCase：** 上报 JSON 时同时包含两种命名（`node_id` + `nodeId`）
+- **Playwright global-teardown 清数据：** 评测任务名别带 BDD 前缀，否则被自动清理
 
 ### 巡检模式经验（2026-04-06 复盘提炼）
 - **issue 关闭 ≠ 完成** — Standing Task 已有此规则，但今天 16 个 issue 关闭时只记录未验收，说明执行不够坚决。明天必须验收。
@@ -144,12 +149,16 @@
 - 开箱即用：预置模板让新用户零配置直接跑
 - 真实数据 > Mock 数据：所有接口必须走真实数据链路
 
-### 项目当前状态（2026-04-06 23:00 更新）
-- **16 个新 issue (#206-#221) 已关闭，待验收** — 模板管理 6 个 + Agent 安全加固 10 个
-- 今日 12 个 commit（feat 3 / fix 3 / agent-security 1 / ci 2 / docs 3）
-- 有研发同事活跃开发，菜菜子当天角色以监控巡检为主
-- 系统全天可用，6 次部署重启均正常恢复
-- **下一步重点：** ① 验收 #206-#221 ② 安全类 issue 重点验收
+### 项目当前状态（2026-04-07 22:00 更新）
+- **日志管理系统全部开发完成**（P0+P1+P2）— #229-#234 代码已提交
+  - WebSocket 实时推送、Agent 结构化上报、前端日志面板、搜索过滤、性能指标渲染
+  - stats/metrics/report API 部署问题修复中
+  - 测试结果：22 passed / 8 skipped / 1 failed（正在修到 ≥26 passed / 0 failed）
+- **分发引擎完成** — #222-#226 全部实现（TaskDispatcher + 断链修复 + 超时 + 乐观锁）
+- **#206-#221 已验收通过**（16/16）
+- **#75-#82 已关闭**（out of date，chenxi 确认无三期规划）
+- **待做：** #227 任务克隆 + #228 Web Terminal
+- **Bug 已修：** 创建成功页乱码、"评测计划"→"评测任务"改名、模板详情弹窗 tags 报错
 
 ### 项目当前状态（旧 2026-04-05 23:00）
 - **MVP-0 + MVP-1 全部完成** — 18 个 issue 全部关闭

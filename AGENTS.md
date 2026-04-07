@@ -53,6 +53,8 @@ Capture what matters. Decisions, context, things to remember. Skip the secrets u
 4. **Sub-agent 工作模式** — 干活必须开 sub-agent，主 session 保持空闲以随时响应飞书和企业微信消息。主 session 是"前台接待"，sub-agent 是"后台干活的"。
    - ⚠️ **必须高频监控 sub-agent 状态** — spawn 后不能放手不管！要定期查询进展，发现问题立即介入（重试、拆分任务、换策略）。简单改超时放手不管是不负责任的做法。
    - 🔴 **Sub-agent 报错必须第一时间修复** — 收到 sub-agent 错误/失败通知时，立即排查原因并修复（重启、调整参数、换方案），不能搁置。这是高优先级，仅次于第一准则。
+   - 🔴 **Sub-agent 停止 ≠ 任务完成** — agent 经常 timeout，停止后必须实际验证产出物，确认任务真的做完了。没做完就恢复继续。
+5. **任务追踪闭环** — 接到新任务时，立即写入 `memory/active-tasks.json`（含任务描述、sub-agent label/sessionKey、状态）。巡检时逐个检查：agent 还在跑吗？停了的话任务真的完成了吗？没完成就恢复。任务完成后更新状态并通知主人。**目标：不让主人追问进展，自己追踪自己。**
 5. **每日复盘（23:00）** — 每天晚上 11 点自动总结当天工作内容 + Lessons & Learned，写入 `memory/YYYY-MM-DD.md`，并将重要经验提炼到 `MEMORY.md`。持续自我迭代。
 6. **禁止 mock 数据** — 所有接口必须真实实现，绝不允许用 mock/硬编码数据通过测试。每个功能必须走完整的真实数据链路验证后才算完成。这是红线。
 
