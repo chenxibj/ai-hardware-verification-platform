@@ -1,11 +1,14 @@
-"""任务执行模块 (#225 实时日志 + #226 async)"""
+"""任务执行模块 (#225 实时日志 + #226 async + #229 结构化日志)"""
 import json
 import logging
 import os
+import platform
+import re
 import subprocess
 import threading
 import time
-from typing import Optional, Dict
+from datetime import datetime, timezone
+from typing import Optional, Dict, List
 import requests
 from collector import collect_during_execution
 
@@ -34,7 +37,7 @@ class TaskExecutor:
         "performance": None,
     }
 
-    # #225: 日志上报配置
+    # #225/#229: 日志上报配置
     LOG_FLUSH_INTERVAL = 5  # 秒
     LOG_FLUSH_LINES = 50    # 行
 
@@ -101,6 +104,101 @@ class TaskExecutor:
                 self.current_task = None
             raise
 
+    @staticmethod
+    def _classify_log_line(line):
+        """
+        #229: 分类日志行
+        Returns: (log_type, level, metrics_dict_or_None)
+        """
+        stripped = line.strip()
+        if not stripped:
+            return ("TEXT", "INFO", None)
+
+        # Try parsing as JSON
+        if stripped.startswith("{"):
+            try:
+                obj = json.loads(stripped)
+                # Check for metric keys
+                metric_keys = {"latency", "throughput", "fps", "bandwidth", "iops",
+                               "latency_ms", "throughput_mbps", "qps"}
+                found_metrics = {k: v for k, v in obj.items() if k.lower() in metric_keys}
+                if found_metrics:
+                    return ("METRIC", "INFO", found_metrics)
+                return ("TEXT", "INFO", None)
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # Check for progress pattern: [x/y] or x/y or x% or Step x of y
+        progress_patterns = [
+            r'\[?\d+\s*/\s*\d+\]?',          # [3/10] or 3/10
+            r'\d+(\.\d+)?%',                   # 45% or 45.5%
+            r'[Ss]tep\s+\d+\s+of\s+\d+',     # Step 3 of 10
+            r'[Pp]rogress[:\s]+\d+',           # Progress: 50
+        ]
+        for pat in progress_patterns:
+            if re.search(pat, stripped):
+                return ("PROGRESS", "INFO", None)
+
+        # Check for error indicators
+        error_indicators = ["error", "exception", "traceback", "failed", "fatal"]
+        lower = stripped.lower()
+        for ind in error_indicators:
+            if ind in lower:
+                return ("TEXT", "ERROR", None)
+
+        # Check for warning indicators
+        warn_indicators = ["warning", "warn", "deprecated"]
+        for ind in warn_indicators:
+            if ind in lower:
+                return ("TEXT", "WARN", None)
+
+        return ("TEXT", "INFO", None)
+
+    def _get_system_info(self):
+        """Collect system info for SYSTEM log entry"""
+        try:
+            import psutil
+            mem = psutil.virtual_memory()
+            return {
+                "hostname": platform.node(),
+                "os": "{} {}".format(platform.system(), platform.release()),
+                "arch": platform.machine(),
+                "python": platform.python_version(),
+                "cpu_count": os.cpu_count(),
+                "cpu_percent": psutil.cpu_percent(interval=0),
+                "memory_total_gb": round(mem.total / (1024**3), 1),
+                "memory_available_gb": round(mem.available / (1024**3), 1),
+            }
+        except Exception:
+            return {
+                "hostname": platform.node(),
+                "os": "{} {}".format(platform.system(), platform.release()),
+                "arch": platform.machine(),
+                "python": platform.python_version(),
+                "cpu_count": os.cpu_count(),
+            }
+
+    def _flush_structured_logs(self, task_id, log_entries, lock):
+        """#229: Flush structured log entries via batch API"""
+        with lock:
+            if not log_entries:
+                return
+            entries_copy = list(log_entries)
+            log_entries.clear()
+
+        url = "{}/tasks/{}/logs/batch".format(self.platform_url, task_id)
+        headers = {
+            "Content-Type": "application/json",
+            "X-Agent-Token": self.token,
+        }
+        payload = {"entries": entries_copy}
+        try:
+            resp = requests.post(url, json=payload, headers=headers, timeout=10)
+            if resp.status_code != 200:
+                logger.warning("Batch log upload failed for task %s: %s", task_id, resp.status_code)
+        except Exception as e:
+            logger.warning("Batch log upload error for task %s: %s", task_id, e)
+
     def _run_task(self, task_id, eval_type, params):
         start_time = time.time()
         logger.info("开始执行任务 %s, 类型=%s, 参数=%s", task_id, eval_type, params)
@@ -121,7 +219,32 @@ class TaskExecutor:
             cmd_str = " ".join(cmd)
             logger.info("执行命令: %s", cmd_str)
 
-            # #225: 使用 Popen 实时读取输出 + 流式上报日志
+            # #229: 上报 SYSTEM 日志（含系统信息）
+            sys_info = self._get_system_info()
+            sys_log_entries = [{
+                "type": "SYSTEM",
+                "level": "INFO",
+                "message": "Task {} started on {} | {} | {} cores | {:.1f}GB RAM".format(
+                    task_id, sys_info.get("hostname", "unknown"),
+                    sys_info.get("os", "unknown"),
+                    sys_info.get("cpu_count", "?"),
+                    sys_info.get("memory_total_gb", 0)),
+                "source": "AGENT",
+                "context": sys_info,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }]
+            # Immediately flush system log
+            url = "{}/tasks/{}/logs/batch".format(self.platform_url, task_id)
+            headers = {
+                "Content-Type": "application/json",
+                "X-Agent-Token": self.token,
+            }
+            try:
+                requests.post(url, json={"entries": sys_log_entries}, headers=headers, timeout=10)
+            except Exception as e:
+                logger.warning("Failed to report system log: %s", e)
+
+            # #229: 使用 Popen 实时读取输出 + 结构化日志上报
             stdout_lines = []
             stderr_lines = []
             process = subprocess.Popen(
@@ -132,24 +255,41 @@ class TaskExecutor:
                 cwd=self.project_root,
             )
 
-            # 启动日志采集线程
-            log_buffer = []
-            log_buffer_lock = threading.Lock()
-            last_flush_time = [time.time()]
+            # 结构化日志缓冲
+            log_entries = []
+            log_entries_lock = threading.Lock()
 
             def read_stream(stream, line_list, is_stderr=False):
-                """从 stdout/stderr 读取输出并缓冲"""
+                """从 stdout/stderr 读取输出并分类缓冲"""
                 for line in iter(stream.readline, ''):
                     line_list.append(line)
-                    prefix = "[STDERR] " if is_stderr else ""
-                    with log_buffer_lock:
-                        log_buffer.append(prefix + line)
-                        should_flush = (
-                            len(log_buffer) >= self.LOG_FLUSH_LINES or
-                            time.time() - last_flush_time[0] >= self.LOG_FLUSH_INTERVAL
-                        )
+                    stripped = line.rstrip('\n\r')
+                    if not stripped:
+                        continue
+
+                    if is_stderr:
+                        log_type = "ERROR"
+                        level = "ERROR"
+                        metrics = None
+                    else:
+                        log_type, level, metrics = self._classify_log_line(stripped)
+
+                    entry = {
+                        "type": log_type,
+                        "level": level,
+                        "message": stripped,
+                        "source": "AGENT",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                    if metrics:
+                        entry["metrics"] = metrics
+                    
+                    with log_entries_lock:
+                        log_entries.append(entry)
+                        should_flush = len(log_entries) >= self.LOG_FLUSH_LINES
+
                     if should_flush:
-                        self._flush_logs(task_id, log_buffer, log_buffer_lock, last_flush_time)
+                        self._flush_structured_logs(task_id, log_entries, log_entries_lock)
                 stream.close()
 
             stdout_thread = threading.Thread(target=read_stream, args=(process.stdout, stdout_lines, False), daemon=True)
@@ -164,7 +304,7 @@ class TaskExecutor:
                 while not flush_stop.is_set():
                     flush_stop.wait(self.LOG_FLUSH_INTERVAL)
                     if not flush_stop.is_set():
-                        self._flush_logs(task_id, log_buffer, log_buffer_lock, last_flush_time)
+                        self._flush_structured_logs(task_id, log_entries, log_entries_lock)
 
             flush_thread = threading.Thread(target=periodic_flush, daemon=True)
             flush_thread.start()
@@ -176,6 +316,14 @@ class TaskExecutor:
                 process.kill()
                 returncode = -1
                 stderr_lines.append("Process killed: timeout exceeded (600s)\n")
+                with log_entries_lock:
+                    log_entries.append({
+                        "type": "ERROR",
+                        "level": "ERROR",
+                        "message": "Process killed: timeout exceeded (600s)",
+                        "source": "AGENT",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
 
             stdout_thread.join(timeout=5)
             stderr_thread.join(timeout=5)
@@ -183,7 +331,7 @@ class TaskExecutor:
             flush_thread.join(timeout=5)
 
             # 最终 flush 剩余日志
-            self._flush_logs(task_id, log_buffer, log_buffer_lock, last_flush_time, force=True)
+            self._flush_structured_logs(task_id, log_entries, log_entries_lock)
 
             metrics_collector.stop()
             runtime_metrics = metrics_collector.get_summary()
@@ -214,6 +362,21 @@ class TaskExecutor:
         except Exception as e:
             elapsed = time.time() - start_time
             logger.error("任务 %s 执行失败: %s", task_id, e)
+            # #229: 上报错误日志
+            error_entry = [{
+                "type": "ERROR",
+                "level": "ERROR",
+                "message": "Task failed: {}".format(str(e)),
+                "source": "AGENT",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }]
+            try:
+                url = "{}/tasks/{}/logs/batch".format(self.platform_url, task_id)
+                headers = {"Content-Type": "application/json", "X-Agent-Token": self.token}
+                requests.post(url, json={"entries": error_entry}, headers=headers, timeout=10)
+            except Exception:
+                pass
+
             self._report_result(task_id, "FAILED", {
                 "error": str(e),
                 "duration_sec": round(elapsed, 2),
@@ -223,31 +386,6 @@ class TaskExecutor:
             with self._lock:
                 self.current_task = None
             logger.info("任务 %s 资源已释放, current_task=None", task_id)
-
-    def _flush_logs(self, task_id, log_buffer, lock, last_flush_time, force=False):
-        """#225: 将缓冲的日志上报到平台"""
-        with lock:
-            if not log_buffer and not force:
-                return
-            content = "".join(log_buffer)
-            log_buffer.clear()
-            last_flush_time[0] = time.time()
-
-        if not content:
-            return
-
-        url = "{}/tasks/{}/logs".format(self.platform_url, task_id)
-        headers = {
-            "Content-Type": "application/json",
-            "X-Agent-Token": self.token,
-        }
-        payload = {"content": content}
-        try:
-            resp = requests.post(url, json=payload, headers=headers, timeout=10)
-            if resp.status_code != 200:
-                logger.warning("Log upload failed for task %s: %s", task_id, resp.status_code)
-        except Exception as e:
-            logger.warning("Log upload error for task %s: %s", task_id, e)
 
     def _save_task_log(self, task_id, eval_type, params, cmd_str, stdout_text, stderr_text):
         """#217: 保存任务执行日志到 logs/{taskId}.log"""

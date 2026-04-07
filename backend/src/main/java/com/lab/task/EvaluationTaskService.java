@@ -12,6 +12,7 @@ import com.lab.plan.EvaluationPlanRepository;
 import com.lab.plan.EvaluationPlan;
 import java.util.List;
 import java.util.Optional;
+import com.lab.config.TaskLogWebSocketHandler;
 
 /**
  * 评测任务服务
@@ -23,6 +24,7 @@ public class EvaluationTaskService {
 
     private final EvaluationTaskRepository taskRepository;
     private final EvaluationPlanRepository planRepository;
+    private final TaskLogWebSocketHandler webSocketHandler;
 
     /**
      * 创建评测任务
@@ -104,6 +106,8 @@ public class EvaluationTaskService {
 
         EvaluationTask saved = taskRepository.save(task);
         log.info("Updated task {} status from {} to {}", taskId, oldStatus, status);
+        // #229: Broadcast status change via WebSocket
+        try { webSocketHandler.broadcastTaskStatus(taskId, status.name()); } catch (Exception e) { log.warn("WS broadcast failed: {}", e.getMessage()); }
         return saved;
     }
 

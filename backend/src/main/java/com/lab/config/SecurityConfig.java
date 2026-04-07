@@ -54,6 +54,7 @@ public class SecurityConfig {
                 })
             )
             .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/ws/**").permitAll()  // #229 WebSocket
                 .requestMatchers("/auth/**").permitAll()
                 .requestMatchers("/health/**").permitAll()
                 .requestMatchers("/actuator/**").permitAll()
@@ -65,6 +66,7 @@ public class SecurityConfig {
                 .requestMatchers("/tasks/*/result").permitAll()
                 .requestMatchers("/tasks/*/failure").permitAll()
                 .requestMatchers("/tasks/*/logs").permitAll()  // #225
+                .requestMatchers("/tasks/*/logs/batch").permitAll()  // #229
                 .requestMatchers("/tasks/*/complete").permitAll()
                 .requestMatchers(HttpMethod.GET, "/templates", "/templates/**").permitAll()
                 .requestMatchers("/tasks/*/logs", "/tasks/*/logs/download").permitAll()
