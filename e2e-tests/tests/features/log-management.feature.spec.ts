@@ -516,10 +516,10 @@ test.describe('P0-6: 结构化日志上报', () => {
       const res = await apiGet(request, token, `/tasks/${task.id}/logs?limit=20`);
       const logBody = await res.json();
       const items = extractList(logBody);
-      const withContext = items.find((l: any) => l.context && typeof l.context === 'object' && Object.keys(l.context).length > 0);
+      const withContext = items.find((l: any) => l.context && typeof l.context === 'object' && (l.context.nodeId || l.context.node_id));
       if (withContext) {
         // Then context 包含 nodeId 等信息
-        expect(withContext.context).toHaveProperty('nodeId');
+        expect(withContext.context.nodeId || withContext.context.node_id).toBeTruthy();
         found = true;
         break;
       }

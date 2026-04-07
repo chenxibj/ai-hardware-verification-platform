@@ -385,7 +385,7 @@ class TaskExecutor:
                 "message": "任务 {} 执行完成，耗时 {:.1f}s，状态: COMPLETED".format(task_id, elapsed),
                 "source": "AGENT",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "context": {"node_id": str(self.node_id), "duration_sec": round(elapsed, 2)},
+                "context": {"node_id": str(self.node_id), "nodeId": str(self.node_id), "duration_sec": round(elapsed, 2)},
             }]
             try:
                 url = "{}/tasks/{}/logs/batch".format(self.platform_url, task_id)
@@ -426,7 +426,7 @@ class TaskExecutor:
                 "message": "任务 {} 执行失败，耗时 {:.1f}s，错误: {}".format(task_id, elapsed, str(e)[:200]),
                 "source": "AGENT",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "context": {"node_id": str(self.node_id), "duration_sec": round(elapsed, 2)},
+                "context": {"node_id": str(self.node_id), "nodeId": str(self.node_id), "duration_sec": round(elapsed, 2)},
             }]
             try:
                 url = "{}/tasks/{}/logs/batch".format(self.platform_url, task_id)
