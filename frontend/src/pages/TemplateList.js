@@ -69,6 +69,13 @@ const parseConfig = (configJson) => {
   try { return JSON.parse(configJson || "{}"); } catch { return {}; }
 };
 
+const ensureArray = (val) => {
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string' && val.trim()) return val.split(',').map(s => s.trim());
+  return [];
+};
+
+
 export default function TemplateList() {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -173,14 +180,14 @@ export default function TemplateList() {
     setSelected(record);
     const config = parseConfig(record.configJson);
     form.setFieldsValue({
-      tags: (config.tags || []).join(", "),
+      tags: Array.isArray(config.tags) ? config.tags.join(", ") : (config.tags || ""),
       name: record.name, description: record.description,
       evalType: record.evalType, evaluationLayer: record.evaluationLayer,
-      operators: config.operators || [],
-      models: config.models || [],
+      operators: ensureArray(config.operators),
+      models: ensureArray(config.models),
       iterations: config.iterations || 100,
-      batchSizes: config.batchSizes || [1],
-      dataTypes: config.dataTypes || ["float32"],
+      batchSizes: ensureArray(config.batchSizes).map(Number),
+      dataTypes: ensureArray(config.dataTypes),
       priority: config.priority || "NORMAL",
     });
     setEditVisible(true);
@@ -349,14 +356,14 @@ export default function TemplateList() {
               <Divider orientation="left" style={{ margin: "8px 0 16px" }}>评测配置</Divider>
               {showOperators && (
                 <Form.Item label="算子列表">
-                  <Select mode="multiple" value={config.operators || []} disabled
-                    options={[...new Set([...(config.operators || []), ...AVAILABLE_OPERATORS])].map(op => ({ value: op, label: op }))} />
+                  <Select mode="multiple" value={ensureArray(config.operators)} disabled
+                    options={[...new Set([...ensureArray(config.operators), ...AVAILABLE_OPERATORS])].map(op => ({ value: op, label: op }))} />
                 </Form.Item>
               )}
               {showModels && (
                 <Form.Item label="模型列表">
-                  <Select mode="multiple" value={config.models || []} disabled
-                    options={[...new Set([...(config.models || []), ...AVAILABLE_MODELS])].map(m => ({ value: m, label: m }))} />
+                  <Select mode="multiple" value={ensureArray(config.models)} disabled
+                    options={[...new Set([...ensureArray(config.models), ...AVAILABLE_MODELS])].map(m => ({ value: m, label: m }))} />
                 </Form.Item>
               )}
               <Row gutter={16}>
@@ -367,7 +374,7 @@ export default function TemplateList() {
                 </Col>
                 <Col span={8}>
                   <Form.Item label="批次大小">
-                    <Select mode="multiple" value={config.batchSizes || [1]} disabled
+                    <Select mode="multiple" value={ensureArray(config.batchSizes).map(Number)} disabled
                       options={[1, 2, 4, 8, 16, 32, 64, 128, 256].map(n => ({ value: n, label: String(n) }))} />
                   </Form.Item>
                 </Col>
@@ -378,11 +385,11 @@ export default function TemplateList() {
                 </Col>
               </Row>
               <Form.Item label="数据类型">
-                <Checkbox.Group value={config.dataTypes || ["FP32"]} disabled
+                <Checkbox.Group value={ensureArray(config.dataTypes)} disabled
                   options={DATA_TYPES.map(dt => ({ label: dt, value: dt }))} />
               </Form.Item>
               <Form.Item label="标签">
-                <Input value={(config.tags || []).join(", ")} disabled />
+                <Input value={Array.isArray(config.tags) ? config.tags.join(", ") : (config.tags || "")} disabled />
               </Form.Item>
             </Form>
           );
