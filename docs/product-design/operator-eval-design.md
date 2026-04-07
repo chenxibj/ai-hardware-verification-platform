@@ -1,9 +1,11 @@
 # 算子性能与精度评测产品设计文档
 
-> **文档版本:** v1.0  
+> **文档版本:** v1.1 (评审修订版)  
 > **创建日期:** 2026-04-08  
+> **修订日期:** 2026-04-08  
+> **修订说明:** 基于评审反馈修订：标注算子实现状态、明确多精度分期约束、peak_gflops 动态获取、对比功能推 Phase 2、阈值标注初始推荐值  
 > **作者:** AHVP 产品团队  
-> **状态:** 初稿  
+> **状态:** 评审修订版  
 > **目标读者:** 产品负责人、后端开发、Agent 端开发、前端开发、测试团队  
 > **依据:** 客户 PRD §1.7 算子性能评测 + §1.9 芯片精度评测 + DeepLink 评测方法论 + MLPerf Inference + ONNX Runtime conformance
 
@@ -106,41 +108,43 @@ AHVP（AI Hardware Verification Platform）致力于提供标准化的 AI 硬件
 
 #### 3.1.1 基础算子（16 个）
 
-| # | 算子名 | 分类 | 典型应用 | 计算特征 |
-|---|--------|------|----------|----------|
-| 1 | MatMul | 计算密集 | 全连接层、Attention | 计算密集型，FLOPs = 2*M*N*K |
-| 2 | Conv2D | 计算密集 | CNN 特征提取 | 计算密集型，FLOPs = 2*H*W*Cin*Cout*Kh*Kw |
-| 3 | Conv3D | 计算密集 | 视频/医学影像 | 计算密集型 |
-| 4 | DepthwiseConv | 计算密集 | MobileNet 轻量卷积 | 计算量比标准 Conv 小 Cout 倍 |
-| 5 | BatchNorm | 归一化 | CNN 各层之间 | 内存密集型 |
-| 6 | LayerNorm | 归一化 | Transformer | 内存密集型 |
-| 7 | RMSNorm | 归一化 | LLaMA / Gemma | 内存密集型，无减均值 |
-| 8 | ReLU | 激活函数 | CNN / MLP | 元素级，极低计算量 |
-| 9 | GELU | 激活函数 | BERT / GPT | 元素级，含 tanh 近似 |
-| 10 | SiLU (Swish) | 激活函数 | EfficientNet / LLaMA | 元素级，含 sigmoid |
-| 11 | Softmax | 激活函数 | Attention / 分类头 | 涉及 reduce-max + exp + reduce-sum |
-| 12 | Sigmoid | 激活函数 | 门控机制 | 元素级 |
-| 13 | MaxPool2D | 池化 | CNN 下采样 | 比较操作为主 |
-| 14 | AvgPool2D | 池化 | CNN 下采样 | 累加 + 除法 |
-| 15 | Dropout | 正则化 | 训练阶段 | 随机掩码，推理时 passthrough |
-| 16 | Embedding | 查表 | NLP 词嵌入 | 内存随机访问 |
+| # | 算子名 | 分类 | 实现状态 | 目标阶段 | 典型应用 | 计算特征 |
+|---|--------|------|----------|----------|----------|----------|
+| 1 | MatMul | 计算密集 | ✅ 已实现 | Phase 1 | 全连接层、Attention | 计算密集型，FLOPs = 2*M*N*K |
+| 2 | Conv2D | 计算密集 | ✅ 已实现 | Phase 1 | CNN 特征提取 | 计算密集型，FLOPs = 2*H*W*Cin*Cout*Kh*Kw |
+| 3 | Conv3D | 计算密集 | ⬜ 待实现 | Phase 2 | 视频/医学影像 | 计算密集型 |
+| 4 | DepthwiseConv | 计算密集 | ⬜ 待实现 | Phase 2 | MobileNet 轻量卷积 | 计算量比标准 Conv 小 Cout 倍 |
+| 5 | BatchNorm | 归一化 | ✅ 已实现 | Phase 1 | CNN 各层之间 | 内存密集型 |
+| 6 | LayerNorm | 归一化 | ✅ 已实现 | Phase 1 | Transformer | 内存密集型 |
+| 7 | RMSNorm | 归一化 | ⬜ 待实现 | Phase 2 | LLaMA / Gemma | 内存密集型，无减均值 |
+| 8 | ReLU | 激活函数 | ✅ 已实现 | Phase 1 | CNN / MLP | 元素级，极低计算量 |
+| 9 | GELU | 激活函数 | ✅ 已实现 | Phase 1 | BERT / GPT | 元素级，含 tanh 近似 |
+| 10 | SiLU (Swish) | 激活函数 | ✅ 已实现 | Phase 1 | EfficientNet / LLaMA | 元素级，含 sigmoid |
+| 11 | Softmax | 激活函数 | ✅ 已实现 | Phase 1 | Attention / 分类头 | 涉及 reduce-max + exp + reduce-sum |
+| 12 | Sigmoid | 激活函数 | ✅ 已实现 | Phase 1 | 门控机制 | 元素级 |
+| 13 | MaxPool2D | 池化 | ⬜ 待实现 | Phase 1 | CNN 下采样 | 比较操作为主 |
+| 14 | AvgPool2D | 池化 | ⬜ 待实现 | Phase 1 | CNN 下采样 | 累加 + 除法 |
+| 15 | Dropout | 正则化 | ⬜ 待实现 | Phase 1 | 训练阶段 | 随机掩码，推理时 passthrough |
+| 16 | Embedding | 查表 | ⬜ 待实现 | Phase 1 | NLP 词嵌入 | 内存随机访问 |
+
+> **实现状态说明：** ✅ 已实现 = `cpu_operator_benchmark.py` 中已有可运行的性能测试代码；⬜ 待实现 = PRD 规划中，尚未编码。实际已实现 10 个算子（MatMul, Conv2D, BatchNorm, LayerNorm, ReLU, GELU, SiLU, Softmax, Sigmoid, Attention），其余 Phase 1 算子（MaxPool, AvgPool, Dropout, Embedding）需在本轮补充。
 
 #### 3.1.2 复合算子（3 个）
 
-| # | 算子名 | 组成 | 典型应用 | 评测意义 |
-|---|--------|------|----------|----------|
-| 17 | Attention | QKV Linear → MatMul(QK^T) → Softmax → MatMul(AV) | Transformer 核心 | 端到端延迟 + 分步延迟 |
-| 18 | MLP | Linear → Activation → Linear | FFN 模块 | 融合优化效果 |
-| 19 | FusedConvBNReLU | Conv2D → BatchNorm → ReLU | CNN 核心模式 | 算子融合增益验证 |
+| # | 算子名 | 组成 | 实现状态 | 目标阶段 | 典型应用 | 评测意义 |
+|---|--------|------|----------|----------|----------|----------|
+| 17 | Attention | QKV Linear → MatMul(QK^T) → Softmax → MatMul(AV) | ✅ 已实现 | Phase 1 | Transformer 核心 | 端到端延迟 + 分步延迟 |
+| 18 | MLP | Linear → Activation → Linear | ⬜ 待实现 | Phase 2 | FFN 模块 | 融合优化效果 |
+| 19 | FusedConvBNReLU | Conv2D → BatchNorm → ReLU | ⬜ 待实现 | Phase 2 | CNN 核心模式 | 算子融合增益验证 |
 
 #### 3.1.3 通信算子（4 个，多卡场景）
 
-| # | 算子名 | 通信模式 | 典型应用 |
-|---|--------|----------|----------|
-| 20 | AllReduce | 全归约 | 数据并行梯度同步 |
-| 21 | AllGather | 全收集 | 张量并行参数汇聚 |
-| 22 | ReduceScatter | 归约散射 | ZeRO 优化器 |
-| 23 | Broadcast | 广播 | 参数初始化分发 |
+| # | 算子名 | 通信模式 | 实现状态 | 目标阶段 | 典型应用 |
+|---|--------|----------|----------|----------|----------|
+| 20 | AllReduce | 全归约 | ⬜ 待实现 | Phase 3 | 数据并行梯度同步 |
+| 21 | AllGather | 全收集 | ⬜ 待实现 | Phase 3 | 张量并行参数汇聚 |
+| 22 | ReduceScatter | 归约散射 | ⬜ 待实现 | Phase 3 | ZeRO 优化器 |
+| 23 | Broadcast | 广播 | ⬜ 待实现 | Phase 3 | 参数初始化分发 |
 
 > **说明：** 通信算子仅在多卡/多节点环境下评测，Phase 3 实施。Phase 1/2 聚焦基础算子和复合算子。
 
@@ -168,6 +172,18 @@ AHVP（AI Hardware Verification Platform）致力于提供标准化的 AI 硬件
 | 吞吐量 | `throughput_ops` | ops/s | `iterations / total_wall_time` | 每秒可执行的算子次数 |
 | GFLOPS | `gflops` | GFLOPS | `flops_per_op × throughput_ops / 1e9` | 每秒浮点运算吞吐量，需要根据算子类型计算 `flops_per_op`（见附录 A） |
 | 算力利用率 | `compute_util_percent` | % | `actual_gflops / peak_gflops × 100` | 实际吞吐与芯片理论峰值的比值，Roofline 模型的核心指标 |
+
+> **⚠️ `peak_gflops` 来源优先级（不硬编码在脚本里）：**
+> 1. **芯片注册时填写的标称算力** —— 从芯片档案 API `GET /api/chips/{chipId}` 获取 `peakGflops` 字段
+> 2. **运行时自动检测** —— LINPACK/HPL 简化版基准测试
+> 3. **标注为 N/A** —— 以上都不可用时，不计算利用率，`compute_util_percent = null`
+>
+> **建议芯片注册（chips 表）新增字段：**
+> ```sql
+> ALTER TABLE chips ADD COLUMN IF NOT EXISTS peak_gflops_fp32 DOUBLE PRECISION;
+> ALTER TABLE chips ADD COLUMN IF NOT EXISTS peak_gflops_fp16 DOUBLE PRECISION;
+> ALTER TABLE chips ADD COLUMN IF NOT EXISTS peak_bandwidth_gbps DOUBLE PRECISION;
+> ```
 
 #### 3.2.3 资源指标（Resource Metrics）
 
@@ -248,6 +264,17 @@ def benchmark_operator(op_fn, op_config):
 | 维度 | 可选值 | 默认值 | 说明 |
 |------|--------|--------|------|
 | 数据类型 (dtype) | `FP32`, `FP16`, `BF16`, `INT8` | `FP32` | 不同精度影响计算速度和精度 |
+
+> **⚠️ 多精度分期约束**
+>
+> | 数据类型 | Phase | 依赖 | 说明 |
+> |----------|-------|------|------|
+> | FP32 | Phase 1 | NumPy | 默认基线精度 |
+> | FP16 | Phase 1 | NumPy float16 | CPU 可用，精度损失可接受 |
+> | BF16 | Phase 2 | PyTorch / 硬件支持 | NumPy 无原生支持，需 `ml_dtypes` 库 |
+> | INT8 | Phase 2 | 量化框架 | 需 Post-Training Quantization 或 QAT |
+>
+> **说明：** NumPy 原生不支持 BF16 和 INT8 量化模拟。BF16 需要 `ml_dtypes` 第三方库或 PyTorch；INT8 量化需要 PyTorch quantization 或 ONNX quantization 框架。**Phase 1 仅实现 FP32 + FP16，BF16 和 INT8 推到 Phase 2。**
 | 输入尺寸 (size) | `Small(64)`, `Medium(512)`, `Large(2048)`, `XLarge(4096)` | `Medium(512)` | 括号内为矩阵/特征图边长基准值 |
 | Batch Size | `1`, `4`, `16`, `64`, `256` | `16` | 批大小影响并行度和内存占用 |
 | Warmup 迭代 | 可配置 | `10` | 预热次数，排除冷启动影响 |
@@ -507,7 +534,7 @@ def compute_accuracy_metrics(y_test, y_ref, eps=1e-8):
     return metrics
 ```
 
-### 4.3 精度阈值标准
+### 4.3 精度阈值标准（初始推荐值，需根据实际数据调校）
 
 精度阈值参考 DeepLink AIChipBenchmark 验证标准、ONNX Runtime conformance tests 默认容差、以及 IEEE 754 浮点精度理论值。
 
@@ -557,6 +584,13 @@ def check_accuracy_verdict(metrics, dtype, operator_name):
     else:
         return "FAIL"
 ```
+
+> **⚠️ 阈值校准机制**
+> 1. 以上阈值为初始推荐值，基于 DeepLink / ONNX Runtime conformance tests 的经验数据
+> 2. Phase 1 上线后，收集实际评测数据（建议 100+ 组算子评测结果），统计各指标的分布情况
+> 3. 根据实际数据的 P95/P99 分位值，调校阈值到合理范围
+> 4. 阈值存储在数据库配置表中（不硬编码在脚本里），可通过管理后台动态调整
+> 5. 建议将阈值配置抽象为 JSON Schema，支持按算子类型、数据类型分别配置
 
 ### 4.4 各算子精度验证要点
 
@@ -709,6 +743,11 @@ Agent 上报的精度评测数据嵌入到算子评测结果中：
 ---
 
 ## 五、芯片/优化前后对比设计
+
+> **⚠️ 对比功能整体归入 Phase 2 实施**
+>
+> Phase 1 专注于精度验证基础和性能指标增强，对比 API 和前端对比展示推到 Phase 2。
+> Phase 1 的产出（标准化的性能 + 精度指标）为 Phase 2 对比功能提供数据基础。
 
 ### 5.1 对比维度
 
@@ -1472,36 +1511,41 @@ Response (200):
 
 ## 九、实施计划
 
-### Phase 1（第 1-2 周）：精度验证框架 + 性能指标增强
+### Phase 1（2 周）：精度验证框架 + 性能指标增强 + 评测脚本升级 + 模板更新
 
 | 任务 | 优先级 | 工作量 | 产出 |
 |------|--------|--------|------|
-| Agent 端：`operator_benchmark_v2.py` 新增精度验证模块 | P0 | 3d | 支持 3 种精度验证方法、9 个精度指标 |
+| Agent 端：精度验证框架（参考实现对比 + 精度指标计算） | P0 | 3d | 支持方法 1 参考对比、9 个精度指标、PASS/WARNING/FAIL 三级判定 |
 | Agent 端：性能指标增强（GFLOPS、算力利用率、内存占用、延迟 CV） | P0 | 2d | 补齐性能指标到 14 项 |
-| Agent 端：多精度支持（FP16/BF16/INT8） | P0 | 2d | 支持 4 种 dtype 的性能+精度测试 |
-| 后端：新增 `operator_perf_results` + `operator_accuracy_results` 表 | P0 | 1d | DDL + Migration |
-| 后端：结果解析服务（从 raw JSON 拆入结构化表） | P1 | 2d | 提交结果时自动拆入 |
-| 后端：精度验证汇总 API | P1 | 1d | `/accuracy-results/summary` |
-| 后端：对比报告 API（`POST /reports/compare`） | P1 | 2d | 跨芯片/跨精度/优化对比 |
+| Agent 端：FP16 多精度支持（FP32 + FP16） | P0 | 1d | 支持 --dtype 参数，FP16 性能+精度测试 |
+| Agent 端：补充 Phase 1 待实现算子（MaxPool, AvgPool, Dropout, Embedding） | P1 | 1d | 完成 14 个基础算子覆盖 |
+| 后端：芯片注册增加 peak_gflops 字段 | P0 | 1d | chips 表新增 peak_gflops_fp32/fp16/bandwidth |
+| 后端：评测结果精度指标存储 + 报告展示增强 | P0 | 2d | metrics_summary 包含精度指标，结果不再为空 {} |
+| 模板：更新评测模板（精度验证 + 性能增强配置） | P0 | 1d | 3 个更新/新增模板 |
 
-### Phase 2（第 3-4 周）：前端对比展示 + 评测模板升级
+> **⚠️ Phase 1 不含对比 API 和前端对比展示，专注于精度验证基础和性能指标增强。**
+
+### Phase 2（3 周）：对比 API + 前端对比展示 + BF16/INT8 + 新增算子
 
 | 任务 | 优先级 | 工作量 | 产出 |
 |------|--------|--------|------|
+| 后端：对比报告 API（`POST /reports/compare`） | P0 | 2d | 跨芯片/跨精度/优化对比 |
 | 前端：算子评测结果详情页（性能+精度双标签） | P0 | 3d | 表格 + 分布图 |
 | 前端：对比报告页面（分组柱状图 + 详细表格） | P0 | 3d | ECharts 柱状图 + 涨跌表格 |
 | 前端：精度热力图（算子 × 数据类型矩阵） | P1 | 2d | 红/黄/绿热力图 |
 | 前端：雷达图（多维指标综合对比） | P1 | 1d | ECharts 雷达图 |
-| 后端：评测模板升级（3 个预置算子模板 + JSON Schema） | P1 | 2d | 快速/标准/全面模板 |
+| Agent 端：BF16/INT8 多精度支持 | P1 | 2d | 需 ml_dtypes/PyTorch 依赖 |
+| Agent 端：新增算子（RMSNorm, Conv3D, DepthwiseConv, MLP, FusedConvBNReLU） | P1 | 2d | 算子融合验证 |
+| 后端：评测模板升级（JSON Schema + 全面评测模板） | P1 | 1d | 完整模板体系 |
 | 后端：Precision-Tradeoff 分析 API | P2 | 1d | tradeoff 折线图数据源 |
+| 后端：新增 `operator_perf_results` + `operator_accuracy_results` 结构化表 | P1 | 2d | 支持 SQL 查询和对比 |
 
-### Phase 3（第 5-6 周）：GPU 适配 + 多芯片对比 + 算子融合
+### Phase 3（2 周）：GPU 算子适配 + 多芯片对比 + 通信算子
 
 | 任务 | 优先级 | 工作量 | 产出 |
 |------|--------|--------|------|
 | Agent 端：GPU 算子评测（PyTorch CUDA 后端） | P0 | 3d | GPU 延迟/吞吐/显存/GFLOPS |
 | Agent 端：GPU 精度验证（CUDA kernel vs CPU FP64 参考） | P0 | 2d | GPU 精度指标 |
-| Agent 端：算子融合评测（FusedConvBNReLU、FusedMLP） | P1 | 2d | 融合前后性能+精度对比 |
 | 后端：多芯片横向对比报告生成 | P1 | 2d | 支持 3+ 芯片同时对比 |
 | 前端：多芯片对比大屏 | P2 | 3d | 综合对比看板 |
 | Agent 端：通信算子评测（AllReduce 等，需多卡环境） | P2 | 3d | 通信带宽/延迟指标 |
@@ -1510,9 +1554,9 @@ Response (200):
 
 | 时间节点 | 里程碑 | 验收标准 |
 |----------|--------|----------|
-| Week 2 末 | Phase 1 完成 | 在 Intel CPU 上跑通标准评测模板，产出包含精度验证的完整结果 JSON |
-| Week 4 末 | Phase 2 完成 | 前端可展示算子评测详情、精度热力图、跨芯片对比报告 |
-| Week 6 末 | Phase 3 完成 | GPU 评测跑通、多芯片对比报告、算子融合评测 |
+| Week 2 末 | Phase 1 完成 | 在 Intel CPU 上跑通标准评测模板（FP32+FP16），产出包含精度验证的完整结果 JSON，模板更新完成 |
+| Week 5 末 | Phase 2 完成 | 对比 API 上线，前端可展示算子评测详情、精度热力图、跨芯片对比报告，BF16/INT8 支持 |
+| Week 7 末 | Phase 3 完成 | GPU 评测跑通、多芯片对比报告、通信算子评测 |
 
 ---
 
@@ -1575,3 +1619,4 @@ Response (200):
 > | 版本 | 日期 | 变更内容 | 作者 |
 > |------|------|----------|------|
 > | v1.0 | 2026-04-08 | 初稿，覆盖性能评测 + 精度评测 + 对比设计 + API + 数据模型 | AHVP 产品团队 |
+> | v1.1 | 2026-04-08 | 评审修订：标注算子实现状态、明确多精度分期约束（Phase 1 仅 FP32+FP16）、peak_gflops 动态获取（不硬编码）、对比功能整体推 Phase 2、精度阈值标注初始推荐值 + 校准机制 | AHVP 产品团队 |
