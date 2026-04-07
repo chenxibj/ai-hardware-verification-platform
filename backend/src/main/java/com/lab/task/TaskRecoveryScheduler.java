@@ -42,7 +42,7 @@ public class TaskRecoveryScheduler {
             EvaluationTask.TaskStatus.SKIPPED
     );
 
-    @Scheduled(fixedRate = 60000) // 每分钟执行一次
+    @Scheduled(fixedRate = 10000) // 每分钟执行一次
     @Transactional
     public void recoverTasks() {
         try {

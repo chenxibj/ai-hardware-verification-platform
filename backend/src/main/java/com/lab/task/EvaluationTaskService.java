@@ -13,6 +13,7 @@ import com.lab.plan.EvaluationPlan;
 import java.util.List;
 import java.util.Optional;
 import com.lab.config.TaskLogWebSocketHandler;
+import org.springframework.context.ApplicationContext;
 
 /**
  * 评测任务服务
@@ -25,6 +26,7 @@ public class EvaluationTaskService {
     private final EvaluationTaskRepository taskRepository;
     private final EvaluationPlanRepository planRepository;
     private final TaskLogWebSocketHandler webSocketHandler;
+    private final ApplicationContext applicationContext;
 
     /**
      * 创建评测任务
@@ -108,6 +110,22 @@ public class EvaluationTaskService {
         log.info("Updated task {} status from {} to {}", taskId, oldStatus, status);
         // #229: Broadcast status change via WebSocket
         try { webSocketHandler.broadcastTaskStatus(taskId, status.name()); } catch (Exception e) { log.warn("WS broadcast failed: {}", e.getMessage()); }
+        
+        // 任务完成/失败后立刻触发下一个任务分发（不等 60s 定时扫描）
+        if (status == EvaluationTask.TaskStatus.COMPLETED || 
+            status == EvaluationTask.TaskStatus.FAILED ||
+            status == EvaluationTask.TaskStatus.CANCELLED) {
+            try {
+                TaskDispatcher dispatcher = applicationContext.getBean(TaskDispatcher.class);
+                Long planId = saved.getPlanId();
+                if (planId != null) {
+                    log.info("Task {} finished ({}), triggering immediate dispatch for plan {}", taskId, status, planId);
+                    dispatcher.dispatchPlanTasks(planId);
+                }
+            } catch (Exception e) {
+                log.warn("Immediate dispatch trigger failed: {}", e.getMessage());
+            }
+        }
         return saved;
     }
 
