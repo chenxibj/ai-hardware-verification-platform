@@ -1,11 +1,16 @@
 """心跳上报模块"""
+import json
 import logging
+import os
 import threading
 import time
 import requests
 from collector import get_system_metrics
 
 logger = logging.getLogger(__name__)
+
+# #216: 上报失败时本地持久化目录
+PENDING_DIR = "/tmp/ahvp-pending-results"
 
 
 class HeartbeatThread(threading.Thread):
@@ -23,6 +28,8 @@ class HeartbeatThread(threading.Thread):
         logger.info("心跳线程启动, 间隔 %ss, 节点 ID=%s", self.interval, self.node_id)
         while not self._stop_event.is_set():
             self._send_heartbeat()
+            # #216: 每次心跳后尝试重传失败的结果
+            self._retry_pending()
             self._stop_event.wait(self.interval)
 
     def stop(self):
@@ -44,3 +51,29 @@ class HeartbeatThread(threading.Thread):
                 logger.warning("心跳响应异常: %s %s", resp.status_code, resp.text)
         except Exception as e:
             logger.warning("心跳发送失败: %s", e)
+
+    def _retry_pending(self):
+        """#216: 重传上报失败的任务结果"""
+        if not os.path.exists(PENDING_DIR):
+            return
+        headers = {
+            "Content-Type": "application/json",
+            "X-Agent-Token": self.token,
+        }
+        for fname in os.listdir(PENDING_DIR):
+            if not fname.endswith(".json"):
+                continue
+            fpath = os.path.join(PENDING_DIR, fname)
+            try:
+                with open(fpath) as f:
+                    payload = json.load(f)
+                task_id = fname.replace(".json", "")
+                url = "{}/tasks/{}/result".format(self.platform_url, task_id)
+                resp = requests.post(url, json=payload, headers=headers, timeout=10)
+                if resp.status_code == 200:
+                    os.remove(fpath)
+                    logger.info("重传任务 %s 结果成功", task_id)
+                else:
+                    logger.warning("重传任务 %s 失败: %s %s", task_id, resp.status_code, resp.text)
+            except Exception as e:
+                logger.warning("重传失败: %s", e)

@@ -110,7 +110,7 @@ export default function TaskResult({ taskId, onBack }) {
       <Descriptions column={{ xs: 1, sm: 2 }} bordered size="small">
         <Descriptions.Item label="任务编号">{task.taskNo}</Descriptions.Item>
         <Descriptions.Item label="任务名称">{task.name}</Descriptions.Item>
-        <Descriptions.Item label="关联计划">{task.planId ? `计划 #${task.planId}` : "-"}</Descriptions.Item>
+        <Descriptions.Item label="关联任务">{task.planId ? `任务 #${task.planId}` : "-"}</Descriptions.Item>
         <Descriptions.Item label="关联芯片">{task.chipId ? `芯片 #${task.chipId}` : "-"}</Descriptions.Item>
         <Descriptions.Item label="评测类型"><Tag icon={<ExperimentOutlined />}>{task.evalType || "-"}</Tag></Descriptions.Item>
         <Descriptions.Item label="测试对象">{task.testSubject || "-"} / {task.testItem || "-"}</Descriptions.Item>

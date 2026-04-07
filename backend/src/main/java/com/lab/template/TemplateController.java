@@ -5,6 +5,8 @@ import com.lab.auth.Role;
 import com.lab.common.ApiResponse;
 import com.lab.common.BusinessException;
 import com.lab.common.ErrorCode;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -24,9 +26,37 @@ import java.util.stream.Collectors;
 public class TemplateController {
 
     private final TaskTemplateRepository templateRepository;
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+
+    /**
+     * 校验 configJson 中的 batchSizes 字段
+     * - 数组最多 8 个值
+     * - 每个值 <= 256
+     */
+    private String validateBatchSizes(String configJson) {
+        if (configJson == null || configJson.isBlank()) return null;
+        try {
+            JsonNode root = objectMapper.readTree(configJson);
+            JsonNode batchSizes = root.get("batchSizes");
+            if (batchSizes != null && batchSizes.isArray()) {
+                if (batchSizes.size() > 8) {
+                    return "batchSizes 最多 8 个值";
+                }
+                for (JsonNode bs : batchSizes) {
+                    if (bs.isNumber() && bs.intValue() > 256) {
+                        return "batchSizes 每个值不能超过 256";
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // JSON parse errors handled elsewhere
+        }
+        return null;
+    }
 
     /**
      * GET /api/templates — 列表（支持 level/evalType 筛选）
+     * 返回完整的 configJson 和 isSystem 标识
      */
     @GetMapping
     public ResponseEntity<ApiResponse<List<TaskTemplate>>> listTemplates(
@@ -49,13 +79,54 @@ public class TemplateController {
     }
 
     /**
-     * GET /api/templates/{id} — 详情
+     * GET /api/templates/{id} — 详情（返回完整 configJson）
      */
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<TaskTemplate>> getTemplate(@PathVariable Long id) {
         TaskTemplate template = templateRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "模板不存在: " + id));
         return ResponseEntity.ok(ApiResponse.ok(template));
+    }
+
+    /**
+     * POST /api/templates/{id}/clone — 克隆模板
+     * 复制模板所有配置，is_system=false，forkFrom 指向原模板 id
+     * 智能命名去重：第一次 "xxx (副本)"，之后 "xxx (副本 2)", "xxx (副本 3)"...
+     * 无需 ENGINEER 权限，任何登录用户都能克隆
+     */
+    @PostMapping("/{id}/clone")
+    public ResponseEntity<ApiResponse<TaskTemplate>> cloneTemplate(
+            @PathVariable Long id,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        if (userId == null) userId = 1L;
+
+        TaskTemplate source = templateRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "模板不存在: " + id));
+
+        // 智能命名：检查已有副本数量
+        String baseName = source.getName().replaceAll(" \\(副本.*\\)$", "");
+        long copyCount = templateRepository.countByNameStartingWith(baseName + " (副本");
+        String newName;
+        if (copyCount == 0) {
+            newName = baseName + " (副本)";
+        } else {
+            newName = baseName + " (副本 " + (copyCount + 1) + ")";
+        }
+
+        TaskTemplate clone = new TaskTemplate();
+        clone.setName(newName);
+        clone.setDescription(source.getDescription());
+        clone.setEvalType(source.getEvalType());
+        clone.setConfigJson(source.getConfigJson());
+        clone.setEvaluationLayer(source.getEvaluationLayer());
+        clone.setVersion(source.getVersion());
+        clone.setIsSystem(false);
+        clone.setForkFrom(source.getId());
+        clone.setCreatedBy(userId);
+
+        TaskTemplate saved = templateRepository.save(clone);
+        log.info("Cloned template: {} -> {} (id={})", source.getName(), saved.getName(), saved.getId());
+        return ResponseEntity.ok(ApiResponse.ok(saved));
     }
 
     /**
@@ -67,22 +138,24 @@ public class TemplateController {
             @RequestBody TaskTemplate template,
             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
         if (userId == null) userId = 1L;
-        // #198: 校验 configJson 非空且包含有效配置
-        String configJson = template.getConfigJson();
-        if (configJson != null && !configJson.isBlank() && !configJson.equals("{}")) {
-            if (!configJson.contains("operators") && !configJson.contains("models")
-                    && !configJson.contains("benchmarks") && !configJson.contains("itemCount")) {
-                throw new BusinessException(ErrorCode.BAD_REQUEST, "configJson 需包含 operators、models 等有效配置");
+        // 校验 configJson
+        if (template.getConfigJson() != null && !template.getConfigJson().isBlank()) {
+            try {
+                objectMapper.readTree(template.getConfigJson());
+            } catch (Exception e) {
+                return ResponseEntity.ok(ApiResponse.error("PARAM_INVALID", "configJson 不是有效的 JSON 格式"));
             }
+            // 校验 batchSizes
+            String batchError = validateBatchSizes(template.getConfigJson());
+            if (batchError != null) {
+                return ResponseEntity.ok(ApiResponse.error("PARAM_INVALID", batchError));
+            }
+        } else {
+            template.setConfigJson("{}");
         }
         template.setId(null);
         template.setIsSystem(false);
         template.setCreatedBy(userId);
-        // Bug #198: 校验 configJson 不能为空
-        if (template.getConfigJson() == null || template.getConfigJson().trim().isEmpty()
-                || template.getConfigJson().equals("{}")) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "模板配置不能为空，请至少选择一个评测算子或模型");
-        }
         TaskTemplate saved = templateRepository.save(template);
         log.info("Created custom template: {} (id={})", saved.getName(), saved.getId());
         return ResponseEntity.ok(ApiResponse.ok(saved));
@@ -101,6 +174,14 @@ public class TemplateController {
 
         if (Boolean.TRUE.equals(existing.getIsSystem())) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "系统模板不可编辑");
+        }
+
+        // 校验 batchSizes
+        if (update.getConfigJson() != null) {
+            String batchError = validateBatchSizes(update.getConfigJson());
+            if (batchError != null) {
+                return ResponseEntity.ok(ApiResponse.error("PARAM_INVALID", batchError));
+            }
         }
 
         if (update.getName() != null) existing.setName(update.getName());

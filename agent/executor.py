@@ -11,6 +11,9 @@ from collector import collect_during_execution
 
 logger = logging.getLogger(__name__)
 
+# #216: 上报失败时本地持久化目录
+PENDING_DIR = "/tmp/ahvp-pending-results"
+
 
 class TaskExecutor:
     """管理评测任务的执行"""
@@ -40,8 +43,16 @@ class TaskExecutor:
         self.node_id = node_id
         self.platform_url = config["platform"]["url"]
         self.token = config["platform"]["token"]
-        self.scripts_dir = config["eval_scripts_dir"]
-        self.project_root = config["project_root"]
+        # #220: 支持相对路径（相对于 agent 目录）
+        scripts_dir = config["eval_scripts_dir"]
+        if not os.path.isabs(scripts_dir):
+            scripts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), scripts_dir)
+        self.scripts_dir = os.path.realpath(scripts_dir)
+        # #220: project_root 也支持相对路径
+        project_root = config["project_root"]
+        if not os.path.isabs(project_root):
+            project_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), project_root)
+        self.project_root = os.path.realpath(project_root)
         self.current_task = None
         self._lock = threading.Lock()
 
@@ -133,7 +144,6 @@ class TaskExecutor:
                     prefix = "[STDERR] " if is_stderr else ""
                     with log_buffer_lock:
                         log_buffer.append(prefix + line)
-                        # 检查是否需要 flush
                         should_flush = (
                             len(log_buffer) >= self.LOG_FLUSH_LINES or
                             time.time() - last_flush_time[0] >= self.LOG_FLUSH_INTERVAL
@@ -182,6 +192,9 @@ class TaskExecutor:
             stdout_text = "".join(stdout_lines)
             stderr_text = "".join(stderr_lines)
             logger.info("任务 %s 执行完成, 耗时 %.1fs, 返回码 %s", task_id, elapsed, returncode)
+
+            # #217: 保存任务日志到本地
+            self._save_task_log(task_id, eval_type, params, cmd_str, stdout_text, stderr_text)
 
             if returncode != 0:
                 raise RuntimeError("脚本执行失败 (code={}): {}".format(returncode, stderr_text))
@@ -236,6 +249,24 @@ class TaskExecutor:
         except Exception as e:
             logger.warning("Log upload error for task %s: %s", task_id, e)
 
+    def _save_task_log(self, task_id, eval_type, params, cmd_str, stdout_text, stderr_text):
+        """#217: 保存任务执行日志到 logs/{taskId}.log"""
+        try:
+            task_log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+            os.makedirs(task_log_dir, exist_ok=True)
+            task_log_path = os.path.join(task_log_dir, "{}.log".format(task_id))
+            with open(task_log_path, "w") as f:
+                f.write("=== Task {} ===\n".format(task_id))
+                f.write("Type: {}\nParams: {}\n".format(eval_type, json.dumps(params, ensure_ascii=False)))
+                f.write("Script: {}\n\n".format(cmd_str))
+                f.write("=== STDOUT ===\n")
+                f.write(stdout_text or "")
+                f.write("\n=== STDERR ===\n")
+                f.write(stderr_text or "")
+            logger.info("任务日志已保存: %s", task_log_path)
+        except Exception as e:
+            logger.warning("保存任务日志失败: %s", e)
+
     def _report_result(self, task_id, status, result, logs=""):
         """上报执行结果到平台"""
         url = "{}/tasks/{}/result".format(self.platform_url, task_id)
@@ -254,8 +285,23 @@ class TaskExecutor:
                 logger.info("任务 %s 结果上报成功, status=%s", task_id, status)
             else:
                 logger.error("任务 %s 结果上报失败: %s %s", task_id, resp.status_code, resp.text)
+                # #216: 上报失败，持久化到本地
+                self._save_pending_result(task_id, payload)
         except Exception as e:
             logger.error("任务 %s 结果上报异常: %s", task_id, e)
+            # #216: 上报异常，持久化到本地
+            self._save_pending_result(task_id, payload)
+
+    def _save_pending_result(self, task_id, payload):
+        """#216: 上报失败时将结果持久化到本地，等待心跳重传"""
+        try:
+            os.makedirs(PENDING_DIR, exist_ok=True)
+            fpath = os.path.join(PENDING_DIR, "{}.json".format(task_id))
+            with open(fpath, "w") as f:
+                json.dump(payload, f, ensure_ascii=False)
+            logger.info("任务 %s 结果已持久化到 %s，等待重传", task_id, fpath)
+        except Exception as e:
+            logger.error("持久化任务结果失败: %s", e)
 
 
 class MetricsCollector(threading.Thread):

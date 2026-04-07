@@ -1,6 +1,8 @@
 package com.lab.scoring;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lab.log.TaskLog;
+import com.lab.log.TaskLogRepository;
 import com.lab.plan.EvaluationPlan;
 import com.lab.plan.EvaluationPlanRepository;
 import com.lab.result.EvaluationResult;
@@ -31,6 +33,7 @@ public class TaskCompleteController {
     private final EvaluationResultRepository resultRepository;
     private final EvaluationPlanRepository planRepository;
     private final ReportGenerator reportGenerator;
+    private final TaskLogRepository taskLogRepository;
     private final ObjectMapper objectMapper;
 
     @PostMapping("/{taskId}/complete")
@@ -69,7 +72,7 @@ public class TaskCompleteController {
         result.setChipId(task.getChipId());
         result.setPassed(request.getPassed() != null ? request.getPassed() : false);
         result.setMetricsSummary(metricsSummary);
-        result.setRawData(metricsSummary); // raw_data 也写入完整指标
+        result.setRawData(metricsSummary);
         result.setErrorMessage(request.getErrorMessage());
         resultRepository.save(result);
 
@@ -80,6 +83,18 @@ public class TaskCompleteController {
         task.setProgress(100);
         taskRepository.save(task);
 
+        // 4.5 写入执行日志
+        try {
+            String logMsg = String.format("任务执行完成 - %s | passed=%s | latencyMean=%s | throughput=%s",
+                    task.getName(),
+                    passed,
+                    request.getLatencyMean() != null ? request.getLatencyMean() + "ms" : "N/A",
+                    request.getThroughput() != null ? String.valueOf(request.getThroughput()) : "N/A");
+            taskLogRepository.save(new TaskLog(taskId, "INFO", logMsg, metricsSummary));
+        } catch (Exception e) {
+            log.warn("Failed to write task log for task {}: {}", taskId, e.getMessage());
+        }
+
         // 5. 更新 Plan 进度
         Map<String, Object> responseData = new LinkedHashMap<>();
         responseData.put("taskId", taskId);
@@ -88,7 +103,6 @@ public class TaskCompleteController {
         if (task.getPlanId() != null) {
             EvaluationPlan plan = planRepository.findById(task.getPlanId()).orElse(null);
             if (plan != null) {
-                // 统计已完成任务数（COMPLETED + FAILED 都算完成）
                 List<EvaluationTask> planTasks = taskRepository.findByPlanId(plan.getId());
                 long completedCount = planTasks.stream()
                         .filter(t -> t.getStatus() == EvaluationTask.TaskStatus.COMPLETED
@@ -112,7 +126,7 @@ public class TaskCompleteController {
                     plan.setProgress(100);
                     planRepository.save(plan);
 
-                    log.info("Plan {} all tasks done, generating report...", plan.getPlanNo());
+                    log.info("Evaluation task {} all sub-tasks done, generating report...", plan.getPlanNo());
 
                     // 自动生成报告
                     try {
@@ -122,7 +136,7 @@ public class TaskCompleteController {
                         responseData.put("reportNo", report.getReportNo());
                         responseData.put("overallScore", report.getOverallScore());
                     } catch (Exception e) {
-                        log.error("Failed to generate report for plan {}: {}", plan.getId(), e.getMessage(), e);
+                        log.error("Failed to generate report for evaluation task {}: {}", plan.getId(), e.getMessage(), e);
                         responseData.put("reportGenerated", false);
                         responseData.put("reportError", e.getMessage());
                     }

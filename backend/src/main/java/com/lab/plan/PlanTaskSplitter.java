@@ -15,8 +15,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * 评测计划→任务自动拆分服务
- * 根据评测计划的预设方案（QUICK/STANDARD/FULL），自动拆分为评测任务
+ * 评测任务→任务自动拆分服务
+ * 根据评测任务的预设方案（QUICK/STANDARD/FULL），自动拆分为评测任务
  */
 @Slf4j
 @Service

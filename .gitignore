@@ -9,3 +9,9 @@ frontend-dist/
 *.LICENSE.txt
 .env
 package-lock.json
+agent/__pycache__/
+
+# Agent logs
+agent/logs/*.log
+agent/__pycache__/
+agent/*.pyc

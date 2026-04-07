@@ -24,8 +24,8 @@ public interface EvaluationTaskRepository extends JpaRepository<EvaluationTask, 
     Page<EvaluationTask> findByStatus(EvaluationTask.TaskStatus status, Pageable pageable);
 
     @Query("SELECT t FROM EvaluationTask t WHERE t.createdBy = :userId AND t.status = :status")
-    Page<EvaluationTask> findByUserIdAndStatus(@Param("userId") Long userId, 
-                                                @Param("status") EvaluationTask.TaskStatus status, 
+    Page<EvaluationTask> findByUserIdAndStatus(@Param("userId") Long userId,
+                                                @Param("status") EvaluationTask.TaskStatus status,
                                                 Pageable pageable);
 
     @Query("SELECT t FROM EvaluationTask t WHERE t.status = 'QUEUED' ORDER BY t.priority ASC, t.createdAt ASC")
@@ -34,6 +34,7 @@ public interface EvaluationTaskRepository extends JpaRepository<EvaluationTask, 
     List<EvaluationTask> findByPlanId(Long planId);
     Page<EvaluationTask> findByPlanId(Long planId, Pageable pageable);
     long countByCreatedByAndStatus(Long userId, EvaluationTask.TaskStatus status);
+    long countByPlanIdAndStatus(Long planId, EvaluationTask.TaskStatus status);
 
     // #222 - TaskDispatcher queries
     List<EvaluationTask> findByPlanIdAndStatus(Long planId, EvaluationTask.TaskStatus status);

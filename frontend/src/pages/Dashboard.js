@@ -1,6 +1,6 @@
 /**
  * @file Dashboard.js
- * @description 工作台总览页 — 统计卡片 + 实时动态 + 雷达图 + 最近评测计划 + 快速操作
+ * @description 工作台总览页 — 统计卡片 + 实时动态 + 雷达图 + 最近评测任务 + 快速操作
  * @feat #166
  */
 import React, { useState, useEffect, useCallback } from "react";
@@ -183,7 +183,7 @@ export default function Dashboard() {
         ))}
       </Row>
 
-      {/* 中间区域：实时动态 + 最近评测计划 */}
+      {/* 中间区域：实时动态 + 最近评测任务 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         {/* 左侧：实时动态 + 雷达图 */}
         <Col xs={24} lg={12}>
@@ -236,10 +236,10 @@ export default function Dashboard() {
           </Card>
         </Col>
 
-        {/* 右侧：最近评测计划 */}
+        {/* 右侧：最近评测任务 */}
         <Col xs={24} lg={12}>
           <Card
-            title="最近评测计划"
+            title="最近评测任务"
             size="small"
             extra={<Button type="link" size="small">查看全部</Button>}
             style={{ height: "100%" }}
@@ -287,12 +287,12 @@ export default function Dashboard() {
               />
             ) : (
               <Empty
-                description="暂无评测计划"
+                description="暂无评测任务"
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
                 style={{ padding: "40px 0" }}
               >
                 <Button type="primary" icon={<RocketOutlined />}>
-                  创建第一个评测计划
+                  创建第一个评测任务
                 </Button>
               </Empty>
             )}

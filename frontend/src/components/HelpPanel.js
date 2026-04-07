@@ -3,7 +3,7 @@ import { Drawer, Collapse, Form, Input, Button, message, FloatButton } from "ant
 import { QuestionCircleOutlined } from "@ant-design/icons";
 import api from "../utils/api";
 const FAQ_LIST = [
-  { q: "如何创建评测计划？", a: "进入评测计划页面，点击创建计划按钮，按照6步向导完成配置。" },
+  { q: "如何创建评测任务？", a: "进入评测任务页面，点击创建任务按钮，按照6步向导完成配置。" },
   { q: "如何查看评测报告？", a: "在评测报告页面可查看所有已完成的报告，点击查看进入详情。" },
   { q: "如何注册芯片？", a: "进入芯片管理页面，点击注册芯片，填写芯片基本信息即可。" },
   { q: "如何管理计算节点？", a: "在资源管理 > 计算节点中添加和管理您的计算资源。" },

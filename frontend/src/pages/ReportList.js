@@ -81,8 +81,8 @@ export default function ReportList({ onViewReport, onCompareReports }) {
           ),
           ...planIds.filter(id => !newPlanMap[id]).map(id =>
             api.get("/plans/" + id).then(pr => {
-              if (pr.data?.code === 0) newPlanMap[id] = pr.data.data?.name || "计划#" + id;
-            }).catch(() => { newPlanMap[id] = "计划#" + id; })
+              if (pr.data?.code === 0) newPlanMap[id] = pr.data.data?.name || "任务#" + id;
+            }).catch(() => { newPlanMap[id] = "任务#" + id; })
           ),
         ]);
         setChipMap(newChipMap);
@@ -144,8 +144,8 @@ export default function ReportList({ onViewReport, onCompareReports }) {
       render: (_, r) => chipMap[r.chipId] || "芯片#" + r.chipId,
     },
     {
-      title: "计划名称", key: "planName", width: 140,
-      render: (_, r) => planMap[r.planId] || "计划#" + r.planId,
+      title: "任务名称", key: "planName", width: 140,
+      render: (_, r) => planMap[r.planId] || "任务#" + r.planId,
     },
     {
       title: "综合评分", dataIndex: "overallScore", key: "overallScore", width: 110, align: "center",

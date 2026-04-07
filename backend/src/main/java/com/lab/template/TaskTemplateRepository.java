@@ -15,4 +15,6 @@ public interface TaskTemplateRepository extends JpaRepository<TaskTemplate, Long
 
     @Query("SELECT t FROM TaskTemplate t WHERE t.isSystem = true OR t.createdBy = :userId")
     List<TaskTemplate> findAvailableTemplates(@Param("userId") Long userId);
+
+    long countByNameStartingWith(String prefix);
 }

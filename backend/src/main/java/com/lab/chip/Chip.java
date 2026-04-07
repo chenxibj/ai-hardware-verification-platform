@@ -41,6 +41,15 @@ public class Chip {
     @Column(name = "chip_type", nullable = false, length = 16)
     private ChipType chipType;
 
+    @Column(length = 100)
+    private String architecture;
+
+    @Column(length = 100)
+    private String generation;
+
+    @Column(name = "model_name", length = 200)
+    private String modelName;
+
     @JsonAlias({"specs"})
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "tech_spec", columnDefinition = "jsonb")
@@ -59,6 +68,10 @@ public class Chip {
     @Column(name = "capability_profile", columnDefinition = "jsonb")
     private String capabilityProfile;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "profile_data", columnDefinition = "jsonb")
+    private String profileData;
+
     private String tags;
     private String remark;
 
@@ -74,10 +87,10 @@ public class Chip {
     private Instant updatedAt;
 
     public enum ChipType {
-        GPU, NPU, TPU, CPU, OTHER
+        GPU, NPU, TPU, CPU, FPGA, ASIC, OTHER
     }
 
     public enum ChipStatus {
-        UNEVALUATED, EVALUATING, EVALUATED
+        UNEVALUATED, EVALUATING, EVALUATED, REGISTERED, ARCHIVED
     }
 }

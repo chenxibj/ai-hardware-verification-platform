@@ -95,13 +95,13 @@ export default function PlanMonitor({ planId, onBack }) {
   const logTimerRef = useRef(null);
   const startTimeRef = useRef(Date.now());
 
-  /* ── 获取计划信息 ── */
+  /* ── 获取任务信息 ── */
   const fetchPlan = useCallback(async () => {
     try {
       const { data: resp } = await api.get(`/plans/${planId}`);
       if (resp.code === 0) setPlan(resp.data);
     } catch (e) {
-      console.error("获取计划信息失败", e);
+      console.error("获取任务信息失败", e);
     }
   }, [planId]);
 
@@ -167,11 +167,11 @@ export default function PlanMonitor({ planId, onBack }) {
     pause:  { title: '确认暂停', content: '暂停后正在运行的任务将继续完成，新任务不再启动。', okText: '确认暂停' },
     resume: { title: '确认恢复', content: '恢复后将继续执行排队中的任务。', okText: '确认恢复' },
     start:  { title: '确认启动', content: '启动后将开始执行评测任务。', okText: '确认启动' },
-    cancel: { title: '确认取消', content: '取消后该计划将停止执行，已完成的任务结果保留。确认取消？', okText: '确认取消', okType: 'danger' },
+    cancel: { title: '确认取消', content: '取消后该任务将停止执行，已完成的任务结果保留。确认取消？', okText: '确认取消', okType: 'danger' },
   };
 
   const handlePlanAction = (action, label) => {
-    const confirmCfg = PLAN_ACTION_CONFIRM[action] || { title: `确认${label}`, content: `确定要${label}该计划吗？`, okText: '确认' };
+    const confirmCfg = PLAN_ACTION_CONFIRM[action] || { title: `确认${label}`, content: `确定要${label}该任务吗？`, okText: '确认' };
     Modal.confirm({
       title: confirmCfg.title,
       content: confirmCfg.content,
@@ -343,7 +343,7 @@ export default function PlanMonitor({ planId, onBack }) {
       {/* 返回按钮 */}
       <Button type="link" icon={<ArrowLeftOutlined />} onClick={onBack}
         style={{ marginBottom: 12, paddingLeft: 0 }}>
-        返回计划列表
+        返回任务列表
       </Button>
 
       {/* ── 顶部: 资源仪表盘 (#163) ── */}
@@ -389,7 +389,7 @@ export default function PlanMonitor({ planId, onBack }) {
         </Row>
       </Card>
 
-      {/* ── 计划信息 + 整体进度 ── */}
+      {/* ── 任务信息 + 整体进度 ── */}
       <Card style={{ marginBottom: 16 }}>
         <Row align="middle" justify="space-between" style={{ marginBottom: 16 }}>
           <Col>

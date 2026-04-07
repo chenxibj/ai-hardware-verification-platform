@@ -1,6 +1,6 @@
 /**
  * @file PlanList.js
- * @description 评测计划列表 — 统计卡片 + 筛选表格 + 详情抽屉 + 操作
+ * @description 评测任务列表 — 统计卡片 + 筛选表格 + 详情抽屉 + 操作
  * Issue: #132
  */
 import React, { useState, useEffect, useCallback } from "react";
@@ -76,7 +76,7 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailRecord, setDetailRecord] = useState(null);
 
-  /* ── API: 获取计划列表 ── */
+  /* ── API: 获取任务列表 ── */
   const fetchPlans = useCallback(async () => {
     setLoading(true);
     try {
@@ -172,7 +172,7 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
   /* ── 表格列 ── */
   const columns = [
     {
-      title: "计划编号", dataIndex: "planNo", key: "planNo", width: 180,
+      title: "任务编号", dataIndex: "planNo", key: "planNo", width: 180,
       render: (v, record) => (
         <Text copyable={{ text: v || `PLAN-${record.id}` }} style={{ fontSize: 13 }}>
           {v || `PLAN-${record.id}`}
@@ -252,7 +252,7 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
             )}
 
             {(st === "RUNNING" || st === "PAUSED") && (
-              <Popconfirm title="确定取消该计划?" onConfirm={() => handleAction(record.id, "cancel", "取消")} okText="确定" cancelText="取消">
+              <Popconfirm title="确定取消该任务?" onConfirm={() => handleAction(record.id, "cancel", "取消")} okText="确定" cancelText="取消">
                 <Tooltip title="取消">
                   <Button type="link" size="small" icon={<StopOutlined />} style={{ color: "#ff4d4f" }} />
                 </Tooltip>
@@ -260,7 +260,7 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
             )}
 
             {(st === "DRAFT" || st === "COMPLETED" || st === "FAILED" || st === "CANCELLED") && (
-              <Popconfirm title="确定删除该计划?" onConfirm={() => handleDelete(record.id)} okText="删除" cancelText="取消">
+              <Popconfirm title="确定删除该任务?" onConfirm={() => handleDelete(record.id)} okText="删除" cancelText="取消">
                 <Tooltip title="删除">
                   <Button type="link" size="small" danger icon={<DeleteOutlined />} />
                 </Tooltip>
@@ -279,7 +279,7 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col xs={12} sm={6}>
           <Card hoverable>
-            <Statistic title="计划总数" value={stats.total} prefix={<FileTextOutlined />} />
+            <Statistic title="任务总数" value={stats.total} prefix={<FileTextOutlined />} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
@@ -301,7 +301,7 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
 
       {/* 工具栏 + 表格 */}
       <Card
-        title="评测计划列表"
+        title="评测任务列表"
         extra={
           <Space>
             <Select
@@ -317,7 +317,7 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
               {Object.entries(PLAN_STATUS_MAP).map(([k, v]) => <Option key={k} value={k}>{v.text}</Option>)}
             </Select>
             <Button icon={<ReloadOutlined />} onClick={() => { fetchPlans(); }}>刷新</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => onCreatePlan && onCreatePlan()}>创建计划</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => onCreatePlan && onCreatePlan()}>创建任务</Button>
           </Space>
         }
       >
@@ -340,7 +340,7 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
 
       {/* 详情抽屉 */}
       <Drawer
-        title={detailRecord ? `计划详情 — ${detailRecord.name}` : "计划详情"}
+        title={detailRecord ? `任务详情 — ${detailRecord.name}` : "任务详情"}
         open={detailVisible}
         onClose={() => setDetailVisible(false)}
         width={560}
@@ -350,10 +350,10 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
           const st = PLAN_STATUS_MAP[detailRecord.status] || { text: detailRecord.status, badge: "default" };
           return (
             <Descriptions column={1} bordered size="small">
-              <Descriptions.Item label="计划编号">
+              <Descriptions.Item label="任务编号">
                 {detailRecord.planNo || `PLAN-${detailRecord.id}`}
               </Descriptions.Item>
-              <Descriptions.Item label="计划名称">{detailRecord.name}</Descriptions.Item>
+              <Descriptions.Item label="任务名称">{detailRecord.name}</Descriptions.Item>
               <Descriptions.Item label="关联芯片">
                 <Link to="/chips">{getChipName(detailRecord)}</Link>
               </Descriptions.Item>

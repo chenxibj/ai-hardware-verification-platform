@@ -12,7 +12,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.Instant;
 
 /**
- * 评测计划实体类
+ * 评测任务实体类
  */
 @Data
 @Entity

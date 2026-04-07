@@ -58,18 +58,17 @@ public class NodeMetricsController {
             }
         }
 
-        // Generate mock time-series for charts (from hardwareInfo snapshot)
-        // In production, this would query a metrics_history table
-        List<Map<String, Object>> history = generateMetricsHistory(metrics, hours);
+        // TODO: [MVP-1] Replace with real metrics_history query. Currently generating synthetic time-series for chart rendering.
+        List<Map<String, Object>> history = generateSyntheticMetricsHistory(metrics, hours);
         metrics.put("history", history);
 
         return ApiResponse.ok(metrics);
     }
 
     /**
-     * 基于当前值生成历史数据点（带轻微波动），用于前端图表渲染
+     * TODO: [MVP-1] 基于当前快照值生成合成历史数据点（带轻微波动），用于前端图表渲染。生产环境应查询 metrics_history 表获取真实时序数据。
      */
-    private List<Map<String, Object>> generateMetricsHistory(Map<String, Object> current, int hours) {
+    private List<Map<String, Object>> generateSyntheticMetricsHistory(Map<String, Object> current, int hours) {
         List<Map<String, Object>> history = new ArrayList<>();
         int points = hours * 12; // 每5分钟一个点
         Instant now = Instant.now();

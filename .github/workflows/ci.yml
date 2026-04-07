@@ -38,6 +38,10 @@ jobs:
           API_BASE: http://localhost:8080/api
         run: npx playwright test --reporter=list
 
+      - name: Cleanup test data
+        if: always()
+        run: bash deploy/cleanup-test-data.sh
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -59,3 +63,7 @@ jobs:
           cd backend-tests
           chmod +x run-tests.sh
           ./run-tests.sh
+
+      - name: Cleanup test data
+        if: always()
+        run: bash deploy/cleanup-test-data.sh

@@ -313,7 +313,7 @@ export default function Reports() {
               </Row>
               <Descriptions bordered column={2} size="small" style={{ marginBottom: 16 }}>
                 <Descriptions.Item label="报告编号"><Text copyable>{reportDetail.reportNo}</Text></Descriptions.Item>
-                <Descriptions.Item label="计划ID">{reportDetail.planId || "-"}</Descriptions.Item>
+                <Descriptions.Item label="任务ID">{reportDetail.planId || "-"}</Descriptions.Item>
                 <Descriptions.Item label="瓶颈分析" span={2}>
                   <Paragraph ellipsis={{ rows: 3, expandable: true }}>{reportDetail.bottleneckAnalysis || "暂无"}</Paragraph>
                 </Descriptions.Item>

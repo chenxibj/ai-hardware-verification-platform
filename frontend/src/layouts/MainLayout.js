@@ -18,6 +18,7 @@ import {
 } from "@ant-design/icons";
 import useAuthStore from "../stores/useAuthStore";
 import useNotificationStore from "../stores/useNotificationStore";
+import logoSvg from "../assets/logo.svg";
 
 const { Header, Sider, Content, Footer } = Layout;
 const { Text } = Typography;
@@ -27,8 +28,8 @@ const PAGE_TITLES = {
   chips: "芯片管理",
   "chip-compare": "芯片对比",
   "template-list": "评测模板",
-  plans: "评测计划",
-  "plans-create": "创建评测计划",
+  plans: "评测任务",
+  "plans-create": "创建评测任务",
   "report-list": "评测报告",
   nodes: "节点管理",
   "resource-pools": "资源池管理",
@@ -58,8 +59,8 @@ const BREADCRUMB_MAP = {
   chips: [{ title: "评测中心" }, { title: "芯片管理" }],
   "chip-compare": [{ title: "评测中心" }, { title: "芯片对比" }],
   "template-list": [{ title: "评测中心" }, { title: "评测模板" }],
-  plans: [{ title: "评测中心" }, { title: "评测计划" }],
-  "plans-create": [{ title: "评测中心" }, { title: "创建计划" }],
+  plans: [{ title: "评测中心" }, { title: "评测任务" }],
+  "plans-create": [{ title: "评测中心" }, { title: "创建任务" }],
   "report-list": [{ title: "评测中心" }, { title: "评测报告" }],
   nodes: [{ title: "资源管理" }, { title: "节点管理" }],
   "resource-pools": [{ title: "资源管理" }, { title: "资源池" }],
@@ -101,7 +102,7 @@ const menuItems = [
     children: [
       { key: "chips", icon: <UnorderedListOutlined />, label: "芯片管理" },
       { key: "template-list", icon: <AppstoreOutlined />, label: "评测模板" },
-      { key: "plans", icon: <FileSearchOutlined />, label: "评测计划" },
+      { key: "plans", icon: <FileSearchOutlined />, label: "评测任务" },
       { key: "report-list", icon: <ProfileOutlined />, label: "评测报告" },
     ],
   },
@@ -198,8 +199,8 @@ export default function MainLayout({ currentPage, setCurrentPage, children }) {
           padding: "0 12px", overflow: "hidden", whiteSpace: "nowrap",
         }}>
           {collapsed
-            ? <span style={{ fontSize: 20 }}>🔬</span>
-            : <span>🔬 <strong>AI验证平台</strong></span>
+            ? <img src={logoSvg} alt="logo" style={{ width: 28, height: 28 }} />
+            : <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><img src={logoSvg} alt="logo" style={{ width: 24, height: 24 }} /><strong style={{ background: 'linear-gradient(135deg, #4FC3F7, #7C4DFF)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontSize: 13, letterSpacing: 1 }}>AI软硬件验证</strong></span>
           }
         </div>
         <Menu

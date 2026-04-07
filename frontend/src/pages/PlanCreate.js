@@ -1,6 +1,6 @@
 /**
  * @file PlanCreate.js
- * @description 创建评测计划 — 6步向导
+ * @description 创建评测任务 — 6步向导
  * Issue: #162 - 评测任务创建6步向导
  * Steps: 选芯片 → 选模板 → 选评测项 → 配参数 → 选节点 → 确认提交
  */
@@ -324,13 +324,15 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
           warmupIterations: advancedConfig.warmupIterations,
           benchmarkIterations: advancedConfig.benchmarkIterations,
           itemCount: countEvalItems(selectedTemplate),
+          selectedItems: checkedKeys || [],
+          customItems: customItems || [],
         }),
         nodeId: selectedNodeIds.length > 0 ? selectedNodeIds[0] : null,
         status: runNow ? "RUNNING" : "DRAFT",
       };
       const { data: resp } = await api.post("/plans", payload);
       if (resp.code === 0) {
-        message.success(runNow ? "计划已创建并启动执行" : "计划已保存为草稿");
+        message.success(runNow ? "任务已创建并启动执行" : "任务已保存为草稿");
         setCreatedPlanId(resp.data?.id || resp.data);
         setSubmitted(true);
       } else {
@@ -367,26 +369,26 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
       <Card>
         <Result
           status="success"
-          title="\u8bc4\u6d4b\u8ba1\u5212\u521b\u5efa\u6210\u529f\uff01"
-          subTitle={createdPlanId ? `\u8ba1\u5212\u7f16\u53f7: ${createdPlanId}` : `\u8ba1\u5212\u540d\u79f0\uff1a${generateName()}`}
+          title="评测任务创建成功！"
+          subTitle={createdPlanId ? `任务编号: ${createdPlanId}` : `任务名称：${generateName()}`}
           extra={[
             <Button type="primary" key="monitor" onClick={() => {
               if (onOpenMonitor && createdPlanId) { onOpenMonitor(createdPlanId); }
               else { navigate("/plans"); }
             }}>
-              \u67e5\u770b\u76d1\u63a7
+              查看监控
             </Button>,
             <Button key="list" onClick={() => {
               if (onBack) { onBack(); }
               else { navigate("/plans"); }
             }}>
-              \u8fd4\u56de\u5217\u8868
+              返回列表
             </Button>,
             <Button key="create" onClick={() => {
               setCurrent(0); setSelectedChipId(null); setSelectedTemplateId(null);
               setSelectedPreset("STANDARD"); setSelectedNodeIds([]); setSubmitted(false);
               setCreatedPlanId(null);
-            }}>\u7ee7\u7eed\u521b\u5efa</Button>,
+            }}>继续创建</Button>,
           ]}
         />
       </Card>
@@ -972,9 +974,9 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
   const renderStep6 = () => (
     <div>
       <Card style={{ marginBottom: 16 }}>
-        <Title level={5}>📋 评测计划摘要</Title>
+        <Title level={5}>📋 评测任务摘要</Title>
         <Descriptions column={{ xs: 1, sm: 2 }} bordered size="small">
-          <Descriptions.Item label="计划名称" span={2}>
+          <Descriptions.Item label="任务名称" span={2}>
             <Text strong>{generateName()}</Text>
           </Descriptions.Item>
           <Descriptions.Item label="① 目标芯片">

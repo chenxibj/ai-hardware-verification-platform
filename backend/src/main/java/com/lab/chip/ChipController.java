@@ -1,30 +1,24 @@
 package com.lab.chip;
 
-import com.lab.auth.RequireRole;
-import com.lab.auth.Role;
-import com.lab.common.ApiResponse;
-import com.lab.common.BusinessException;
-import com.lab.common.ErrorCode;
-import com.lab.common.PageResponse;
-import jakarta.validation.Valid;
+import com.lab.user.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import com.lab.chipreport.ChipReport;
 import com.lab.chipreport.ChipReportRepository;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
- * 芯片管理控制器
- * Enhanced: #159 — @Valid + DTO 参数校验
+ * 芯片管理控制器（v3.2适配）
  */
 @Slf4j
 @RestController
@@ -36,103 +30,144 @@ public class ChipController {
     private final ChipReportRepository chipReportRepository;
 
     /**
-     * 创建芯片 — 需要 ENGINEER 及以上
-     * Enhanced: 使用 ChipCreateRequest DTO + @Valid 校验
+     * 预置厂商列表
      */
-    @PostMapping
-    @RequireRole(Role.ENGINEER)
-    public ResponseEntity<ApiResponse<Chip>> createChip(
-            @Valid @RequestBody ChipCreateRequest request,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        if (userId == null) userId = 1L;
-        Chip created = chipService.createChip(request, userId);
-        return ResponseEntity.ok(ApiResponse.ok(created));
+    private static final List<Map<String, String>> VENDORS = List.of(
+            Map.of("id", "huawei", "name", "华为（昇腾）"),
+            Map.of("id", "cambricon", "name", "寒武纪"),
+            Map.of("id", "hygon", "name", "海光"),
+            Map.of("id", "sensetime", "name", "商汤"),
+            Map.of("id", "baidu", "name", "百度（昆仑芯）"),
+            Map.of("id", "nvidia", "name", "NVIDIA"),
+            Map.of("id", "amd", "name", "AMD"),
+            Map.of("id", "intel", "name", "Intel"),
+            Map.of("id", "biren", "name", "壁仞"),
+            Map.of("id", "mthreads", "name", "摩尔线程"),
+            Map.of("id", "iluvatar", "name", "天数智芯"),
+            Map.of("id", "enflame", "name", "燧原科技"),
+            Map.of("id", "corerain", "name", "鲲云科技"),
+            Map.of("id", "tsingmicro", "name", "清微智能")
+    );
+
+    /**
+     * 获取预置厂商列表
+     */
+    @GetMapping("/vendors")
+    public ResponseEntity<Map<String, Object>> getVendors() {
+        return ResponseEntity.ok(success(VENDORS));
     }
 
     /**
-     * 查询芯片列表 — VIEWER 及以上
+     * 创建芯片
+     */
+    @PostMapping
+    @PreAuthorize("hasAnyRole('super_admin', 'tenant_admin', 'engineer')")
+    public ResponseEntity<Map<String, Object>> createChip(
+            @RequestBody Chip chip,
+            @AuthenticationPrincipal User user) {
+        Long userId = user != null ? user.getId() : 1L;
+        Chip created = chipService.createChip(chip, userId);
+        return ResponseEntity.ok(success(created));
+    }
+
+    /**
+     * 查询芯片列表（所有认证用户可查看）
      */
     @GetMapping
-    @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> listChips(
             @RequestParam(required = false) String chipType,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String search,
+            @RequestParam(required = false) String vendor,
             @RequestParam(required = false) String name,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
+        // If name parameter is provided, use name search
         if (name != null && !name.isBlank()) {
             List<Chip> chips = chipService.searchByName(name);
-            return ResponseEntity.ok(buildListResponse(chips, chips.size(), page, size));
+            Map<String, Object> resp = success(chips);
+            resp.put("total", chips.size());
+            resp.put("page", page);
+            resp.put("size", size);
+            return ResponseEntity.ok(resp);
         }
-        Pageable pageable = PageRequest.of(page, size);
-        Chip.ChipType type = null;
-        Chip.ChipStatus st = null;
-        try {
-            if (chipType != null) type = Chip.ChipType.valueOf(chipType);
-        } catch (IllegalArgumentException e) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "无效的芯片类型: " + chipType);
-        }
-        try {
-            if (status != null) st = Chip.ChipStatus.valueOf(status);
-        } catch (IllegalArgumentException e) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "无效的芯片状态: " + status);
-        }
-        Page<Chip> chips = chipService.listChips(type, st, search, pageable);
-        return ResponseEntity.ok(buildListResponse(chips.getContent(), chips.getTotalElements(), page, size));
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Chip.ChipType type = chipType != null ? Chip.ChipType.valueOf(chipType) : null;
+        Chip.ChipStatus st = status != null ? Chip.ChipStatus.valueOf(status) : null;
+        Page<Chip> chips = chipService.listChips(type, st, search, vendor, pageable);
+        Map<String, Object> resp = success(chips.getContent());
+        resp.put("total", chips.getTotalElements());
+        resp.put("page", page);
+        resp.put("size", size);
+        return ResponseEntity.ok(resp);
     }
 
     /**
-     * 查询芯片详情 — VIEWER 及以上
+     * 查询芯片详情
      */
     @GetMapping("/{id}")
-    @RequireRole(Role.VIEWER)
-    public ResponseEntity<ApiResponse<Chip>> getChip(@PathVariable Long id) {
-        Chip chip = chipService.getChip(id);
-        return ResponseEntity.ok(ApiResponse.ok(chip));
+    public ResponseEntity<Map<String, Object>> getChip(@PathVariable Long id) {
+        try {
+            Chip chip = chipService.getChip(id);
+            return ResponseEntity.ok(success(chip));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(error(e.getMessage()));
+        }
     }
 
     /**
-     * 更新芯片 — 需要 ENGINEER 及以上
+     * 更新芯片
      */
     @PutMapping("/{id}")
-    @RequireRole(Role.ENGINEER)
-    public ResponseEntity<ApiResponse<Chip>> updateChip(
+    @PreAuthorize("hasAnyRole('super_admin', 'tenant_admin', 'engineer')")
+    public ResponseEntity<Map<String, Object>> updateChip(
             @PathVariable Long id,
             @RequestBody Chip chip) {
-        Chip updated = chipService.updateChip(id, chip);
-        return ResponseEntity.ok(ApiResponse.ok(updated));
+        try {
+            Chip updated = chipService.updateChip(id, chip);
+            return ResponseEntity.ok(success(updated));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(error(e.getMessage()));
+        }
     }
 
     /**
-     * 删除芯片 — 需要 ENGINEER 及以上
+     * 删除芯片（软删除→ARCHIVED）
      */
     @DeleteMapping("/{id}")
-    @RequireRole(Role.ENGINEER)
-    public ResponseEntity<ApiResponse<Void>> deleteChip(@PathVariable Long id) {
-        chipService.deleteChip(id);
-        return ResponseEntity.ok(ApiResponse.ok());
+    @PreAuthorize("hasAnyRole('super_admin', 'tenant_admin', 'engineer')")
+    public ResponseEntity<Map<String, Object>> deleteChip(@PathVariable Long id) {
+        try {
+            chipService.softDeleteChip(id);
+            return ResponseEntity.ok(success("deleted"));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(error(e.getMessage()));
+        }
     }
 
     /**
-     * 查询芯片的评测报告 — VIEWER 及以上
+     * 查询芯片的评测报告
      */
     @GetMapping("/{id}/reports")
-    @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getChipReports(@PathVariable Long id) {
         List<ChipReport> reports = chipReportRepository.findByChipId(id);
-        return ResponseEntity.ok(buildListResponse(reports, reports.size(), 0, reports.size()));
+        Map<String, Object> resp = success(reports);
+        resp.put("total", reports.size());
+        return ResponseEntity.ok(resp);
     }
 
-    private Map<String, Object> buildListResponse(Object data, long total, int page, int size) {
+    private Map<String, Object> success(Object data) {
         Map<String, Object> resp = new HashMap<>();
         resp.put("code", 0);
         resp.put("message", "success");
         resp.put("data", data);
-        resp.put("total", total);
-        resp.put("page", page);
-        resp.put("size", size);
-        resp.put("timestamp", System.currentTimeMillis());
+        return resp;
+    }
+
+    private Map<String, Object> error(String message) {
+        Map<String, Object> resp = new HashMap<>();
+        resp.put("code", 1001);
+        resp.put("message", message);
         return resp;
     }
 }

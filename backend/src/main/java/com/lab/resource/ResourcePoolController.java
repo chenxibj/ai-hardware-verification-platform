@@ -46,4 +46,26 @@ public class ResourcePoolController {
         service.delete(id);
         return ApiResponse.ok();
     }
+
+    @PostMapping("/{id}/nodes")
+    @RequireRole(Role.ENGINEER)
+    public ApiResponse<Map<String, Object>> addNode(@PathVariable Long id, @RequestBody Map<String, Long> body) {
+        Long nodeId = body.get("nodeId");
+        if (nodeId == null) {
+            return ApiResponse.error("COMMON-001", "nodeId is required");
+        }
+        return ApiResponse.ok(service.addNodeToPool(id, nodeId));
+    }
+
+    @DeleteMapping("/{id}/nodes/{nodeId}")
+    @RequireRole(Role.ENGINEER)
+    public ApiResponse<Void> removeNode(@PathVariable Long id, @PathVariable Long nodeId) {
+        service.removeNodeFromPool(id, nodeId);
+        return ApiResponse.ok();
+    }
+
+    @GetMapping("/{id}/stats")
+    public ApiResponse<Map<String, Object>> getStats(@PathVariable Long id) {
+        return ApiResponse.ok(service.getPoolStats(id));
+    }
 }

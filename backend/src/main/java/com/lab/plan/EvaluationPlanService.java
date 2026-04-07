@@ -2,6 +2,8 @@ package com.lab.plan;
 
 import com.lab.task.EvaluationTask;
 import com.lab.task.TaskDispatcher;
+import com.lab.result.EvaluationResultRepository;
+import com.lab.chipreport.ChipReportRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -15,7 +17,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
- * 评测计划服务 - CRUD + 状态流转
+ * 评测任务服务 - CRUD + 状态流转
  */
 @Slf4j
 @Service
@@ -23,6 +25,9 @@ import java.util.List;
 public class EvaluationPlanService {
 
     private final EvaluationPlanRepository planRepository;
+    private final com.lab.task.EvaluationTaskRepository taskRepository;
+    private final EvaluationResultRepository resultRepository;
+    private final ChipReportRepository chipReportRepository;
     private final PlanTaskSplitter planTaskSplitter;
     private final TaskDispatcher taskDispatcher;
 
@@ -42,19 +47,18 @@ public class EvaluationPlanService {
             if (config == null || config.isBlank() || config.equals("{}") || config.equals("null")) {
                 plan.setEvalConfig("{\"preset\":\"" + preset.toUpperCase() + "\"}");
             } else if (!config.contains("\"preset\"")) {
-                // 在已有 JSON 中注入 preset
                 plan.setEvalConfig(config.substring(0, config.lastIndexOf('}'))
                     + ",\"preset\":\"" + preset.toUpperCase() + "\"}");
             }
         }
         EvaluationPlan saved = planRepository.save(plan);
-        log.info("Created plan: {} ({})", saved.getPlanNo(), saved.getName());
+        log.info("Created evaluation task: {} ({})", saved.getPlanNo(), saved.getName());
 
         // 自动拆分任务
         List<EvaluationTask> tasks = planTaskSplitter.splitPlanToTasks(saved);
         saved.setTotalTasks(tasks.size());
         saved = planRepository.save(saved);
-        log.info("Plan {} auto-split into {} tasks", saved.getPlanNo(), tasks.size());
+        log.info("Evaluation task {} auto-split into {} sub-tasks", saved.getPlanNo(), tasks.size());
 
         return saved;
     }
@@ -72,7 +76,7 @@ public class EvaluationPlanService {
     @Transactional(readOnly = true)
     public EvaluationPlan getPlan(Long id) {
         return planRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Plan not found: " + id));
+                .orElseThrow(() -> new RuntimeException("Evaluation task not found: " + id));
     }
 
     @Transactional(readOnly = true)
@@ -84,7 +88,7 @@ public class EvaluationPlanService {
     public EvaluationPlan updatePlan(Long id, EvaluationPlan update) {
         EvaluationPlan plan = getPlan(id);
         if (plan.getStatus() != EvaluationPlan.PlanStatus.DRAFT) {
-            throw new RuntimeException("Only DRAFT plans can be edited");
+            throw new RuntimeException("Only DRAFT evaluation tasks can be edited");
         }
         if (update.getName() != null) plan.setName(update.getName());
         if (update.getDescription() != null) plan.setDescription(update.getDescription());
@@ -93,7 +97,7 @@ public class EvaluationPlanService {
         if (update.getNodeId() != null) plan.setNodeId(update.getNodeId());
         if (update.getTotalTasks() != null) plan.setTotalTasks(update.getTotalTasks());
         EvaluationPlan saved = planRepository.save(plan);
-        log.info("Updated plan: {}", saved.getPlanNo());
+        log.info("Updated evaluation task: {}", saved.getPlanNo());
         return saved;
     }
 
@@ -106,7 +110,7 @@ public class EvaluationPlanService {
         plan.setStatus(EvaluationPlan.PlanStatus.RUNNING);
         plan.setStartedAt(Instant.now());
         EvaluationPlan saved = planRepository.save(plan);
-        log.info("Started plan: {}", saved.getPlanNo());
+        log.info("Started evaluation task: {}", saved.getPlanNo());
 
         // #222: 启动后立即分发任务
         try {
@@ -125,7 +129,7 @@ public class EvaluationPlanService {
         assertStatus(plan, EvaluationPlan.PlanStatus.RUNNING, "pause");
         plan.setStatus(EvaluationPlan.PlanStatus.PAUSED);
         EvaluationPlan saved = planRepository.save(plan);
-        log.info("Paused plan: {}", saved.getPlanNo());
+        log.info("Paused evaluation task: {}", saved.getPlanNo());
         return saved;
     }
 
@@ -135,7 +139,7 @@ public class EvaluationPlanService {
         assertStatus(plan, EvaluationPlan.PlanStatus.PAUSED, "resume");
         plan.setStatus(EvaluationPlan.PlanStatus.RUNNING);
         EvaluationPlan saved = planRepository.save(plan);
-        log.info("Resumed plan: {}", saved.getPlanNo());
+        log.info("Resumed evaluation task: {}", saved.getPlanNo());
 
         // #222: 恢复后也分发任务
         try {
@@ -152,12 +156,12 @@ public class EvaluationPlanService {
         EvaluationPlan plan = getPlan(id);
         if (plan.getStatus() == EvaluationPlan.PlanStatus.COMPLETED ||
             plan.getStatus() == EvaluationPlan.PlanStatus.CANCELLED) {
-            throw new RuntimeException("Cannot cancel a " + plan.getStatus() + " plan");
+            throw new RuntimeException("Cannot cancel a " + plan.getStatus() + " evaluation task");
         }
         plan.setStatus(EvaluationPlan.PlanStatus.CANCELLED);
         plan.setCompletedAt(Instant.now());
         EvaluationPlan saved = planRepository.save(plan);
-        log.info("Cancelled plan: {}", saved.getPlanNo());
+        log.info("Cancelled evaluation task: {}", saved.getPlanNo());
         return saved;
     }
 
@@ -168,7 +172,7 @@ public class EvaluationPlanService {
         plan.setStatus(EvaluationPlan.PlanStatus.COMPLETED);
         plan.setCompletedAt(Instant.now());
         EvaluationPlan saved = planRepository.save(plan);
-        log.info("Completed plan: {}", saved.getPlanNo());
+        log.info("Completed evaluation task: {}", saved.getPlanNo());
         return saved;
     }
 
@@ -179,10 +183,42 @@ public class EvaluationPlanService {
         plan.setStatus(EvaluationPlan.PlanStatus.FAILED);
         plan.setCompletedAt(Instant.now());
         EvaluationPlan saved = planRepository.save(plan);
-        log.info("Failed plan: {}", saved.getPlanNo());
+        log.info("Failed evaluation task: {}", saved.getPlanNo());
         return saved;
     }
 
+    /**
+     * 拷贝评测任务 — 创建新的 DRAFT 副本 + 自动拆分子任务
+     */
+    @Transactional
+    public EvaluationPlan copyPlan(Long sourceId, Long userId) {
+        EvaluationPlan source = getPlan(sourceId);
+
+        EvaluationPlan copy = new EvaluationPlan();
+        copy.setPlanNo(generatePlanNo());
+        copy.setName(source.getName() + "(副本)");
+        copy.setDescription(source.getDescription());
+        copy.setChipId(source.getChipId());
+        copy.setTemplateId(source.getTemplateId());
+        copy.setEvalConfig(source.getEvalConfig());
+        copy.setNodeId(source.getNodeId());
+        copy.setStatus(EvaluationPlan.PlanStatus.DRAFT);
+        copy.setTotalTasks(0);
+        copy.setCompletedTasks(0);
+        copy.setProgress(0);
+        copy.setCreatedBy(userId);
+
+        EvaluationPlan saved = planRepository.save(copy);
+        log.info("Copied evaluation task {} -> {} ({})", source.getPlanNo(), saved.getPlanNo(), saved.getName());
+
+        // 自动拆分子任务
+        List<EvaluationTask> tasks = planTaskSplitter.splitPlanToTasks(saved);
+        saved.setTotalTasks(tasks.size());
+        saved = planRepository.save(saved);
+        log.info("Copied evaluation task {} auto-split into {} sub-tasks", saved.getPlanNo(), tasks.size());
+
+        return saved;
+    }
 
     // ============ Stats (#199) ============
 
@@ -200,7 +236,7 @@ public class EvaluationPlanService {
 
     private void assertStatus(EvaluationPlan plan, EvaluationPlan.PlanStatus expected, String action) {
         if (plan.getStatus() != expected) {
-            throw new RuntimeException("Cannot " + action + " plan in status " + plan.getStatus()
+            throw new RuntimeException("Cannot " + action + " evaluation task in status " + plan.getStatus()
                     + " (expected " + expected + ")");
         }
     }

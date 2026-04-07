@@ -69,7 +69,7 @@ public class ChipReportController {
         try { if (startTime != null) start = Instant.parse(startTime); } catch (Exception ignored) {}
         try { if (endTime != null) end = Instant.parse(endTime); } catch (Exception ignored) {}
 
-        Page<ChipReport> reports = reportRepository.findFiltered(chipId, statusEnum, archived, start, end, pageable);
+        Page<ChipReport> reports = reportRepository.findAll(ChipReportSpec.filtered(chipId, statusEnum, archived, start, end), pageable);
         Map<String, Object> resp = success(reports.getContent());
         resp.put("total", reports.getTotalElements());
         resp.put("page", page);

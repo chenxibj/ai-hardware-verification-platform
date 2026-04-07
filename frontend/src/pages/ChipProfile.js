@@ -5,7 +5,7 @@
  *
  * Tab 1: 能力画像（默认 Tab）— 雷达图 + 维度评分 + 综合评分 + 场景推荐
  * Tab 2: 基本信息（技术规格增强 + 软件栈增强 + 编辑）
- * Tab 3: 评测历史（增强：创建计划按钮 + 最新报告入口 + 空状态引导）
+ * Tab 3: 评测历史（增强：创建任务按钮 + 最新报告入口 + 空状态引导）
  * Tab 4: 评价报告 — 最新报告全文 + 历史报告选择
  */
 import React, { useState, useEffect, useCallback } from "react";
@@ -116,7 +116,7 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
         setPlans(sorted);
       }
     } catch (e) {
-      console.error("获取评测计划失败", e);
+      console.error("获取评测任务失败", e);
     } finally {
       setPlansLoading(false);
     }
@@ -233,7 +233,7 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
   /* ── 评测历史列 ── */
   const planColumns = [
     {
-      title: "计划名称", dataIndex: "name", key: "name", width: 200, ellipsis: true,
+      title: "任务名称", dataIndex: "name", key: "name", width: 200, ellipsis: true,
       render: (v) => <Text strong>{v}</Text>,
     },
     {
@@ -287,7 +287,7 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
   const trendOption = (() => {
     const completedPlans = plans.filter(p => p.status === "COMPLETED").reverse();
     if (completedPlans.length < 2) return null;
-    const xData = completedPlans.map(p => p.name || `计划#${p.id}`);
+    const xData = completedPlans.map(p => p.name || `任务#${p.id}`);
     const yData = completedPlans.map(p => {
       const report = reports.find(r => r.planId === p.id);
       return report ? report.overallScore : null;
@@ -456,9 +456,9 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
           )}
 
           {!overallScore && radarData.length === 0 && (
-            <Empty description="暂无评测数据，请先创建评测计划" style={{ padding: 60 }}>
+            <Empty description="暂无评测数据，请先创建评测任务" style={{ padding: 60 }}>
               <Button type="primary" icon={<PlusOutlined />}
-                onClick={() => onCreatePlan && onCreatePlan(chipId)}>创建评测计划</Button>
+                onClick={() => onCreatePlan && onCreatePlan(chipId)}>创建评测任务</Button>
             </Empty>
           )}
         </div>
@@ -601,11 +601,11 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
           )}
 
           <Card
-            title={<Space><FileTextOutlined /> 评测计划列表</Space>}
+            title={<Space><FileTextOutlined /> 评测任务列表</Space>}
             extra={
               <Button type="primary" size="small" icon={<PlusOutlined />}
                 onClick={() => onCreatePlan && onCreatePlan(chipId)}>
-                创建评测计划
+                创建评测任务
               </Button>
             }
           >
@@ -615,13 +615,13 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
                 description={
                   <span style={{ color: "#666" }}>
-                    该芯片暂无评测记录，点击创建首个评测计划
+                    该芯片暂无评测记录，点击创建首个评测任务
                   </span>
                 }
               >
                 <Button type="primary" icon={<PlusOutlined />}
                   onClick={() => onCreatePlan && onCreatePlan(chipId)}>
-                  创建评测计划
+                  创建评测任务
                 </Button>
               </Empty>
             ) : (
@@ -792,7 +792,7 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
           ) : (
             <Empty description="暂无评价报告" style={{ padding: 60 }}>
               <Button type="primary" icon={<PlusOutlined />}
-                onClick={() => onCreatePlan && onCreatePlan(chipId)}>创建评测计划</Button>
+                onClick={() => onCreatePlan && onCreatePlan(chipId)}>创建评测任务</Button>
             </Empty>
           )}
         </div>
@@ -883,7 +883,7 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
                 </div>
               )}
               <Button type="primary" icon={<PlusOutlined />}
-                onClick={() => onCreatePlan && onCreatePlan(chipId)}>创建评测计划</Button>
+                onClick={() => onCreatePlan && onCreatePlan(chipId)}>创建评测任务</Button>
             </Space>
           </Col>
         </Row>
