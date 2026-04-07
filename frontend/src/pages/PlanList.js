@@ -246,24 +246,24 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
         const st = record.status;
         return (
           <Space size="small">
-            <Tooltip title="\u6267\u884C\u76D1\u63A7">
+            <Tooltip title={"执行监控"}>
               <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => onOpenMonitor ? onOpenMonitor(record.id) : openDetail(record)} />
             </Tooltip>
 
-            <Tooltip title="\u514B\u9686">
+            <Tooltip title={"克隆"}>
               <Button type="link" size="small" icon={<CopyOutlined />}
                 onClick={() => handleClone(record.id)} />
             </Tooltip>
 
             {st === "FAILED" && (
-              <Tooltip title="\u8C03\u8BD5">
+              <Tooltip title={"调试"}>
                 <Button type="link" size="small" danger icon={<BugOutlined />}
                   onClick={() => openDebug(record.id)} />
               </Tooltip>
             )}
 
             {st === "DRAFT" && (
-              <Tooltip title="启动执行">
+              <Tooltip title={"启动执行"}>
                 <Button type="link" size="small" icon={<PlayCircleOutlined />}
                   style={{ color: "#52c41a" }}
                   onClick={() => handleAction(record.id, "start", "启动")} />
@@ -271,7 +271,7 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
             )}
 
             {st === "RUNNING" && (
-              <Tooltip title="暂停">
+              <Tooltip title={"暂停"}>
                 <Button type="link" size="small" icon={<PauseCircleOutlined />}
                   style={{ color: "#faad14" }}
                   onClick={() => handleAction(record.id, "pause", "暂停")} />
@@ -279,7 +279,7 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
             )}
 
             {st === "PAUSED" && (
-              <Tooltip title="恢复执行">
+              <Tooltip title={"恢复执行"}>
                 <Button type="link" size="small" icon={<PlayCircleOutlined />}
                   style={{ color: "#52c41a" }}
                   onClick={() => handleAction(record.id, "resume", "恢复")} />
@@ -287,16 +287,16 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
             )}
 
             {(st === "RUNNING" || st === "PAUSED") && (
-              <Popconfirm title="确定取消该任务?" onConfirm={() => handleAction(record.id, "cancel", "取消")} okText="确定" cancelText="取消">
-                <Tooltip title="取消">
+              <Popconfirm title={"确定取消该任务?"} onConfirm={() => handleAction(record.id, "cancel", "取消")} okText={"确定"} cancelText={"取消"}>
+                <Tooltip title={"取消"}>
                   <Button type="link" size="small" icon={<StopOutlined />} style={{ color: "#ff4d4f" }} />
                 </Tooltip>
               </Popconfirm>
             )}
 
             {(st === "DRAFT" || st === "COMPLETED" || st === "FAILED" || st === "CANCELLED") && (
-              <Popconfirm title="确定删除该任务?" onConfirm={() => handleDelete(record.id)} okText="删除" cancelText="取消">
-                <Tooltip title="删除">
+              <Popconfirm title={"确定删除该任务?"} onConfirm={() => handleDelete(record.id)} okText={"删除"} cancelText={"取消"}>
+                <Tooltip title={"删除"}>
                   <Button type="link" size="small" danger icon={<DeleteOutlined />} />
                 </Tooltip>
               </Popconfirm>
@@ -314,29 +314,29 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col xs={12} sm={6}>
           <Card hoverable>
-            <Statistic title="任务总数" value={stats.total} prefix={<FileTextOutlined />} />
+            <Statistic title={"任务总数"} value={stats.total} prefix={<FileTextOutlined />} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card hoverable>
-            <Statistic title="运行中" value={stats.running} valueStyle={{ color: "#1890ff" }} prefix={<PlayCircleOutlined />} />
+            <Statistic title={"运行中"} value={stats.running} valueStyle={{ color: "#1890ff" }} prefix={<PlayCircleOutlined />} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card hoverable>
-            <Statistic title="已完成" value={stats.completed} valueStyle={{ color: "#52c41a" }} prefix={<CheckCircleOutlined />} />
+            <Statistic title={"已完成"} value={stats.completed} valueStyle={{ color: "#52c41a" }} prefix={<CheckCircleOutlined />} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card hoverable>
-            <Statistic title="失败" value={stats.failed} valueStyle={{ color: "#ff4d4f" }} prefix={<ExclamationCircleOutlined />} />
+            <Statistic title={"失败"} value={stats.failed} valueStyle={{ color: "#ff4d4f" }} prefix={<ExclamationCircleOutlined />} />
           </Card>
         </Col>
       </Row>
 
       {/* 工具栏 + 表格 */}
       <Card
-        title="评测任务列表"
+        title={"评测任务列表"}
         extra={
           <Space>
             <Select
