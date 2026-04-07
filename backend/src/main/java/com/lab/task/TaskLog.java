@@ -3,7 +3,6 @@ package com.lab.task;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.Instant;
@@ -18,7 +17,6 @@ import java.time.Instant;
     @Index(name = "idx_task_logs_task_id", columnList = "task_id")
 })
 @NoArgsConstructor
-@AllArgsConstructor
 public class TaskLog {
 
     @Id
@@ -34,4 +32,20 @@ public class TaskLog {
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
+
+    /**
+     * 简单构造器 — 用于 Agent 日志上报
+     */
+    public TaskLog(Long taskId, String content) {
+        this.taskId = taskId;
+        this.content = content;
+    }
+
+    /**
+     * 兼容旧版（level + message + details）— 用于 TaskCompleteController
+     */
+    public TaskLog(Long taskId, String level, String message, String details) {
+        this.taskId = taskId;
+        this.content = String.format("[%s] %s\n%s", level, message, details != null ? details : "");
+    }
 }

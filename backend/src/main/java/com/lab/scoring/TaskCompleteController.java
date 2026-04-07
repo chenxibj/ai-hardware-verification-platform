@@ -1,8 +1,8 @@
 package com.lab.scoring;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lab.log.TaskLog;
-import com.lab.log.TaskLogRepository;
+import com.lab.task.TaskLog;
+import com.lab.task.TaskLogRepository;
 import com.lab.plan.EvaluationPlan;
 import com.lab.plan.EvaluationPlanRepository;
 import com.lab.result.EvaluationResult;
