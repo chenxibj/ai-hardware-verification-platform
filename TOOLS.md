@@ -26,6 +26,12 @@
 - **账号:** test@ahvp.com
 - **密码:** test123
 
+## 飞书群（项目群）
+
+- **Chat ID:** oc_736d709f9dc047f5509b8fbd75d9e764
+- **用途:** AHVP 项目进度汇报群
+- **发送方式:** `message` tool, channel=feishu, target=chat:oc_736d709f9dc047f5509b8fbd75d9e764
+
 ## SSH - 开发机
 
 - **Host:** 39.97.251.94 (cn-beijing)

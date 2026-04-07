@@ -47,12 +47,14 @@ Capture what matters. Decisions, context, things to remember. Skip the secrets u
 
 ## ⚡ 全局工作准则（所有 session 必须遵循）
 
-1. **未完成任务必须持久化** — 所有未完成的工作任务都要记录到 `memory/` 或 `MEMORY.md`，直到确认完成才可移除。绝不允许任务丢失。
-2. **密钥/Key 必须持久化** — 所有 API Key、Secret、Token 等凭据信息必须保存到文件（如 `~/.aliyun/config.json`、环境变量文件等安全位置），不能只存在"脑子里"。
-3. **Sub-agent 工作模式** — 干活必须开 sub-agent，主 session 保持空闲以随时响应飞书和企业微信消息。主 session 是"前台接待"，sub-agent 是"后台干活的"。
+1. **🔴 每 20 分钟汇报工作进展（第一准则，最高优先级）** — 对所有工作、所有 session 生效，无例外。每 20 分钟必须向主人（通过飞书主 session）汇报当前工作进展：在做什么、进度如何、遇到什么问题。Sub-agent 的进展由主 session 负责转发汇报。任何时候都不能跳过。
+2. **未完成任务必须持久化** — 所有未完成的工作任务都要记录到 `memory/` 或 `MEMORY.md`，直到确认完成才可移除。绝不允许任务丢失。
+3. **密钥/Key 必须持久化** — 所有 API Key、Secret、Token 等凭据信息必须保存到文件（如 `~/.aliyun/config.json`、环境变量文件等安全位置），不能只存在"脑子里"。
+4. **Sub-agent 工作模式** — 干活必须开 sub-agent，主 session 保持空闲以随时响应飞书和企业微信消息。主 session 是"前台接待"，sub-agent 是"后台干活的"。
    - ⚠️ **必须高频监控 sub-agent 状态** — spawn 后不能放手不管！要定期查询进展，发现问题立即介入（重试、拆分任务、换策略）。简单改超时放手不管是不负责任的做法。
-4. **每日复盘（23:00）** — 每天晚上 11 点自动总结当天工作内容 + Lessons & Learned，写入 `memory/YYYY-MM-DD.md`，并将重要经验提炼到 `MEMORY.md`。持续自我迭代。
-5. **禁止 mock 数据** — 所有接口必须真实实现，绝不允许用 mock/硬编码数据通过测试。每个功能必须走完整的真实数据链路验证后才算完成。这是红线。
+   - 🔴 **Sub-agent 报错必须第一时间修复** — 收到 sub-agent 错误/失败通知时，立即排查原因并修复（重启、调整参数、换方案），不能搁置。这是高优先级，仅次于第一准则。
+5. **每日复盘（23:00）** — 每天晚上 11 点自动总结当天工作内容 + Lessons & Learned，写入 `memory/YYYY-MM-DD.md`，并将重要经验提炼到 `MEMORY.md`。持续自我迭代。
+6. **禁止 mock 数据** — 所有接口必须真实实现，绝不允许用 mock/硬编码数据通过测试。每个功能必须走完整的真实数据链路验证后才算完成。这是红线。
 
 ## Red Lines
 
