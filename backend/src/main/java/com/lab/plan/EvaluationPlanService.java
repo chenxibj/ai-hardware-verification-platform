@@ -1,6 +1,7 @@
 package com.lab.plan;
 
 import com.lab.task.EvaluationTask;
+import com.lab.task.TaskDispatcher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -23,6 +24,7 @@ public class EvaluationPlanService {
 
     private final EvaluationPlanRepository planRepository;
     private final PlanTaskSplitter planTaskSplitter;
+    private final TaskDispatcher taskDispatcher;
 
     // ============ CRUD ============
 
@@ -105,6 +107,15 @@ public class EvaluationPlanService {
         plan.setStartedAt(Instant.now());
         EvaluationPlan saved = planRepository.save(plan);
         log.info("Started plan: {}", saved.getPlanNo());
+
+        // #222: 启动后立即分发任务
+        try {
+            taskDispatcher.dispatchPlanTasks(saved.getId());
+        } catch (Exception e) {
+            log.error("Failed to dispatch tasks for plan {}: {}", saved.getPlanNo(), e.getMessage());
+            // 不回滚 Plan 状态 — Recovery scheduler 会重新分发
+        }
+
         return saved;
     }
 
@@ -125,6 +136,14 @@ public class EvaluationPlanService {
         plan.setStatus(EvaluationPlan.PlanStatus.RUNNING);
         EvaluationPlan saved = planRepository.save(plan);
         log.info("Resumed plan: {}", saved.getPlanNo());
+
+        // #222: 恢复后也分发任务
+        try {
+            taskDispatcher.dispatchPlanTasks(saved.getId());
+        } catch (Exception e) {
+            log.error("Failed to dispatch tasks after resuming plan {}: {}", saved.getPlanNo(), e.getMessage());
+        }
+
         return saved;
     }
 

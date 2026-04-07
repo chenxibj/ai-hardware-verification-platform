@@ -1,13 +1,7 @@
 /**
  * @file TaskDetailDrawer.js
- * @description 任务详情弹窗（基本信息 + 执行记录 + 日志，使用 Modal+Tabs）
- * @param {Object} props
- * @param {boolean}  props.visible - 是否显示
- * @param {Object}   props.selected - 当前任务记录
- * @param {Array}    props.executions - 执行记录列表
- * @param {Object}   props.taskReport - 关联报告
- * @param {boolean}  props.reportLoading - 报告加载中
- * @param {Function} props.onClose - 关闭回调
+ * @description 任务详情弹窗（基本信息 + 执行记录 + 实时日志）
+ * #225 - 日志 tab 使用 TaskExecutionLogs 组件实时轮询
  */
 import React from "react";
 import {
@@ -18,6 +12,7 @@ import { FileTextOutlined } from "@ant-design/icons";
 import {
   EVAL_TYPES, PRIORITIES, PRIORITY_COLORS, STATUS_MAP, STATUS_COLORS,
 } from "./taskConstants";
+import TaskExecutionLogs from "./TaskExecutionLogs";
 import dayjs from "dayjs";
 
 const { Text } = Typography;
@@ -51,6 +46,9 @@ export default function TaskDetailDrawer({
           <Descriptions.Item label="完成时间">
             {dayjs(selected.completedAt).format("YYYY-MM-DD HH:mm:ss")}
           </Descriptions.Item>
+        )}
+        {selected.assignedNodeId && (
+          <Descriptions.Item label="执行节点">节点 #{selected.assignedNodeId}</Descriptions.Item>
         )}
         {selected.description && (
           <Descriptions.Item label="描述" span={2}>{selected.description}</Descriptions.Item>
@@ -112,21 +110,14 @@ export default function TaskDetailDrawer({
     ? <Table size="small" dataSource={executions} rowKey="id" pagination={false} columns={execColumns} />
     : <Text type="secondary">暂无执行记录</Text>;
 
+  // #225: 使用 TaskExecutionLogs 组件实时轮询日志
   const logTab = (
-    <div style={{
-      background: "#1e1e1e", color: "#d4d4d4", padding: 16, borderRadius: 8,
-      minHeight: 200, maxHeight: 400, overflow: "auto",
-      fontFamily: "monospace", fontSize: 12, whiteSpace: "pre-wrap",
-    }}>
-      {executions.length > 0 && executions[executions.length - 1].logs
-        ? executions[executions.length - 1].logs
-        : <span style={{ color: "#666" }}>[INFO] 暂无执行日志数据</span>}
-    </div>
+    <TaskExecutionLogs taskId={selected.id} taskStatus={selected.status} />
   );
 
   return (
     <Modal title="任务详情" open={visible} width={800} footer={null}
-      onCancel={onClose}>
+      onCancel={onClose} destroyOnClose>
       <Tabs items={[
         { key: "info", label: "基本信息", children: infoTab },
         { key: "exec", label: "执行记录", children: execTab },

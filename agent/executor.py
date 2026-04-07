@@ -1,4 +1,4 @@
-"""任务执行模块"""
+"""任务执行模块 (#225 实时日志 + #226 async)"""
 import json
 import logging
 import os
@@ -31,6 +31,10 @@ class TaskExecutor:
         "performance": None,
     }
 
+    # #225: 日志上报配置
+    LOG_FLUSH_INTERVAL = 5  # 秒
+    LOG_FLUSH_LINES = 50    # 行
+
     def __init__(self, config, node_id):
         self.config = config
         self.node_id = node_id
@@ -47,32 +51,23 @@ class TaskExecutor:
 
     def _resolve_script(self, eval_type, params):
         """根据 eval_type 和 params 解析实际要执行的脚本名"""
-        # 先统一大小写查找
         script_name = self.SCRIPT_MAP.get(eval_type) or self.SCRIPT_MAP.get(eval_type.upper()) or self.SCRIPT_MAP.get(eval_type.lower())
 
-        # 对于不在 SCRIPT_MAP 中的类型，报错
         if script_name is None and eval_type.upper() != "PERFORMANCE":
             raise ValueError("未知的评测类型: {}".format(eval_type))
-        # PERFORMANCE 类型需要动态路由
         if eval_type.upper() == "PERFORMANCE":
-            # 如果 config/params 中有 operator 相关参数，走算子 benchmark
             has_operator = any(k in params for k in ("operator", "operators", "op"))
-            # 如果有 model 相关参数，走模型推理
             has_model = any(k in params for k in ("model", "models", "batch_sizes", "batch_size"))
-
             if has_operator and not has_model:
                 script_name = "cpu_operator_benchmark.py"
             elif has_model and not has_operator:
                 script_name = "cpu_model_inference.py"
             else:
-                # 默认走算子 benchmark
                 script_name = "cpu_operator_benchmark.py"
-
             logger.info("PERFORMANCE 类型动态路由 -> %s (params keys: %s)", script_name, list(params.keys()))
 
         if script_name is None:
             raise ValueError("未知的评测类型: {}".format(eval_type))
-
         return script_name
 
     def execute_async(self, task_id, eval_type, params=None):
@@ -80,7 +75,6 @@ class TaskExecutor:
         with self._lock:
             if self.current_task is not None:
                 raise RuntimeError("节点正在执行任务 {}, 无法接受新任务".format(self.current_task))
-            # 立即占位，防止并发请求
             self.current_task = task_id
 
         try:
@@ -92,7 +86,6 @@ class TaskExecutor:
             )
             thread.start()
         except Exception:
-            # 线程启动失败时释放占位
             with self._lock:
                 self.current_task = None
             raise
@@ -109,42 +102,101 @@ class TaskExecutor:
             metrics_collector = MetricsCollector()
             metrics_collector.start()
 
-            # 构建 CLI 参数：将 params 作为 JSON 传给脚本
-            script_params = dict(params)  # 浅拷贝
+            script_params = dict(params)
             cmd = ["python3", script_path]
             if script_params:
                 cmd.append(json.dumps(script_params))
 
             cmd_str = " ".join(cmd)
             logger.info("执行命令: %s", cmd_str)
-            result = subprocess.run(
+
+            # #225: 使用 Popen 实时读取输出 + 流式上报日志
+            stdout_lines = []
+            stderr_lines = []
+            process = subprocess.Popen(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=600,
                 cwd=self.project_root,
             )
+
+            # 启动日志采集线程
+            log_buffer = []
+            log_buffer_lock = threading.Lock()
+            last_flush_time = [time.time()]
+
+            def read_stream(stream, line_list, is_stderr=False):
+                """从 stdout/stderr 读取输出并缓冲"""
+                for line in iter(stream.readline, ''):
+                    line_list.append(line)
+                    prefix = "[STDERR] " if is_stderr else ""
+                    with log_buffer_lock:
+                        log_buffer.append(prefix + line)
+                        # 检查是否需要 flush
+                        should_flush = (
+                            len(log_buffer) >= self.LOG_FLUSH_LINES or
+                            time.time() - last_flush_time[0] >= self.LOG_FLUSH_INTERVAL
+                        )
+                    if should_flush:
+                        self._flush_logs(task_id, log_buffer, log_buffer_lock, last_flush_time)
+                stream.close()
+
+            stdout_thread = threading.Thread(target=read_stream, args=(process.stdout, stdout_lines, False), daemon=True)
+            stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, stderr_lines, True), daemon=True)
+            stdout_thread.start()
+            stderr_thread.start()
+
+            # 定期 flush 日志的后台线程
+            flush_stop = threading.Event()
+
+            def periodic_flush():
+                while not flush_stop.is_set():
+                    flush_stop.wait(self.LOG_FLUSH_INTERVAL)
+                    if not flush_stop.is_set():
+                        self._flush_logs(task_id, log_buffer, log_buffer_lock, last_flush_time)
+
+            flush_thread = threading.Thread(target=periodic_flush, daemon=True)
+            flush_thread.start()
+
+            # 等待进程完成（超时 600s）
+            try:
+                returncode = process.wait(timeout=600)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                returncode = -1
+                stderr_lines.append("Process killed: timeout exceeded (600s)\n")
+
+            stdout_thread.join(timeout=5)
+            stderr_thread.join(timeout=5)
+            flush_stop.set()
+            flush_thread.join(timeout=5)
+
+            # 最终 flush 剩余日志
+            self._flush_logs(task_id, log_buffer, log_buffer_lock, last_flush_time, force=True)
 
             metrics_collector.stop()
             runtime_metrics = metrics_collector.get_summary()
 
             elapsed = time.time() - start_time
-            logger.info("任务 %s 执行完成, 耗时 %.1fs, 返回码 %s", task_id, elapsed, result.returncode)
+            stdout_text = "".join(stdout_lines)
+            stderr_text = "".join(stderr_lines)
+            logger.info("任务 %s 执行完成, 耗时 %.1fs, 返回码 %s", task_id, elapsed, returncode)
 
-            if result.returncode != 0:
-                raise RuntimeError("脚本执行失败 (code={}): {}".format(result.returncode, result.stderr))
+            if returncode != 0:
+                raise RuntimeError("脚本执行失败 (code={}): {}".format(returncode, stderr_text))
 
             try:
-                eval_result = json.loads(result.stdout.strip())
+                eval_result = json.loads(stdout_text.strip())
             except json.JSONDecodeError:
-                eval_result = {"raw_output": result.stdout}
+                eval_result = {"raw_output": stdout_text}
 
             self._report_result(task_id, "COMPLETED", {
                 "eval_result": eval_result,
                 "runtime_metrics": runtime_metrics,
                 "duration_sec": round(elapsed, 2),
                 "node_id": self.node_id,
-            }, logs=result.stdout + "\n" + result.stderr)
+            }, logs=stdout_text + "\n" + stderr_text)
 
         except Exception as e:
             elapsed = time.time() - start_time
@@ -155,10 +207,34 @@ class TaskExecutor:
                 "node_id": self.node_id,
             })
         finally:
-            # Bug #94 fix: 确保无论如何都释放 current_task
             with self._lock:
                 self.current_task = None
             logger.info("任务 %s 资源已释放, current_task=None", task_id)
+
+    def _flush_logs(self, task_id, log_buffer, lock, last_flush_time, force=False):
+        """#225: 将缓冲的日志上报到平台"""
+        with lock:
+            if not log_buffer and not force:
+                return
+            content = "".join(log_buffer)
+            log_buffer.clear()
+            last_flush_time[0] = time.time()
+
+        if not content:
+            return
+
+        url = "{}/tasks/{}/logs".format(self.platform_url, task_id)
+        headers = {
+            "Content-Type": "application/json",
+            "X-Agent-Token": self.token,
+        }
+        payload = {"content": content}
+        try:
+            resp = requests.post(url, json=payload, headers=headers, timeout=10)
+            if resp.status_code != 200:
+                logger.warning("Log upload failed for task %s: %s", task_id, resp.status_code)
+        except Exception as e:
+            logger.warning("Log upload error for task %s: %s", task_id, e)
 
     def _report_result(self, task_id, status, result, logs=""):
         """上报执行结果到平台"""

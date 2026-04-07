@@ -103,6 +103,21 @@ public class EvaluationTask {
     @Column(name = "dimension", length = 32)
     private String dimension;
 
+    // ---- #224 新增字段 ----
+
+    @Version
+    @Column(name = "version")
+    private Long version;
+
+    @Column(name = "timeout_seconds")
+    private Integer timeoutSeconds;
+
+    @Column(name = "assigned_node_id")
+    private Long assignedNodeId;
+
+    @Column(name = "last_heartbeat_at")
+    private Instant lastHeartbeatAt;
+
     public enum TaskType {
         TEMPLATE, CUSTOM
     }

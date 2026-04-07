@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -33,4 +34,17 @@ public interface EvaluationTaskRepository extends JpaRepository<EvaluationTask, 
     List<EvaluationTask> findByPlanId(Long planId);
     Page<EvaluationTask> findByPlanId(Long planId, Pageable pageable);
     long countByCreatedByAndStatus(Long userId, EvaluationTask.TaskStatus status);
+
+    // #222 - TaskDispatcher queries
+    List<EvaluationTask> findByPlanIdAndStatus(Long planId, EvaluationTask.TaskStatus status);
+
+    // #223 - Recovery queries
+    List<EvaluationTask> findByStatus(EvaluationTask.TaskStatus status);
+
+    @Query("SELECT t FROM EvaluationTask t WHERE t.status = :status AND t.updatedAt < :threshold")
+    List<EvaluationTask> findByStatusAndUpdatedAtBefore(
+            @Param("status") EvaluationTask.TaskStatus status,
+            @Param("threshold") Instant threshold);
+
+    List<EvaluationTask> findByAssignedNodeId(Long nodeId);
 }

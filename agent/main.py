@@ -53,7 +53,7 @@ def status():
 
 @app.route("/execute", methods=["POST"])
 def execute():
-    """接收并执行评测任务"""
+    """接收并执行评测任务 — #226: 返回 202 Accepted"""
     if executor is None:
         return jsonify({"code": -1, "message": "Agent 未就绪"}), 503
 
@@ -87,11 +87,12 @@ def execute():
 
     try:
         executor.execute_async(task_id, eval_type, merged_params)
+        # #226: 返回 202 Accepted（异步执行，结果通过回调上报）
         return jsonify({
             "code": 0,
-            "message": "任务 {} 已接受，开始执行".format(task_id),
-            "data": {"taskId": task_id, "status": "RUNNING"},
-        })
+            "message": "任务 {} 已接受，开始异步执行".format(task_id),
+            "data": {"taskId": task_id, "status": "ACCEPTED"},
+        }), 202
     except Exception as e:
         logger.error("任务执行失败: %s", e)
         return jsonify({"code": -1, "message": str(e)}), 500
