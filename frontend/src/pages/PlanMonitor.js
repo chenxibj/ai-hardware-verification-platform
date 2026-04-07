@@ -490,6 +490,15 @@ export default function PlanMonitor({ planId, onBack }) {
     : "~" + Math.floor(remaining / 3600) + "h " + Math.floor((remaining % 3600) / 60) + "m"
     : plan?.status === "COMPLETED" ? "\u5DF2\u5B8C\u6210" : "-";
 
+  /* ── 排队序号计算 ── */
+  const queuePosition = {};
+  const pendingTasks = tasks
+    .filter(t => ["PENDING", "QUEUED"].includes(t.status))
+    .sort((a, b) => a.id - b.id);
+  pendingTasks.forEach((t, idx) => {
+    queuePosition[t.id] = idx + 1;
+  });
+
   /* ── 按 testSubject 分组 ── */
   const grouped = {};
   tasks.forEach((t) => {
@@ -607,8 +616,13 @@ export default function PlanMonitor({ planId, onBack }) {
         padding: "8px 12px", borderBottom: "1px solid #f0f0f0",
       }}>
         <Space style={{ flex: 1 }}>
+          {queuePosition[task.id] && (
+            <Tag color="blue" style={{ minWidth: 28, textAlign: "center", fontWeight: 600 }}>{"#" + queuePosition[task.id]}</Tag>
+          )}
           <Text style={{ width: 200, display: "inline-block" }}>{task.testItem || task.name}</Text>
-          <Tag color={st.color} icon={st.icon}>{st.text}</Tag>
+          <Tag color={st.color} icon={st.icon}>
+            {st.text}{queuePosition[task.id] ? (" (" + queuePosition[task.id] + "/" + pendingTasks.length + ")") : ""}
+          </Tag>
         </Space>
         <Space>
           {task.progress !== undefined && task.progress > 0 && task.status === "RUNNING" && (
