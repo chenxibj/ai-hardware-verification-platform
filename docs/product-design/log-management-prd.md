@@ -1,11 +1,12 @@
-# 评测任务日志管理 PRD v1.0
+# 评测任务日志管理 PRD v1.1
 
 > **文档编号:** AHVP-PRD-LOG-001  
-> **版本:** 1.0  
+> **版本:** 1.1  
 > **作者:** AI 产品经理（菜菜子）  
 > **创建日期:** 2026-04-07  
-> **状态:** 初稿  
-> **关联 Issue:** #225（日志基础设施）、#134（执行监控）
+> **更新日期:** 2026-04-07  
+> **状态:** 评审通过  
+> **关联 Issue:** #225（日志基础设施）、#134（执行监控）、#229-#234（v1.1 拆分 Issue）
 
 ---
 
@@ -78,7 +79,7 @@
 > **作为**评测工程师，**我希望**随时查看过去任何一次评测任务的完整日志，**以便**排查之前出现的问题。
 
 **验收标准：**
-- 日志永久保留（热存储 30 天，冷归档 > 30 天）
+- 日志保留 90 天（可配置），超期自动清理
 - 支持按时间范围筛选
 - 支持按日志级别过滤
 - 支持全文搜索（关键字高亮）
@@ -92,16 +93,7 @@
 - 点击性能日志可展开详细数据表格
 - 支持跳转到对应评测报告的详细图表
 
-### US-4：对比两次评测任务的日志
-
-> **作为**算法研究员，**我希望**并排对比两次评测的日志和性能数据，**以便**分析不同配置/硬件下的表现差异。
-
-**验收标准：**
-- 支持选择两个任务进行日志对比
-- 性能指标自动对齐并高亮差异
-- 导出对比结果（Markdown / PDF）
-
-### US-5：导出日志用于外部分析
+### US-4：导出日志用于外部分析
 
 > **作为**项目管理者，**我希望**下载指定任务或时间范围的日志文件，**以便**归档审计或发送给合作伙伴。
 
@@ -110,7 +102,7 @@
 - 支持按筛选条件导出（不只是全量）
 - 大文件异步生成，完成后通知下载
 
-### US-6：Agent 节点故障时快速定位
+### US-5：Agent 节点故障时快速定位
 
 > **作为**平台运维人员，**我希望**通过日志中的错误信息和系统指标快速定位 Agent 节点故障原因，**以便**尽快恢复服务。
 
@@ -119,14 +111,14 @@
 - 日志中包含节点 ID、系统信息（CPU/内存/OS）
 - 超时、进程崩溃等异常有明确的错误日志
 
-### US-7：评测任务失败后查看最后的日志
+### US-6：评测任务失败后查看最后的日志
 
 > **作为**评测工程师，**我希望**在任务失败后能看到最后的日志输出和错误堆栈，**以便**确定失败原因并决定是否重试。
 
 **验收标准：**
 - 任务失败时最后的 stderr 输出完整保留
 - 错误日志自动标记为 ERROR 级别
-- 从任务列表可一键跳转到失败任务的日志
+- 从任务列表可一键跳转到失败任务的日志（FAILED 行点击直达）
 
 ---
 
@@ -258,7 +250,6 @@ ALTER TABLE task_logs ADD COLUMN IF NOT EXISTS log_type VARCHAR(16) DEFAULT 'TEX
 ALTER TABLE task_logs ADD COLUMN IF NOT EXISTS metrics JSONB;
 ALTER TABLE task_logs ADD COLUMN IF NOT EXISTS context JSONB;
 ALTER TABLE task_logs ADD COLUMN IF NOT EXISTS source VARCHAR(32) DEFAULT 'AGENT';
-ALTER TABLE task_logs ADD COLUMN IF NOT EXISTS sequence_no BIGINT;
 
 -- 新增索引（支持按类型和级别查询）
 CREATE INDEX idx_logs_type ON task_logs(log_type);
@@ -266,15 +257,15 @@ CREATE INDEX idx_logs_level ON task_logs(level);
 CREATE INDEX idx_logs_task_type ON task_logs(task_id, log_type);
 CREATE INDEX idx_logs_task_level ON task_logs(task_id, level);
 
--- 用于游标分页的复合索引
-CREATE INDEX idx_logs_task_seq ON task_logs(task_id, sequence_no);
+-- 用于游标分页的索引（基于自增 id）
+CREATE INDEX idx_logs_task_id_order ON task_logs(task_id, id);
 ```
 
 **完整表结构（目标状态）：**
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `id` | BIGSERIAL PK | 自增主键 |
+| `id` | BIGSERIAL PK | 自增主键（同时用于游标分页，task_id + id 天然有序） |
 | `task_id` | BIGINT NOT NULL | 关联评测任务 |
 | `log_type` | VARCHAR(16) | 日志类型：TEXT / METRIC / PROGRESS / ERROR / SYSTEM |
 | `level` | VARCHAR(16) | 日志级别：DEBUG / INFO / WARN / ERROR |
@@ -284,36 +275,32 @@ CREATE INDEX idx_logs_task_seq ON task_logs(task_id, sequence_no);
 | `details` | JSONB | 扩展详情（兼容旧数据） |
 | `context` | JSONB | 执行上下文：node_id, step, elapsed_sec |
 | `source` | VARCHAR(32) | 日志来源：AGENT / SYSTEM / USER |
-| `sequence_no` | BIGINT | 日志序列号（同一任务内递增，用于排序和去重） |
 | `created_at` | TIMESTAMP | 日志入库时间 |
+
+> **v1.1 变更说明：** 删除 `sequence_no` 字段。`id` 为 BIGSERIAL 自增，同一 task_id 下 id 天然递增，游标分页直接用 `WHERE id > ? ORDER BY id ASC LIMIT 100` 即可，无需额外序列号。
 
 #### 3.2.2 日志保留策略
 
-| 存储层 | 时间范围 | 存储方式 | 查询性能 |
-|--------|----------|----------|----------|
-| **热存储** | 0-30 天 | PostgreSQL 原表 | < 100ms |
-| **温存储** | 30-90 天 | PostgreSQL 分区表（按月） | < 500ms |
-| **冷归档** | 90 天+ | 导出为 JSON 文件归档到本地磁盘 | 需重新导入 |
+**单表存储 + 定时清理：**
 
-**自动归档定时任务：**
+> **v1.1 变更说明：** 简化为单表存储方案。PostgreSQL 单表足以承载当前日志量（月 ~45 万条 / ~450MB），无需三级存储（热/温/冷）和按月分区。当日志量增长到需要分区时再升级方案。
 
-```sql
--- 每天凌晨 2 点执行归档
--- 将 90 天前的日志导出并删除
--- 保留 METRIC 类型日志的 metrics 字段摘要（不删除性能数据）
-```
+| 策略 | 说明 |
+|------|------|
+| **存储方式** | `task_logs` 单表，PostgreSQL |
+| **保留时长** | 可配置 `max-retention-days`（默认 90 天） |
+| **清理方式** | 定时任务（每天凌晨 2 点），删除超过保留期的日志 |
+| **METRIC 保留** | METRIC 类型日志额外保留（保留性能数据可追溯性），可单独配置 |
 
 **配置项（application.yml）：**
 
 ```yaml
 ahvp:
   log:
-    hot-retention-days: 30        # 热存储保留天数
-    warm-retention-days: 90       # 温存储保留天数  
-    archive-enabled: true         # 是否启用冷归档
-    archive-path: /data/ahvp/log-archive  # 归档文件路径
-    max-entries-per-task: 10000   # 单任务最大日志条数
-    cleanup-cron: "0 0 2 * * ?"  # 归档定时任务 CRON
+    max-retention-days: 90          # 日志保留天数
+    metric-retention-days: 180      # METRIC 日志额外保留天数（可选）
+    max-entries-per-task: 10000     # 单任务最大日志条数
+    cleanup-cron: "0 0 2 * * ?"    # 清理定时任务 CRON
 ```
 
 ### 3.3 日志展示
@@ -323,17 +310,19 @@ ahvp:
 **技术方案：WebSocket + HTTP 轮询降级**
 
 ```
-主方案：WebSocket
+主方案：WebSocket（P0 第一期实现）
   ws://host/ws/tasks/{taskId}/logs
-  - 连接后实时推送新日志
+  - 认证: query 参数 ?token=xxx
+  - Agent POST 日志后，后端推送给所有订阅该 taskId 的 WebSocket 客户端
   - 支持心跳保活（30s ping/pong）
-  - 断线自动重连（指数退避）
+  - 断线自动重连（指数退避: 1s→2s→4s→8s→max 30s）
+  - 任务状态变更通知 (RUNNING→COMPLETED/FAILED)
 
 降级方案：HTTP 短轮询
-  GET /api/tasks/{taskId}/logs?after={lastId}
+  GET /api/tasks/{taskId}/logs?afterId={lastId}
   - 轮询间隔 2 秒
-  - 使用 lastId 作为游标避免重复
-  - 当 WebSocket 不可用时自动切换
+  - 使用 afterId（最后一条日志的 id）作为游标避免重复
+  - 当 WebSocket 连不上时自动切换
 ```
 
 **前端实时日志面板行为：**
@@ -359,7 +348,7 @@ ahvp:
 
 **分页策略：**
 
-- 使用游标分页（基于 `sequence_no`），不使用 OFFSET
+- 使用游标分页（基于 `id`：`WHERE id > ? ORDER BY id ASC LIMIT 100`），不使用 OFFSET
 - 每页 100 条，支持向上/向下翻页
 - 初始加载最新 100 条（倒序），用户可向上加载更多
 
@@ -372,7 +361,7 @@ ahvp:
 | `TEXT` | 等宽字体，纯文本展示，保留换行 |
 | `METRIC` | 关键指标 Tag 展示 + 可展开详情表格 + 迷你 sparkline |
 | `PROGRESS` | 进度条 + 百分比 + 步骤信息 |
-| `ERROR` | 红色背景高亮 + 可展开完整错误堆栈 |
+| `ERROR` | **红色背景高亮** + 可展开完整错误堆栈 |
 | `SYSTEM` | 灰色文字 + 系统信息折叠 |
 
 **METRIC 类型日志展示示例：**
@@ -407,13 +396,6 @@ ahvp:
 | Latency 趋势 | `metrics.latency_ms_p50/p95/p99` | 折线图，横轴为 batch_size 或 step |
 | Throughput 对比 | `metrics.throughput_qps` | 柱状图 |
 | CPU 利用率 | `metrics.cpu_util_percent` | 面积图 |
-
-#### 3.4.2 任务日志对比
-
-选择两个任务后，系统自动：
-1. 对齐两个任务的 METRIC 日志（按 batch_size / model / operator 匹配）
-2. 生成对比表格，高亮差异 > 10% 的指标
-3. 可视化对比图表（双轴折线图）
 
 ### 3.5 日志导出
 
@@ -531,7 +513,6 @@ CREATE TABLE task_logs (
     details         JSONB,                                  -- 扩展详情（兼容）
     context         JSONB,                                  -- 执行上下文
     source          VARCHAR(32) DEFAULT 'AGENT',            -- AGENT/SYSTEM/USER
-    sequence_no     BIGINT,                                 -- 任务内序列号
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -540,27 +521,12 @@ CREATE INDEX idx_logs_task_id ON task_logs(task_id);
 CREATE INDEX idx_logs_created_at ON task_logs(created_at);
 CREATE INDEX idx_logs_task_type ON task_logs(task_id, log_type);
 CREATE INDEX idx_logs_task_level ON task_logs(task_id, level);
-CREATE INDEX idx_logs_task_seq ON task_logs(task_id, sequence_no);
+CREATE INDEX idx_logs_task_id_order ON task_logs(task_id, id);  -- 游标分页
 ```
 
-### 5.2 `log_archives` 表（归档记录）
+> **v1.1 变更说明：** 删除 `sequence_no` 字段及其索引 `idx_logs_task_seq`。`id` 自增即有序，游标分页用 `WHERE id > ? ORDER BY id ASC LIMIT 100`。删除 `log_archives` 表（不再需要三级存储）。
 
-```sql
-CREATE TABLE log_archives (
-    id              BIGSERIAL PRIMARY KEY,
-    task_id         BIGINT NOT NULL,
-    archive_path    VARCHAR(512) NOT NULL,     -- 归档文件路径
-    log_count       INTEGER NOT NULL,          -- 归档日志条数
-    date_from       TIMESTAMP NOT NULL,        -- 归档起始时间
-    date_to         TIMESTAMP NOT NULL,        -- 归档结束时间
-    file_size_bytes BIGINT,                    -- 文件大小
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_archives_task_id ON log_archives(task_id);
-```
-
-### 5.3 `log_export_jobs` 表（异步导出任务）
+### 5.2 `log_export_jobs` 表（异步导出任务，P2）
 
 ```sql
 CREATE TABLE log_export_jobs (
@@ -577,14 +543,15 @@ CREATE TABLE log_export_jobs (
 );
 ```
 
-### 5.4 ER 关系
+> **注意：** `log_export_jobs` 表为 P2 功能，第一期不需要建表。
+
+### 5.3 ER 关系
 
 ```
-evaluation_tasks 1 ──── N task_logs       (通过 task_id)
-evaluation_tasks 1 ──── N evaluation_reports (通过 task_id)  
-task_logs        N ────── evaluation_reports  (通过 task_id 间接关联)
-task_logs        1 ──── 1 log_archives    (归档后)
-users            1 ──── N log_export_jobs (导出任务)
+evaluation_tasks 1 ──── N task_logs            (通过 task_id)
+evaluation_tasks 1 ──── N evaluation_reports   (通过 task_id)  
+task_logs        N ────── evaluation_reports   (通过 task_id 间接关联)
+users            1 ──── N log_export_jobs      (导出任务, P2)
 ```
 
 ---
@@ -638,8 +605,8 @@ Response:
 
 ```
 Query Parameters:
-  after      - 游标（上次返回的最后一条 sequence_no）
-  before     - 反向游标
+  afterId    - 游标（上次返回的最后一条日志的 id）
+  beforeId   - 反向游标
   level      - 日志级别过滤（逗号分隔：INFO,WARN,ERROR）
   type       - 日志类型过滤（逗号分隔：TEXT,METRIC）
   keyword    - 全文搜索关键字
@@ -661,18 +628,19 @@ Response:
         "message": "MLP-Medium batch_size=4 评测完成",
         "metrics": { ... },
         "context": { "nodeId": "node-001", "step": "3/4" },
-        "sequenceNo": 156,
         "createdAt": "2026-04-07T16:44:42.809Z"
       }
     ],
     "hasMore": true,
-    "nextCursor": "156"
+    "nextCursor": "26"
   },
   "total": 126
 }
 ```
 
-#### 6.1.3 日志统计（用于仪表盘）
+> **v1.1 变更说明：** 游标参数从 `after`/`before`（基于 sequence_no）改为 `afterId`/`beforeId`（基于 id）。响应中删除 `sequenceNo` 字段，`nextCursor` 值为最后一条的 `id`。
+
+#### 6.1.3 日志统计（用于仪表盘，P1）
 
 **GET /api/tasks/{taskId}/logs/stats**
 
@@ -693,7 +661,7 @@ Response:
 }
 ```
 
-#### 6.1.4 日志性能数据提取
+#### 6.1.4 日志性能数据提取（P2）
 
 **GET /api/tasks/{taskId}/logs/metrics**
 
@@ -741,7 +709,7 @@ Response:
   Content-Disposition: attachment; filename=task-{taskId}-logs.{format}
 ```
 
-**POST /api/logs/export**（异步导出，大文件）
+**POST /api/logs/export**（异步导出，大文件，P2）
 
 ```
 Request:
@@ -755,7 +723,7 @@ Response:
 { "code": 0, "data": { "jobId": "export-001" } }
 ```
 
-**GET /api/logs/export/{jobId}**（查询导出状态）
+**GET /api/logs/export/{jobId}**（查询导出状态，P2）
 
 ```
 Response:
@@ -769,40 +737,13 @@ Response:
 }
 ```
 
-#### 6.1.6 日志对比
-
-**GET /api/logs/compare**
-
-```
-Query Parameters:
-  taskId1    - 第一个任务 ID
-  taskId2    - 第二个任务 ID
-
-Response:
-{
-  "code": 0,
-  "data": {
-    "task1": { "taskId": 2557, "metricsCount": 4, "summary": { ... } },
-    "task2": { "taskId": 2556, "metricsCount": 4, "summary": { ... } },
-    "comparison": [
-      {
-        "dimension": "batch_size=4",
-        "task1": { "latency_p50": 0.332, "throughput": 2557.4 },
-        "task2": { "latency_p50": 0.298, "throughput": 2890.1 },
-        "diff": { "latency_p50": "+11.4%", "throughput": "-11.5%" }
-      }
-    ]
-  }
-}
-```
-
 ### 6.2 WebSocket API
 
 #### 6.2.1 实时日志推送
 
 **连接地址：** `ws://host/ws/tasks/{taskId}/logs`
 
-**认证：** 通过 query 参数 `?token=xxx` 或连接后首条消息携带 token
+**认证：** 通过 query 参数 `?token=xxx`
 
 **服务端 → 客户端消息：**
 
@@ -816,7 +757,6 @@ Response:
     "level": "INFO",
     "message": "MLP-Medium batch_size=16 评测完成",
     "metrics": { ... },
-    "sequenceNo": 157,
     "createdAt": "2026-04-07T16:44:45.000Z"
   }
 }
@@ -859,13 +799,12 @@ Response:
 
 ### 7.2 存储方案
 
-| 存储层 | 容量估算 | 技术方案 |
-|--------|----------|----------|
-| **热存储**（30天） | ~450MB | PostgreSQL 原表 + 索引 |
-| **温存储**（90天） | ~1.35GB | PostgreSQL 按月分区 |
-| **冷归档**（1年+） | ~5.4GB/年 | JSON 文件 + gzip 压缩（~500MB） |
-
-**磁盘容量规划：** 当前服务器 40GB，日志热+温存储占用 < 2GB，充足。
+| 项目 | 说明 |
+|------|------|
+| **存储方式** | PostgreSQL `task_logs` 单表 |
+| **90 天数据量** | ~1.35GB |
+| **磁盘容量** | 当前服务器 40GB，日志占用 < 2GB，充足 |
+| **未来扩展** | 若日志量增长 10 倍以上，再考虑按月分区 |
 
 ### 7.3 性能目标
 
@@ -882,51 +821,50 @@ Response:
 
 ## 八、实现优先级
 
-### P0 — 核心功能（第一期，预计 3 天）
+### P0 — 核心功能（第一期，预计 5 天）
 
-> 解决用户最紧迫的三个问题：假数据、无持久化、无实时流
-
-| # | 功能点 | 工作量 | 说明 |
-|---|--------|--------|------|
-| 1 | **前端日志面板对接后端 API** | 0.5 天 | 移除 PlanMonitor.js 中的模拟日志，调用 `GET /tasks/{taskId}/logs` |
-| 2 | **日志级别区分** | 0.5 天 | Agent 端实现 `_classify_log_line()`，区分 INFO/WARN/ERROR |
-| 3 | **前端日志级别颜色渲染** | 0.5 天 | ERROR 红色、WARN 橙色、INFO 默认 |
-| 4 | **WebSocket 实时推送** | 1 天 | 后端 WebSocket 端点 + 前端连接 |
-| 5 | **日志导出对接** | 0.5 天 | 前端对接已有的 `/logs/download` 接口 |
-
-### P1 — 增强功能（第二期，预计 5 天）
-
-> 结构化日志、性能数据展示、搜索过滤
+> 一步到位：真实数据 + WebSocket 实时推送 + ERROR 高亮 + 失败日志 + 结构化上报
 
 | # | 功能点 | 工作量 | 说明 |
 |---|--------|--------|------|
-| 6 | **结构化日志格式** | 1 天 | 数据库 schema 增强 + Agent 端结构化上报 |
-| 7 | **批量上报接口** | 0.5 天 | `POST /tasks/{taskId}/logs/batch` |
-| 8 | **METRIC 类型日志渲染** | 1.5 天 | 性能指标卡片 + 迷你图表 |
-| 9 | **日志搜索过滤** | 1 天 | 后端参数化查询 + 前端筛选工具栏 |
-| 10 | **日志统计接口** | 0.5 天 | `/logs/stats` 接口 |
-| 11 | **日志保留策略** | 0.5 天 | 定时任务 + 配置项 |
+| 1 | **前端日志面板对接真实 API** | 0.5 天 | 移除 PlanMonitor.js 模拟日志，调用 `GET /tasks/{taskId}/logs`；日志级别颜色渲染（ERROR 红色背景、WARN 橙色、INFO 默认） |
+| 2 | **失败任务日志完整保留 + 一键跳转** | 0.5 天 | 任务列表 FAILED 行点击直接查看对应日志 |
+| 3 | **日志导出对接** | 0.5 天 | 前端导出按钮对接已有的 `/logs/download` 接口 |
+| 4 | **后端 WebSocket 实时日志推送** | 1 天 | Spring WebSocket 端点 `ws://host/ws/tasks/{taskId}/logs`；30s 心跳；任务状态变更通知 |
+| 5 | **前端 WebSocket 实时日志连接** | 1 天 | RUNNING 时 WebSocket 实时追加；断线指数退避重连；降级到 HTTP 2s 轮询；自动滚动 + "有新日志"提示 |
+| 6 | **Agent 结构化日志上报增强** | 1.5 天 | `subprocess.Popen` 实时读取 stdout/stderr；`_classify_log_line()` 自动识别 TEXT/METRIC/PROGRESS/ERROR/SYSTEM；stderr 标记 ERROR；任务开始/完成上报 SYSTEM 日志；batch 上报接口；DB schema 增加 log_type/metrics/context/source 字段 |
 
-### P2 — 高级功能（第三期，预计 5 天）
+### P1 — 增强功能（第二期，预计 4 天）
 
-> 对比分析、归档、异步导出
+> 性能指标渲染、搜索过滤、统计、保留策略
 
 | # | 功能点 | 工作量 | 说明 |
 |---|--------|--------|------|
-| 12 | **性能数据提取接口** | 1 天 | `/logs/metrics` 聚合查询 |
-| 13 | **日志 ↔ 报告关联跳转** | 1 天 | 双向链接 |
-| 14 | **任务日志对比** | 1.5 天 | 对比视图 + 差异高亮 |
-| 15 | **多格式导出** | 0.5 天 | JSON / CSV 格式支持 |
-| 16 | **异步导出大文件** | 0.5 天 | 导出任务队列 |
-| 17 | **冷归档自动化** | 0.5 天 | 定时归档脚本 |
+| 7 | **METRIC 日志性能指标渲染** | 1.5 天 | 性能指标卡片（latency/throughput/CPU等）+ 迷你 sparkline 图表 + 可展开详细数据 |
+| 8 | **日志搜索过滤** | 1 天 | 前端工具栏（任务/级别/类型/关键字）；后端增加 level/type/keyword/from/to 参数；关键字高亮；游标分页 (WHERE id > ? LIMIT 100) |
+| 9 | **日志统计接口** | 0.5 天 | `/logs/stats` 接口，byLevel/byType/时间范围 |
+| 10 | **日志保留策略** | 1 天 | 定时清理任务（每天凌晨 2 点删除超过 max-retention-days 的日志） |
+
+### P2 — 高级功能（第三期，预计 3 天）
+
+> 性能数据提取、报告关联、多格式导出、异步导出
+
+| # | 功能点 | 工作量 | 说明 |
+|---|--------|--------|------|
+| 11 | **性能数据提取接口** | 1 天 | `/logs/metrics` 聚合查询（按 batch_size/model 分组） |
+| 12 | **日志 ↔ 报告关联跳转** | 0.5 天 | 通过 task_id 双向链接，日志页→报告页、报告页→日志页 |
+| 13 | **多格式导出** | 0.5 天 | JSON / CSV 格式支持（已有 TXT） |
+| 14 | **异步导出大文件** | 1 天 | `log_export_jobs` 表 + 导出任务队列 + 完成通知 |
+
+> **v1.1 变更说明：** 砍掉"任务日志对比"功能（原 P2），当前阶段不需要。
 
 ### 里程碑时间线
 
 ```
-P0（第一期）：解决假数据 + 实时日志 + 持久化  → 3 天
-P1（第二期）：结构化日志 + 性能展示 + 搜索    → 5 天
-P2（第三期）：对比分析 + 归档 + 高级导出      → 5 天
-                                            总计 ~13 天
+P0（第一期）：真实数据 + WebSocket + ERROR高亮 + 结构化上报 → 5 天
+P1（第二期）：METRIC渲染 + 搜索过滤 + 统计 + 保留策略      → 4 天
+P2（第三期）：性能提取 + 报告关联 + 多格式/异步导出         → 3 天
+                                                          总计 ~12 天
 ```
 
 ---
@@ -947,18 +885,18 @@ P2（第三期）：对比分析 + 归档 + 高级导出      → 5 天
 
 | 文件 | 改动项 |
 |------|--------|
-| `TaskLog.java` | 新增 logType, metrics, context, source, sequenceNo 字段 |
-| `TaskLogController.java` | 新增 batch 上报、参数化查询、stats、metrics 接口 |
+| `TaskLog.java` | 新增 logType, metrics, context, source 字段 |
+| `TaskLogController.java` | 新增 batch 上报、参数化查询、stats 接口 |
 | `TaskLogRepository.java` | 新增按级别/类型/关键字查询方法 |
 | 新增 `TaskLogWebSocketHandler.java` | WebSocket 端点实现 |
-| 新增 `LogArchiveScheduler.java` | 日志归档定时任务 |
+| 新增 `LogCleanupScheduler.java` | 日志定时清理任务 |
 | `application.yml` | 新增 log 相关配置项 |
 
 ### C. Agent 改造清单
 
 | 文件 | 改动项 |
 |------|--------|
-| `executor.py` | `_classify_log_line()` 方法、结构化上报、batch 接口调用 |
+| `executor.py` | `subprocess.run` → `subprocess.Popen`；`_classify_log_line()` 方法；结构化上报；batch 接口调用 |
 | 新增 `log_formatter.py` | 日志格式化工具，解析脚本 JSON 输出为结构化日志 |
 
 ### D. 数据库迁移脚本
@@ -966,12 +904,11 @@ P2（第三期）：对比分析 + 归档 + 高级导出      → 5 天
 ```sql
 -- Migration: V2026_04_08__enhance_task_logs.sql
 
--- 1. 新增字段
+-- 1. 新增字段（不含 sequence_no，id 自增即有序）
 ALTER TABLE task_logs ADD COLUMN IF NOT EXISTS log_type VARCHAR(16) DEFAULT 'TEXT';
 ALTER TABLE task_logs ADD COLUMN IF NOT EXISTS metrics JSONB;
 ALTER TABLE task_logs ADD COLUMN IF NOT EXISTS context JSONB;
 ALTER TABLE task_logs ADD COLUMN IF NOT EXISTS source VARCHAR(32) DEFAULT 'AGENT';
-ALTER TABLE task_logs ADD COLUMN IF NOT EXISTS sequence_no BIGINT;
 
 -- 2. 更新现有数据的 log_type（根据 content 内容推断）
 UPDATE task_logs SET log_type = 'TEXT' WHERE log_type IS NULL;
@@ -982,34 +919,10 @@ CREATE INDEX IF NOT EXISTS idx_logs_type ON task_logs(log_type);
 CREATE INDEX IF NOT EXISTS idx_logs_level ON task_logs(level);
 CREATE INDEX IF NOT EXISTS idx_logs_task_type ON task_logs(task_id, log_type);
 CREATE INDEX IF NOT EXISTS idx_logs_task_level ON task_logs(task_id, level);
-CREATE INDEX IF NOT EXISTS idx_logs_task_seq ON task_logs(task_id, sequence_no);
+CREATE INDEX IF NOT EXISTS idx_logs_task_id_order ON task_logs(task_id, id);
 
--- 4. 归档记录表
-CREATE TABLE IF NOT EXISTS log_archives (
-    id              BIGSERIAL PRIMARY KEY,
-    task_id         BIGINT NOT NULL,
-    archive_path    VARCHAR(512) NOT NULL,
-    log_count       INTEGER NOT NULL,
-    date_from       TIMESTAMP NOT NULL,
-    date_to         TIMESTAMP NOT NULL,
-    file_size_bytes BIGINT,
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_archives_task_id ON log_archives(task_id);
-
--- 5. 导出任务表
-CREATE TABLE IF NOT EXISTS log_export_jobs (
-    id              BIGSERIAL PRIMARY KEY,
-    user_id         BIGINT NOT NULL REFERENCES users(id),
-    task_id         BIGINT,
-    format          VARCHAR(16) NOT NULL,
-    filters         JSONB,
-    status          VARCHAR(16) DEFAULT 'PENDING',
-    file_path       VARCHAR(512),
-    file_size_bytes BIGINT,
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    completed_at    TIMESTAMP
-);
+-- 4. 导出任务表（P2，可以等第三期再建）
+-- CREATE TABLE IF NOT EXISTS log_export_jobs ( ... );
 ```
 
 ### E. 兼容性说明
@@ -1018,3 +931,17 @@ CREATE TABLE IF NOT EXISTS log_export_jobs (
 - 旧的 `POST /tasks/{taskId}/logs`（纯文本 content）接口保持不变
 - Agent 端可渐进式迁移：先继续用旧接口，再逐步切换到 batch 接口
 - 前端先对接现有 REST 接口，WebSocket 作为增强
+
+### F. v1.0 → v1.1 变更摘要
+
+| 变更项 | v1.0 | v1.1 | 原因 |
+|--------|------|------|------|
+| WebSocket 优先级 | P1 | **P0** | 一步到位，不分期 |
+| 存储方案 | 三级（热/温/冷） | **单表 task_logs** | PostgreSQL 够用，简化架构 |
+| `sequence_no` 字段 | 有 | **删除** | id 自增天然有序，游标分页用 `WHERE id > ?` |
+| `log_archives` 表 | 有 | **删除** | 不需要冷归档表 |
+| 保留策略 | 热30天+温90天+冷归档 | **max-retention-days=90 + 定时删除** | 简化 |
+| 游标分页参数 | `after`（sequence_no） | **`afterId`**（id） | 配合删除 sequence_no |
+| P0 范围 | 前端对接+级别区分+颜色+导出 | **+WebSocket+失败日志跳转+Agent结构化上报** | P0 范围扩大 |
+| P2 日志对比 | 有 | **砍掉** | 先不做 |
+| US-4 日志对比 | 有 | **砍掉** | 先不做 |
