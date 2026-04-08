@@ -60,6 +60,16 @@ const AVAILABLE_MODELS = [
   "VGG-16", "MobileNet-V2", "Transformer-Base", "EfficientNet-B0",
 ];
 
+
+const SUGGESTED_HF_MODELS = [
+  "bert-base-uncased",
+  "gpt2",
+  "meta-llama/Llama-2-7b-hf",
+  "google/gemma-2b",
+  "microsoft/phi-2",
+  "mistralai/Mistral-7B-v0.1",
+];
+
 const EVAL_TYPES = {
   PERFORMANCE: "性能评测", ACCURACY: "精度评测",
   COMPATIBILITY: "兼容性", STABILITY: "稳定性", GENERAL: "通用",
@@ -141,14 +151,17 @@ export default function TemplateList() {
         }
       }
       if (values.evaluationLayer === "MODEL" || values.evaluationLayer === "CHIP") {
-        if (!values.models || values.models.length === 0) {
-          message.warning("请至少选择一个评测模型");
+        const hasBuiltinModels = values.models && values.models.length > 0;
+        const hasHfModels = values.huggingfaceModels && values.huggingfaceModels.length > 0;
+        if (!hasBuiltinModels && !hasHfModels) {
+          message.warning("\u8bf7\u81f3\u5c11\u9009\u62e9\u4e00\u4e2a\u8bc4\u6d4b\u6a21\u578b\uff08\u5185\u7f6e\u6216 HuggingFace\uff09");
           return;
         }
       }
       const config = {
         operators: values.operators || [],
         models: values.models || [],
+        huggingface_models: values.huggingfaceModels || [],
         iterations: values.iterations || 100,
         batchSizes: values.batchSizes || [1],
         dataTypes: values.dataTypes || ["FP32"],
@@ -185,6 +198,7 @@ export default function TemplateList() {
       evalType: record.evalType, evaluationLayer: record.evaluationLayer,
       operators: ensureArray(config.operators),
       models: ensureArray(config.models),
+      huggingfaceModels: ensureArray(config.huggingface_models),
       iterations: config.iterations || 100,
       batchSizes: ensureArray(config.batchSizes).map(Number),
       dataTypes: ensureArray(config.dataTypes),
@@ -246,7 +260,8 @@ export default function TemplateList() {
             {filteredTemplates.map(t => {
               const config = parseConfig(t.configJson);
               const layer = t.evaluationLayer;
-              const itemCount = config.itemCount || (config.operators?.length || 0) + (config.models?.length || 0);
+              const hfModels = ensureArray(config.huggingface_models);
+              const itemCount = config.itemCount || (config.operators?.length || 0) + (config.models?.length || 0) + hfModels.length;
 
               return (
                 <Col xs={24} sm={12} md={8} lg={6} key={t.id}>
@@ -291,7 +306,8 @@ export default function TemplateList() {
                       <Space size={4} wrap>
                         {layer && <Tag color={LAYER_COLORS[layer]} style={{ fontSize: 11 }}>{LAYER_LABELS[layer]}</Tag>}
                         <Tag color="blue" style={{ fontSize: 11 }}>{EVAL_TYPES[t.evalType] || t.evalType}</Tag>
-                        {itemCount > 0 && <Tag color="cyan" style={{ fontSize: 11 }}>{itemCount} 评测项</Tag>}
+                        {itemCount > 0 && <Tag color="cyan" style={{ fontSize: 11 }}>{itemCount} \u8bc4\u6d4b\u9879</Tag>}
+                        {hfModels.length > 0 && <Tag color="blue" style={{ fontSize: 11 }}>🤗 {hfModels.length} HF\u6a21\u578b</Tag>}
                       </Space>
                     </Space>
                   </Card>
@@ -366,6 +382,18 @@ export default function TemplateList() {
                     options={[...new Set([...ensureArray(config.models), ...AVAILABLE_MODELS])].map(m => ({ value: m, label: m }))} />
                 </Form.Item>
               )}
+              {ensureArray(config.huggingface_models).length > 0 && (
+                <Form.Item label="HuggingFace 模型">
+                  <Space size={[4, 8]} wrap>
+                    {ensureArray(config.huggingface_models).map(m => (
+                      <Tag key={m} color="blue" style={{ cursor: "pointer" }}
+                        onClick={() => window.open("https://huggingface.co/" + m, "_blank")}>
+                        🤗 {m}
+                      </Tag>
+                    ))}
+                  </Space>
+                </Form.Item>
+              )}
               <Row gutter={16}>
                 <Col span={8}>
                   <Form.Item label="迭代次数">
@@ -430,10 +458,27 @@ export default function TemplateList() {
           </Form.Item>
           )}
           {(!editLayer || editLayer === 'MODEL' || editLayer === 'CHIP' || editLayer === 'COMPARISON') && (
-          <Form.Item name="models" label="模型列表（多选）">
+          <Form.Item name="models" label="\u5185\u7f6e\u6a21\u578b\uff08\u591a\u9009\uff09">
             <Select mode="multiple" placeholder="选择要评测的模型" allowClear
               options={AVAILABLE_MODELS.map(m => ({ value: m, label: m }))}
               maxTagCount={5} />
+          </Form.Item>
+          )}
+          {(!editLayer || editLayer === 'MODEL' || editLayer === 'CHIP' || editLayer === 'COMPARISON') && (
+          <Form.Item name="huggingfaceModels" label="🤗 HuggingFace \u6a21\u578b"
+            extra="\u8f93\u5165 HuggingFace \u6a21\u578b ID \u540e\u56de\u8f66\u6dfb\u52a0\uff0c\u4e5f\u53ef\u4ece\u5efa\u8bae\u5217\u8868\u9009\u62e9">
+            <Select mode="tags" placeholder="\u8f93\u5165\u6a21\u578b ID\uff0c\u5982 bert-base-uncased\u3001meta-llama/Llama-2-7b-hf"
+              allowClear tokenSeparators={[","]}
+              maxTagCount={10}
+              options={SUGGESTED_HF_MODELS.map(m => ({ value: m, label: "🤗 " + m }))}
+              tagRender={({ label, value, closable, onClose }) => (
+                <Tag color="blue" closable={closable} onClose={onClose}
+                  style={{ marginInlineEnd: 3, cursor: "pointer" }}
+                  onClick={(e) => { e.stopPropagation(); window.open("https://huggingface.co/" + value, "_blank"); }}>
+                  🤗 {value}
+                </Tag>
+              )}
+            />
           </Form.Item>
           )}
           <Row gutter={16}>

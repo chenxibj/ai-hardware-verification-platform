@@ -69,16 +69,48 @@ public class ReportGeneratorService {
 
         // 1. 计算维度评分
         Map<String, Double> dimScores = resultService.calculateDimensionScores(planId);
-        double overallScore = resultService.calculateOverallScore(dimScores);
 
-        // 2. 生成算子排行
+        // 2. 生成算子排行 (with three-state: VALID/NO_DATA/FAILED)
         List<Map<String, Object>> operatorRanking = buildOperatorRanking(planId);
+
+        // 2.1 Recalculate overallScore based on VALID entries only
+        double overallScore = operatorRanking.stream()
+                .filter(op -> "VALID".equals(op.get("dataStatus")))
+                .mapToDouble(op -> toDouble(op.get("score")))
+                .average().orElse(resultService.calculateOverallScore(dimScores));
+
+        // 2.2 Calculate coverage
+        long validCount = operatorRanking.stream().filter(op -> "VALID".equals(op.get("dataStatus"))).count();
+        long noDataCount = operatorRanking.stream().filter(op -> "NO_DATA".equals(op.get("dataStatus"))).count();
+        long failedCount = operatorRanking.stream().filter(op -> "FAILED".equals(op.get("dataStatus"))).count();
+        long totalCount = operatorRanking.size();
+        double coverageRate = totalCount > 0 ? (double) validCount / totalCount * 100 : 0;
+
+        Map<String, Object> coverage = new LinkedHashMap<>();
+        coverage.put("totalItems", totalCount);
+        coverage.put("validItems", validCount);
+        coverage.put("noDataItems", noDataCount);
+        coverage.put("failedItems", failedCount);
+        coverage.put("coverageRate", Math.round(coverageRate * 10.0) / 10.0);
+        coverage.put("isComplete", coverageRate >= 80.0);
+        coverage.put("note", coverageRate < 80.0
+                ? "本报告基于不完整评测数据，部分算子未采集到性能指标，芯片评价可能不完整"
+                : "评测覆盖度良好");
 
         // 3. 生成六维雷达图数据
         List<Map<String, Object>> radarData = buildRadarData(dimScores);
 
         // 4. 生成瓶颈分析
         List<Map<String, Object>> bottleneckAnalysis = buildBottleneckAnalysis(dimScores, operatorRanking);
+
+        // 4.1 Inject coverage as a special entry at the beginning of bottleneck analysis
+        Map<String, Object> coverageEntry = new LinkedHashMap<>();
+        coverageEntry.put("type", "coverage");
+        coverageEntry.put("level", coverageRate >= 80.0 ? "info" : "warning");
+        coverageEntry.put("title", String.format("评测覆盖度: %.0f%% (%d/%d 项有效数据)", coverageRate, validCount, totalCount));
+        coverageEntry.put("detail", coverage.get("note"));
+        coverageEntry.put("coverage", coverage);
+        bottleneckAnalysis.add(0, coverageEntry);
 
         // 5. 生成场景推荐
         List<Map<String, Object>> scenarioRecommendations = buildScenarioRecommendations(dimScores, overallScore);
@@ -107,9 +139,74 @@ public class ReportGeneratorService {
         return saved;
     }
 
+    /* 六维度详细说明 */
+    private static final Map<String, Map<String, Object>> DIM_DETAILS = new LinkedHashMap<>();
+    static {
+        DIM_DETAILS.put("compute_perf", buildDimDetail(
+            "计算性能",
+            "衡量芯片执行核心计算操作的能力，是AI推理的基础",
+            "对 MatMul（矩阵乘法）、Conv2D（卷积）等基础计算算子，在不同输入尺寸下进行 benchmark，测量平均延迟和吞吐量",
+            "score = 100 - 20×log₁₀(avg_latency_ms)，延迟越低得分越高",
+            "≥80分：优秀 | 60-79分：良好 | 40-59分：一般 | <40分：较差",
+            new String[]{"MatMul", "Conv2D", "GEMM", "Linear"}
+        ));
+        DIM_DETAILS.put("memory_perf", buildDimDetail(
+            "访存性能",
+            "衡量芯片数据搬运和内存访问效率，影响整体推理流水线效率",
+            "通过 Transpose、Embedding Lookup、Concat、Gather/Scatter 等内存密集型操作测量数据搬运延迟",
+            "score = 100 - 20×log₁₀(avg_latency_ms)，延迟越低得分越高",
+            "≥80分：优秀 | 60-79分：良好 | 40-59分：一般 | <40分：较差",
+            new String[]{"Transpose", "Embedding", "Concat", "Gather", "Scatter", "Memcpy", "Bandwidth"}
+        ));
+        DIM_DETAILS.put("math_func", buildDimDetail(
+            "数学函数",
+            "衡量芯片执行激活函数等数学运算的能力",
+            "对 ReLU、Softmax、GeLU、Sigmoid、Tanh 等常用激活函数进行 benchmark",
+            "score = 100 - 20×log₁₀(avg_latency_ms)，延迟越低得分越高",
+            "≥80分：优秀 | 60-79分：良好 | 40-59分：一般 | <40分：较差",
+            new String[]{"ReLU", "GeLU", "SiLU", "Sigmoid", "Tanh", "Softmax"}
+        ));
+        DIM_DETAILS.put("attention", buildDimDetail(
+            "Attention能力",
+            "衡量芯片对 Transformer 架构核心组件的支持能力，直接决定大模型推理性能",
+            "通过 Scaled Dot-Product Attention、Flash Attention 等机制进行端到端性能测试",
+            "score = 100 - 20×log₁₀(avg_latency_ms)，延迟越低得分越高",
+            "≥80分：优秀 | 60-79分：良好 | 40-59分：一般 | <40分：较差",
+            new String[]{"ScaledDotProduct", "FlashAttention"}
+        ));
+        DIM_DETAILS.put("normalization", buildDimDetail(
+            "归一化性能",
+            "衡量芯片执行归一化操作的效率，是现代深度学习模型的标配组件",
+            "对 LayerNorm、BatchNorm、RMSNorm 进行不同维度输入的 benchmark",
+            "score = 100 - 20×log₁₀(avg_latency_ms)，延迟越低得分越高",
+            "≥80分：优秀 | 60-79分：良好 | 40-59分：一般 | <40分：较差",
+            new String[]{"LayerNorm", "BatchNorm", "RMSNorm"}
+        ));
+        DIM_DETAILS.put("model_inference", buildDimDetail(
+            "模型推理",
+            "衡量芯片端到端运行完整模型的综合能力",
+            "部署 MLP、ResNet、BERT、LLaMA 等不同规模模型，测量多 batch size 下的推理延迟和吞吐量",
+            "score = 100 - 20×log₁₀(avg_latency_ms)，延迟越低得分越高",
+            "≥80分：优秀 | 60-79分：良好 | 40-59分：一般 | <40分：较差",
+            new String[]{"MLP", "ResNet", "BERT", "LLaMA"}
+        ));
+    }
+
+    private static Map<String, Object> buildDimDetail(String name, String description,
+            String evalMethod, String scoringBasis, String scoringStandard, String[] operators) {
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("name", name);
+        detail.put("description", description);
+        detail.put("evalMethod", evalMethod);
+        detail.put("scoringBasis", scoringBasis);
+        detail.put("scoringStandard", scoringStandard);
+        detail.put("coveredOperators", Arrays.asList(operators));
+        return detail;
+    }
+
     /**
-     * 构建六维雷达图数据
-     * 输出: [{dimension: "计算性能", score: 82.1}, ...]
+     * 构建六维雷达图数据（含维度说明）
+     * 输出: [{dimension: "计算性能", score: 82.1, dimKey: "compute_perf", detail: {...}}, ...]
      */
     private List<Map<String, Object>> buildRadarData(Map<String, Double> dimScores) {
         List<Map<String, Object>> radarData = new ArrayList<>();
@@ -119,7 +216,13 @@ public class ReportGeneratorService {
             double score = dimScores.getOrDefault(key, 0.0);
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("dimension", name);
+            item.put("dimKey", key);
             item.put("score", Math.round(score * 10.0) / 10.0);
+            // Add dimension detail
+            Map<String, Object> detail = DIM_DETAILS.get(key);
+            if (detail != null) {
+                item.put("detail", detail);
+            }
             radarData.add(item);
         }
         return radarData;
@@ -133,9 +236,11 @@ public class ReportGeneratorService {
             Map<String, Double> dimScores, List<Map<String, Object>> operatorRanking) {
         List<Map<String, Object>> analysis = new ArrayList<>();
 
-        // 1. 性能最差的 3 个算子
-        List<Map<String, Object>> sorted = new ArrayList<>(operatorRanking);
-        sorted.sort((a, b) -> Double.compare(toDouble(a.get("score")), toDouble(b.get("score"))));
+        // 1. 性能最差的 3 个算子 (only consider VALID entries)
+        List<Map<String, Object>> sorted = operatorRanking.stream()
+                .filter(op -> "VALID".equals(op.get("dataStatus")))
+                .sorted((a, b) -> Double.compare(toDouble(a.get("score")), toDouble(b.get("score"))))
+                .collect(Collectors.toList());
         int worstCount = Math.min(3, sorted.size());
         for (int i = 0; i < worstCount; i++) {
             Map<String, Object> op = sorted.get(i);
@@ -326,12 +431,22 @@ public class ReportGeneratorService {
                 double p95Latency = toDouble(flatMetrics.getOrDefault("latency_ms_p95", flatMetrics.getOrDefault("latency_p95", flatMetrics.getOrDefault("latencyP95", 0))));
                 double p99Latency = toDouble(flatMetrics.getOrDefault("latency_ms_p99", flatMetrics.getOrDefault("latency_p99", flatMetrics.getOrDefault("latencyP99", 0))));
                 double throughput = toDouble(flatMetrics.getOrDefault("throughput_qps", flatMetrics.getOrDefault("throughput_ops", flatMetrics.getOrDefault("throughput", flatMetrics.getOrDefault("avg_throughput_qps", 0)))));
-                // Compute score from latency (like ScoringService) instead of using stored fallback
+                // Three-state scoring: VALID / NO_DATA / FAILED
                 double score;
-                if (avgLatency > 0) {
+                String dataStatus;
+                if (avgLatency > 0 && throughput > 0) {
                     score = Math.max(0, Math.min(100, 100 - 20 * Math.log10(avgLatency)));
-                } else {
+                    dataStatus = "VALID";
+                } else if (r.getPassed() != null && r.getPassed()) {
+                    // Agent reported passed but no perf data — valid execution, no metrics
+                    score = -1;
+                    dataStatus = "NO_DATA";
+                } else if (r.getErrorMessage() != null && !r.getErrorMessage().isEmpty()) {
                     score = 0;
+                    dataStatus = "FAILED";
+                } else {
+                    score = -1;
+                    dataStatus = "NO_DATA"; // No error, no data = system didn't collect metrics
                 }
 
                 String dimension = categorizeToDimension(task);
@@ -343,8 +458,9 @@ public class ReportGeneratorService {
                 entry.put("latencyP95", Math.round(p95Latency * 100.0) / 100.0);
                 entry.put("latencyP99", Math.round(p99Latency * 100.0) / 100.0);
                 entry.put("throughput", Math.round(throughput * 100.0) / 100.0);
-                entry.put("score", Math.round(score * 10.0) / 10.0);
-                entry.put("passed", score >= 60.0);
+                entry.put("score", dataStatus.equals("NO_DATA") ? null : Math.round(score * 10.0) / 10.0);
+                entry.put("passed", dataStatus.equals("VALID") && score >= 60.0);
+                entry.put("dataStatus", dataStatus);
                 ranking.add(entry);
             } catch (Exception e) {
                 log.warn("Failed to parse metrics for result {}", r.getId());

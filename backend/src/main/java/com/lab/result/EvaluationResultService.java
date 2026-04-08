@@ -533,7 +533,9 @@ public class EvaluationResultService {
                 // Compute score from latency instead of trusting stored score field
                 Map<String, Object> flatM = flattenMetrics(metrics);
                 double lat = toDouble(flatM.getOrDefault("latency_ms_mean", flatM.getOrDefault("latency_mean", flatM.getOrDefault("latencyMean", flatM.getOrDefault("avg_latency_ms", 0)))));
-                double score = lat > 0 ? Math.max(0, Math.min(100, 100 - 20 * Math.log10(lat))) : 0;
+                // Only include entries with valid latency data in dimension scoring
+                if (lat <= 0) continue;
+                double score = Math.max(0, Math.min(100, 100 - 20 * Math.log10(lat)));
                 EvaluationTask task = taskMap.get(r.getTaskId());
                 String dimension = categorizeToDimension(task);
                 if (dimScores.containsKey(dimension)) {

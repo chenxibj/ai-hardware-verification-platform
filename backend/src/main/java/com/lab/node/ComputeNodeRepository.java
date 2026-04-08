@@ -8,4 +8,5 @@ public interface ComputeNodeRepository extends JpaRepository<ComputeNode, Long> 
     Optional<ComputeNode> findByName(String name);
     List<ComputeNode> findByStatus(ComputeNode.Status status);
     List<ComputeNode> findByResourcePoolId(Long resourcePoolId);
+    List<ComputeNode> findByResourcePoolIdIsNull();
 }

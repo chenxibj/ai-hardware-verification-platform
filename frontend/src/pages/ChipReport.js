@@ -14,7 +14,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   Card, Row, Col, Statistic, Progress, Table, Tag, Typography,
-  Spin, Button, Space, Divider, message, Descriptions, Alert, Empty,
+  Spin, Button, Space, Divider, message, Descriptions, Alert, Empty, Collapse, Tooltip,
 } from "antd";
 import {
   ArrowLeftOutlined, TrophyOutlined, CheckCircleOutlined,
@@ -22,6 +22,7 @@ import {
   SafetyCertificateOutlined, ClockCircleOutlined,
   DownloadOutlined, StarFilled, BulbOutlined,
   ThunderboltOutlined, RocketOutlined, ShareAltOutlined, FileExcelOutlined,
+  InfoCircleOutlined, QuestionCircleOutlined,
 } from "@ant-design/icons";
 import RadarChart from "../components/RadarChart";
 import api from "../utils/api";
@@ -99,9 +100,10 @@ function extractAccuracyData(operators, report) {
       rate: check.total > 0 ? ((check.passed / check.total) * 100).toFixed(1) : "0",
     }));
   }
-  // 2. 从算子 pass/fail 状态汇总（真实数据）
-  const totalOps = operators.length;
-  const passedOps = operators.filter(o => o.passed).length;
+  // 2. 从算子 pass/fail 状态汇总（排除 NO_DATA 项）
+  const validOps = operators.filter(o => o.dataStatus !== "NO_DATA");
+  const totalOps = validOps.length;
+  const passedOps = validOps.filter(o => o.passed).length;
   if (totalOps > 0) {
     return [{
       dtype: "综合",
@@ -205,7 +207,11 @@ export default function ChipReport({ reportId, onBack }) {
   const summary = generateSummary(dimScores, overallScore);
 
   const totalOps = operators.length;
+  const validOps = operators.filter(o => o.dataStatus === "VALID");
+  const noDataOps = operators.filter(o => o.dataStatus === "NO_DATA");
+  const failedOps = operators.filter(o => o.dataStatus === "FAILED");
   const passedOps = operators.filter(o => o.passed).length;
+  const coverageData = (safeParse(report.bottleneckAnalysis) || []).find(b => b.type === "coverage");
   const accuracyData = extractAccuracyData(operators, report);
   const modelData = extractModelData(operators);
 
@@ -245,16 +251,25 @@ export default function ChipReport({ reportId, onBack }) {
     },
     {
       title: "评分", dataIndex: "score", key: "score", width: 100, align: "center",
-      render: v => (
-        <span style={{ color: scoreColor(v || 0), fontWeight: "bold" }}>{(v || 0).toFixed(1)}</span>
-      ),
+      render: (v, record) => {
+        if (record.dataStatus === "NO_DATA") return <Text type="secondary">—</Text>;
+        return <span style={{ color: scoreColor(v || 0), fontWeight: "bold" }}>{(v || 0).toFixed(1)}</span>;
+      },
       sorter: (a, b) => (a.score || 0) - (b.score || 0),
     },
     {
-      title: "状态", dataIndex: "passed", key: "passed", width: 90, align: "center",
-      render: passed => passed
-        ? <Tag icon={<CheckCircleOutlined />} color="success">通过</Tag>
-        : <Tag icon={<CloseCircleOutlined />} color="error">失败</Tag>,
+      title: "状态", key: "status", width: 120, align: "center",
+      render: (_, record) => {
+        if (record.dataStatus === "NO_DATA") {
+          return <Tooltip title="任务已执行完成，但未采集到有效性能指标数据"><Tag icon={<WarningOutlined />} color="warning">无有效数据</Tag></Tooltip>;
+        }
+        if (record.dataStatus === "FAILED") {
+          return <Tag icon={<CloseCircleOutlined />} color="error">评测失败</Tag>;
+        }
+        return record.passed
+          ? <Tag icon={<CheckCircleOutlined />} color="success">通过</Tag>
+          : <Tag icon={<CloseCircleOutlined />} color="error">未达标</Tag>;
+      },
     },
   ];
 
@@ -269,8 +284,12 @@ export default function ChipReport({ reportId, onBack }) {
       render: v => v != null ? Number(v).toFixed(1) : "-" },
     { title: "评分", dataIndex: "score", key: "score", width: 80, align: "center",
       render: v => <span style={{ color: scoreColor(v || 0), fontWeight: "bold" }}>{(v || 0).toFixed(1)}</span> },
-    { title: "状态", dataIndex: "passed", key: "passed", width: 80, align: "center",
-      render: p => p ? <Tag color="success">PASS</Tag> : <Tag color="error">FAIL</Tag> },
+    { title: "状态", key: "status", width: 80, align: "center",
+      render: (_, record) => {
+        if (record.dataStatus === "NO_DATA") return <Tag color="warning">无数据</Tag>;
+        return record.passed ? <Tag color="success">PASS</Tag> : <Tag color="error">FAIL</Tag>;
+      }
+    },
   ];
 
   /* 精度表列 */
@@ -314,15 +333,16 @@ export default function ChipReport({ reportId, onBack }) {
       message.warning("暂无算子数据可导出");
       return;
     }
-    const headers = ["排名", "算子名", "维度", "延迟(ms)", "吞吐量", "评分", "状态"];
+    const headers = ["排名", "算子名", "维度", "延迟(ms)", "吞吐量", "评分", "数据状态", "通过"];
     const rows = operators.map((op, idx) => [
       idx + 1,
       (op.testItem || op.name || "Unknown").replace(/,/g, " "),
       (op.dimension || "其他").replace(/,/g, " "),
       (op.latencyMean ?? op.avgLatency ?? 0).toFixed(2),
       (op.throughput ?? 0).toFixed(1),
-      (op.score ?? 0).toFixed(1),
-      op.passed ? "通过" : "失败",
+      op.dataStatus === "NO_DATA" ? "—" : (op.score ?? 0).toFixed(1),
+      op.dataStatus === "VALID" ? "有效" : op.dataStatus === "NO_DATA" ? "无数据" : "失败",
+      op.passed ? "通过" : op.dataStatus === "NO_DATA" ? "—" : "未达标",
     ]);
     const bom = "\uFEFF";
     const csv = bom + [headers, ...rows].map(r => r.join(",")).join("\n");
@@ -360,7 +380,7 @@ export default function ChipReport({ reportId, onBack }) {
   const renderLatencyBar = () => {
     if (operators.length === 0) return null;
     const sorted = [...operators]
-      .filter(o => (o.latencyMean ?? o.avgLatency) != null)
+      .filter(o => o.dataStatus === "VALID" && (o.latencyMean ?? o.avgLatency) > 0)
       .sort((a, b) => (b.latencyMean ?? b.avgLatency ?? 0) - (a.latencyMean ?? a.avgLatency ?? 0))
       .slice(0, 15);
     const maxLatency = Math.max(...sorted.map(o => o.latencyMean ?? o.avgLatency ?? 0), 1);
@@ -469,17 +489,33 @@ export default function ChipReport({ reportId, onBack }) {
               <Alert type="info" showIcon icon={<SafetyCertificateOutlined />}
                 message="能力摘要" description={summary} style={{ marginBottom: 16 }} />
             )}
+            {coverageData && coverageData.coverage && (
+              <Alert
+                type={coverageData.coverage.isComplete ? "success" : "warning"}
+                showIcon
+                icon={coverageData.coverage.isComplete ? <CheckCircleOutlined /> : <WarningOutlined />}
+                message={coverageData.title}
+                description={coverageData.detail}
+                style={{ marginBottom: 16 }}
+              />
+            )}
             <Row gutter={16}>
-              <Col span={8}>
-                <Statistic title="评测通过率"
-                  value={totalOps > 0 ? Math.round((passedOps / totalOps) * 100) : 0} suffix="%"
-                  valueStyle={{ color: passedOps === totalOps ? "#52c41a" : "#faad14" }} />
+              <Col span={6}>
+                <Statistic title="有效数据"
+                  value={validOps.length} suffix={" / " + totalOps + " 项"}
+                  valueStyle={{ color: validOps.length === totalOps ? "#52c41a" : "#faad14" }} />
               </Col>
-              <Col span={8}>
-                <Statistic title="通过 / 总数" value={passedOps} suffix={" / " + totalOps}
-                  valueStyle={{ color: "#1890ff" }} />
+              <Col span={6}>
+                <Statistic title="通过率"
+                  value={validOps.length > 0 ? Math.round((passedOps / validOps.length) * 100) : 0} suffix="%"
+                  valueStyle={{ color: passedOps === validOps.length ? "#52c41a" : "#faad14" }} />
               </Col>
-              <Col span={8}>
+              <Col span={6}>
+                <Statistic title="无数据 / 失败"
+                  value={noDataOps.length + " / " + failedOps.length}
+                  valueStyle={{ color: failedOps.length > 0 ? "#ff4d4f" : noDataOps.length > 0 ? "#faad14" : "#52c41a", fontSize: 20 }} />
+              </Col>
+              <Col span={6}>
                 <Statistic title="报告状态"
                   value={report.status === "PUBLISHED" ? "已发布" : "草稿"}
                   valueStyle={{ color: report.status === "PUBLISHED" ? "#52c41a" : "#999" }} />
@@ -491,7 +527,13 @@ export default function ChipReport({ reportId, onBack }) {
 
       {/* 雷达图 + 维度评分 */}
       {radarData.length > 0 && (
-        <Card title="六维能力画像" style={{ marginBottom: 24 }}>
+        <Card title={<Space>六维能力画像 <Tooltip title="综合评分为六个维度得分的等权平均值。各维度得分基于评测算子的平均延迟计算：score = 100 - 20×log₁₀(latency_ms)。"><QuestionCircleOutlined style={{ color: "#999", fontSize: 14 }} /></Tooltip></Space>} style={{ marginBottom: 24 }}>
+          <Alert
+            type="info"
+            showIcon={false}
+            message={<Text style={{ fontSize: 12 }}>📐 <strong>评分公式：</strong>score = 100 - 20×log₁₀(avg_latency_ms) &nbsp;|&nbsp; <strong>等级标准：</strong><span style={{ color: "#52c41a" }}>≥80 优秀</span> · <span style={{ color: "#1890ff" }}>60-79 良好</span> · <span style={{ color: "#faad14" }}>40-59 一般</span> · <span style={{ color: "#ff4d4f" }}>&lt;40 较差</span> &nbsp;|&nbsp; <strong>综合评分</strong> = 六维等权平均</Text>}
+            style={{ marginBottom: 16 }}
+          />
           <Row gutter={24} align="middle">
             <Col xs={24} md={12}>
               <RadarChart data={radarData} height={350} />
@@ -511,6 +553,42 @@ export default function ChipReport({ reportId, onBack }) {
               })}
             </Col>
           </Row>
+
+          {/* 评测方法说明 */}
+          <Divider style={{ margin: "16px 0 8px" }} />
+          <Collapse ghost size="small" items={radarData.filter(d => d.detail).map((d) => ({
+            key: d.dimKey || d.dimension,
+            label: (
+              <Space>
+                <Tag color={scoreColor(d.score)}>{d.dimension}</Tag>
+                <Text type="secondary" style={{ fontSize: 12 }}>{d.detail?.description}</Text>
+              </Space>
+            ),
+            children: (
+              <div style={{ paddingLeft: 16, fontSize: 13 }}>
+                <Row gutter={[16, 8]}>
+                  <Col span={24}>
+                    <Text type="secondary">评测方法：</Text>
+                    <Text>{d.detail?.evalMethod}</Text>
+                  </Col>
+                  <Col span={24}>
+                    <Text type="secondary">打分依据：</Text>
+                    <Text>{d.detail?.scoringBasis}</Text>
+                  </Col>
+                  <Col span={24}>
+                    <Text type="secondary">评分标准：</Text>
+                    <Text>{d.detail?.scoringStandard}</Text>
+                  </Col>
+                  <Col span={24}>
+                    <Text type="secondary">覆盖算子：</Text>
+                    <Space size={[4, 4]} wrap>
+                      {(d.detail?.coveredOperators || []).map(op => <Tag key={op} size="small">{op}</Tag>)}
+                    </Space>
+                  </Col>
+                </Row>
+              </div>
+            ),
+          }))} />
         </Card>
       )}
 
@@ -579,7 +657,7 @@ export default function ChipReport({ reportId, onBack }) {
       >
         {Array.isArray(bottleneckData) && bottleneckData.length > 0 ? (
           <Row gutter={[16, 16]}>
-            {bottleneckData.map((item, idx) => {
+            {bottleneckData.filter(item => item.type !== "coverage").map((item, idx) => {
               const levelConfig = {
                 error:   { bg: "#fff2f0", border: "#ffccc7", tagColor: "error",      icon: "🔴" },
                 warning: { bg: "#fffbe6", border: "#ffe58f", tagColor: "warning",    icon: "🟠" },

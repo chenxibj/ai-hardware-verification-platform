@@ -13,7 +13,7 @@ import {
   StopOutlined, ReloadOutlined, CheckCircleOutlined,
   ClockCircleOutlined, ExclamationCircleOutlined,
   SyncOutlined, ExperimentOutlined, RobotOutlined,
-  ForwardOutlined, DashboardOutlined, SearchOutlined,
+  ForwardOutlined, DashboardOutlined, SearchOutlined, WarningOutlined,
   DownloadOutlined, ArrowDownOutlined, ExpandOutlined, CompressOutlined,
   UpOutlined,
 } from "@ant-design/icons";
@@ -435,6 +435,16 @@ export default function PlanMonitor({ planId, onBack }) {
           <Tag color={st.color} icon={st.icon}>
             {st.text}{queuePosition[task.id] ? (" (" + queuePosition[task.id] + "/" + pendingTasks.length + ")") : ""}
           </Tag>
+          {/* Anomaly hint: COMPLETED but metrics may be missing */}
+          {task.status === "COMPLETED" && task.evaluationResults && (() => {
+            const metrics = parseMetrics(task.evaluationResults);
+            const hasNoData = metrics && (metrics.passed === true || metrics.passed === "true")
+              && (!metrics.latency_ms_mean || metrics.latency_ms_mean === 0);
+            if (hasNoData) {
+              return <Tooltip title="任务已执行完成，但未采集到性能指标数据"><Tag color="warning" icon={<WarningOutlined />} style={{ fontSize: 11 }}>无性能指标</Tag></Tooltip>;
+            }
+            return null;
+          })()}
         </Space>
         <Space>
           {task.progress !== undefined && task.progress > 0 && task.status === "RUNNING" && (
