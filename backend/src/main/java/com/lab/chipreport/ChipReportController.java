@@ -1,5 +1,8 @@
 package com.lab.chipreport;
 
+import com.lab.chip.Chip;
+import com.lab.chip.ChipRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lab.auth.RequireRole;
 import com.lab.auth.Role;
 import lombok.RequiredArgsConstructor;
@@ -8,6 +11,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
@@ -16,6 +20,9 @@ import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.LinkedHashMap;
+import java.util.ArrayList;
 
 /**
  * 芯片评测报告控制器
@@ -28,6 +35,8 @@ import java.util.Map;
 public class ChipReportController {
 
     private final ChipReportRepository reportRepository;
+    private final ChipRepository chipRepository;
+    private final ObjectMapper objectMapper;
     private final ReportGeneratorService reportGeneratorService;
 
     @PostMapping
@@ -193,6 +202,144 @@ public class ChipReportController {
         return ResponseEntity.ok(Map.of("code", 0, "message", "Report regenerated", "data", report));
     }
 
+
+    /**
+     * Set a report as the baseline (可采信结果)
+     */
+    @PutMapping("/{id}/set-baseline")
+    @RequireRole(Role.ENGINEER)
+    @Transactional
+    public ResponseEntity<Map<String, Object>> setBaseline(@PathVariable Long id) {
+        try {
+            ChipReport report = reportRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("Report not found: " + id));
+
+            // Clear old baseline for this chip
+            reportRepository.clearBaselineByChipId(report.getChipId());
+
+            // Set new baseline
+            report.setIsBaseline(true);
+            reportRepository.save(report);
+
+            // Writeback to chips table
+            try {
+                Chip chip = chipRepository.findById(report.getChipId()).orElse(null);
+                if (chip != null) {
+                    chip.setCapabilityProfile(report.getRadarData());
+                    Map<String, Object> profileData = new LinkedHashMap<>();
+                    profileData.put("overallScore", report.getOverallScore());
+                    profileData.put("baselineReportId", report.getId());
+                    profileData.put("baselineReportNo", report.getReportNo());
+                    profileData.put("baselineDate", report.getCreatedAt() != null ? report.getCreatedAt().toString() : "");
+                    if (report.getDimensionScores() != null) {
+                        profileData.put("dimensionScores", objectMapper.readValue(report.getDimensionScores(), Map.class));
+                    }
+                    chip.setProfileData(objectMapper.writeValueAsString(profileData));
+                    chipRepository.save(chip);
+                }
+            } catch (Exception e) {
+                log.error("Failed to writeback chip profile", e);
+            }
+
+            return ResponseEntity.ok(success(report));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(error(e.getMessage()));
+        }
+    }
+
+    /**
+     * Compare multiple reports side by side
+     */
+    @GetMapping("/compare")
+    @RequireRole(Role.VIEWER)
+    public ResponseEntity<Map<String, Object>> compareReports(@RequestParam String ids) {
+        try {
+            List<Long> idList = java.util.Arrays.stream(ids.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .map(Long::parseLong)
+                    .collect(Collectors.toList());
+
+            if (idList.size() < 2 || idList.size() > 5) {
+                return ResponseEntity.badRequest().body(error("请选择 2-5 个报告进行对比"));
+            }
+
+            List<Map<String, Object>> reportData = new ArrayList<>();
+            for (Long rid : idList) {
+                ChipReport r = reportRepository.findById(rid).orElse(null);
+                if (r == null) continue;
+
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("id", r.getId());
+                item.put("reportNo", r.getReportNo());
+                item.put("createdAt", r.getCreatedAt() != null ? r.getCreatedAt().toString() : "");
+                item.put("overallScore", r.getOverallScore());
+                item.put("isBaseline", Boolean.TRUE.equals(r.getIsBaseline()));
+                item.put("status", r.getStatus());
+
+                // Parse dimension scores
+                Map<String, Object> dims = new LinkedHashMap<>();
+                if (r.getDimensionScores() != null) {
+                    try {
+                        dims = objectMapper.readValue(r.getDimensionScores(), Map.class);
+                    } catch (Exception ignored) {}
+                }
+                item.put("dimensions", dims);
+
+                // Parse operator ranking
+                List<Object> ops = new ArrayList<>();
+                if (r.getOperatorRanking() != null) {
+                    try {
+                        ops = objectMapper.readValue(r.getOperatorRanking(), List.class);
+                    } catch (Exception ignored) {}
+                }
+                item.put("operatorRanking", ops);
+
+                // Parse radar data
+                if (r.getRadarData() != null) {
+                    try {
+                        item.put("radarData", objectMapper.readValue(r.getRadarData(), List.class));
+                    } catch (Exception ignored) {}
+                }
+
+                reportData.add(item);
+            }
+
+            // Calculate changes between consecutive reports
+            List<Map<String, Object>> changes = new ArrayList<>();
+            if (reportData.size() >= 2) {
+                String[] dimKeys = {"compute_perf", "memory_perf", "math_func", "attention", "normalization", "model_inference"};
+                String[] dimNames = {"计算性能", "访存性能", "数学函数", "Attention能力", "归一化性能", "模型推理"};
+
+                Map<String, Object> firstDims = (Map<String, Object>) reportData.get(0).getOrDefault("dimensions", Map.of());
+                Map<String, Object> lastDims = (Map<String, Object>) reportData.get(reportData.size() - 1).getOrDefault("dimensions", Map.of());
+
+                for (int i = 0; i < dimKeys.length; i++) {
+                    double fromVal = toDouble(firstDims.get(dimKeys[i]));
+                    double toVal = toDouble(lastDims.get(dimKeys[i]));
+                    double delta = toVal - fromVal;
+
+                    Map<String, Object> change = new LinkedHashMap<>();
+                    change.put("dimension", dimKeys[i]);
+                    change.put("dimensionName", dimNames[i]);
+                    change.put("from", fromVal);
+                    change.put("to", toVal);
+                    change.put("delta", Math.round(delta * 10.0) / 10.0);
+                    change.put("direction", delta > 0 ? "up" : delta < 0 ? "down" : "same");
+                    changes.add(change);
+                }
+            }
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("reports", reportData);
+            result.put("changes", changes);
+
+            return ResponseEntity.ok(success(result));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(error(e.getMessage()));
+        }
+    }
+
     private String generateReportNo() {
         String date = DateTimeFormatter.ofPattern("yyyyMMdd")
                 .withZone(ZoneId.of("Asia/Shanghai"))
@@ -214,5 +361,11 @@ public class ChipReportController {
         resp.put("code", 1001);
         resp.put("message", message);
         return resp;
+    }
+
+    private double toDouble(Object val) {
+        if (val == null) return 0;
+        if (val instanceof Number) return ((Number) val).doubleValue();
+        try { return Double.parseDouble(val.toString()); } catch (Exception e) { return 0; }
     }
 }

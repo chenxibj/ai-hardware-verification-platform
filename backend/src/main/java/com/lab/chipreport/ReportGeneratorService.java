@@ -2,6 +2,8 @@ package com.lab.chipreport;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lab.chip.Chip;
+import com.lab.chip.ChipRepository;
 import com.lab.plan.EvaluationPlan;
 import com.lab.plan.EvaluationPlanRepository;
 import com.lab.result.EvaluationResult;
@@ -33,6 +35,7 @@ import java.util.stream.Collectors;
 public class ReportGeneratorService {
 
     private final ChipReportRepository reportRepository;
+    private final ChipRepository chipRepository;
     private final EvaluationResultRepository resultRepository;
     private final EvaluationTaskRepository taskRepository;
     private final EvaluationPlanRepository planRepository;
@@ -136,6 +139,34 @@ public class ReportGeneratorService {
 
         ChipReport saved = reportRepository.save(report);
         log.info("Generated report {} for plan {} (score={})", saved.getReportNo(), plan.getPlanNo(), overallScore);
+
+        // Auto-mark as baseline if coverage >= 50%
+        if (coverageRate >= 50.0) {
+            reportRepository.clearBaselineByChipId(plan.getChipId());
+            saved.setIsBaseline(true);
+            reportRepository.save(saved);
+
+            // Writeback to chips table
+            try {
+                Chip chip = chipRepository.findById(plan.getChipId()).orElse(null);
+                if (chip != null) {
+                    chip.setCapabilityProfile(saved.getRadarData());
+                    chip.setProfileData(objectMapper.writeValueAsString(Map.of(
+                        "overallScore", saved.getOverallScore(),
+                        "dimensionScores", dimScores,
+                        "baselineReportId", saved.getId(),
+                        "baselineReportNo", saved.getReportNo(),
+                        "baselineDate", saved.getCreatedAt() != null ? saved.getCreatedAt().toString() : "",
+                        "operatorCount", operatorRanking.size()
+                    )));
+                    chipRepository.save(chip);
+                    log.info("Updated chip {} capability profile from baseline report {}", chip.getChipNo(), saved.getReportNo());
+                }
+            } catch (Exception e) {
+                log.error("Failed to writeback chip profile for report {}", saved.getReportNo(), e);
+            }
+        }
+
         return saved;
     }
 

@@ -139,6 +139,7 @@ export default function ChipReport({ reportId, onBack }) {
   const [plan, setPlan] = useState(null);
   const reportRef = useRef(null);
   const [exporting, setExporting] = useState(false);
+  const [settingBaseline, setSettingBaseline] = useState(false);
 
   useEffect(() => {
     if (!reportId) return;
@@ -374,6 +375,25 @@ export default function ChipReport({ reportId, onBack }) {
     }
   };
 
+    const handleSetBaseline = async () => {
+      setSettingBaseline(true);
+      try {
+        const res = await api.put("/chip-reports/" + (report.id || reportId) + "/set-baseline");
+        if (res.data?.code === 0) {
+          message.success("✅ 已标记为可采信基线，芯片画像已更新");
+          // Refresh report data
+          const rr = await api.get("/chip-reports/" + (report.id || reportId));
+          if (rr.data?.code === 0) setReport(rr.data.data);
+        } else {
+          message.error(res.data?.message || "标记失败");
+        }
+      } catch (err) {
+        message.error("标记失败: " + (err.response?.data?.message || err.message));
+      } finally {
+        setSettingBaseline(false);
+      }
+    };
+
     const reportTime = report.createdAt ? new Date(report.createdAt).toLocaleString("zh-CN") : "-";
 
   /* 延迟柱状图（纯CSS实现） */
@@ -431,6 +451,14 @@ export default function ChipReport({ reportId, onBack }) {
           <Button icon={<ShareAltOutlined />} onClick={handleShareLink}>
             分享链接
           </Button>
+          {report.isBaseline ? (
+            <Tag color="blue" style={{ lineHeight: '30px', fontSize: 14 }}>🏷️ 可采信基线</Tag>
+          ) : (
+            <Button type="primary" ghost icon={<SafetyCertificateOutlined />}
+              loading={settingBaseline} onClick={handleSetBaseline}>
+              📌 标记为可采信基线
+            </Button>
+          )}
         </Space>
       </div>
 
@@ -478,6 +506,7 @@ export default function ChipReport({ reportId, onBack }) {
               <Col span={12}>
                 <Text type="secondary">报告编号：</Text>
                 <Text>{report.reportNo}</Text>
+                {report.isBaseline && <Tag color="blue" style={{ marginLeft: 8 }}>🏷️ 可采信基线</Tag>}
               </Col>
               <Col span={12}>
                 <Text type="secondary">评测时间：</Text>

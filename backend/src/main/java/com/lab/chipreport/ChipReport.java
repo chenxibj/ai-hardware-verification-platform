@@ -51,6 +51,9 @@ public class ChipReport {
     @Column(nullable = false, length = 16)
     private ReportStatus status;
 
+    @Column(name = "is_baseline", nullable = false)
+    private Boolean isBaseline = false;
+
     @Column(name = "archived", nullable = false)
     private Boolean archived = false;
 
