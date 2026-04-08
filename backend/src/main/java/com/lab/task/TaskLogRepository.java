@@ -218,4 +218,39 @@ public interface TaskLogRepository extends JpaRepository<TaskLog, Long> {
     @Modifying
     @Transactional
     void createPlanIdIndex();
+
+    // #248: Plan-level cursor with before support
+    @Query("SELECT t FROM TaskLog t WHERE t.planId = :planId " +
+           "AND (:afterId IS NULL OR t.id > :afterId) " +
+           "AND (:beforeId IS NULL OR t.id < :beforeId) " +
+           "AND (:level IS NULL OR t.level = :level) " +
+           "AND (:logType IS NULL OR t.logType = :logType) " +
+           "ORDER BY t.id ASC")
+    List<TaskLog> findByPlanIdFilteredCursor(
+            @Param("planId") Long planId,
+            @Param("afterId") Long afterId,
+            @Param("beforeId") Long beforeId,
+            @Param("level") String level,
+            @Param("logType") String logType,
+            Pageable pageable);
+
+    // #248: Page-based task log query (for TaskExecutionLogs pagination)
+    @Query("SELECT t FROM TaskLog t WHERE t.taskId = :taskId " +
+           "AND (:level IS NULL OR t.level = :level) " +
+           "AND (:logType IS NULL OR t.logType = :logType) " +
+           "ORDER BY t.id ASC")
+    org.springframework.data.domain.Page<TaskLog> findByTaskIdPageable(
+            @Param("taskId") Long taskId,
+            @Param("level") String level,
+            @Param("logType") String logType,
+            Pageable pageable);
+
+    // #248: Count filtered for task
+    @Query("SELECT COUNT(t) FROM TaskLog t WHERE t.taskId = :taskId " +
+           "AND (:level IS NULL OR t.level = :level) " +
+           "AND (:logType IS NULL OR t.logType = :logType)")
+    long countByTaskIdFiltered(
+            @Param("taskId") Long taskId,
+            @Param("level") String level,
+            @Param("logType") String logType);
 }

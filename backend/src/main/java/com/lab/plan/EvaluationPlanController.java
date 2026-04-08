@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -43,8 +44,14 @@ public class EvaluationPlanController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Long chipId,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        Pageable pageable = PageRequest.of(page, size);
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "createdAt,desc") String sort) {
+        // Parse sort parameter (e.g. "createdAt,desc")
+        String[] sortParts = sort.split(",");
+        String sortField = sortParts[0];
+        Sort.Direction direction = sortParts.length > 1 && sortParts[1].equalsIgnoreCase("asc")
+                ? Sort.Direction.ASC : Sort.Direction.DESC;
+        Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortField));
         EvaluationPlan.PlanStatus st = status != null ? EvaluationPlan.PlanStatus.valueOf(status) : null;
         Page<EvaluationPlan> plans = planService.listPlans(st, chipId, pageable);
         Map<String, Object> resp = success(plans.getContent());

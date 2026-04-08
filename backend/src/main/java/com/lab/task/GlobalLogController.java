@@ -29,6 +29,7 @@ public class GlobalLogController {
     public ResponseEntity<Map<String, Object>> getPlanLogs(
             @PathVariable Long planId,
             @RequestParam(required = false) Long afterId,
+            @RequestParam(required = false) Long before,
             @RequestParam(required = false) String level,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String keyword,
@@ -42,8 +43,8 @@ public class GlobalLogController {
             logs = taskLogRepository.findByPlanIdFilteredWithKeyword(
                     planId, afterId, effectiveLevel, effectiveType, keyword, limit);
         } else {
-            logs = taskLogRepository.findByPlanIdFiltered(
-                    planId, afterId, effectiveLevel, effectiveType,
+            logs = taskLogRepository.findByPlanIdFilteredCursor(
+                    planId, afterId, before, effectiveLevel, effectiveType,
                     PageRequest.of(0, limit));
         }
 

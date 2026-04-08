@@ -278,8 +278,28 @@ export default function Logs() {
                   rowStyle.borderLeft = "3px solid transparent";
                 }
 
+                // Line number = page offset + index + 1
+                const lineNo = currentPage * PAGE_SIZE + i + 1;
+
                 return (
                   <div key={log.id || i} style={rowStyle}>
+                    {/* Line number */}
+                    <span style={{
+                      color: "#bbb",
+                      whiteSpace: "nowrap",
+                      minWidth: 40,
+                      width: 40,
+                      textAlign: "right",
+                      paddingRight: 8,
+                      fontSize: 11,
+                      fontFamily: "'JetBrains Mono', Consolas, Monaco, monospace",
+                      userSelect: "none",
+                      flexShrink: 0,
+                      borderRight: "1px solid #e8e8e8",
+                      marginRight: 8,
+                    }}>
+                      {lineNo}
+                    </span>
                     <span style={{ color: "#999", whiteSpace: "nowrap", minWidth: 140 }}>
                       {formatTime(log.createdAt || log.created_at)}
                     </span>

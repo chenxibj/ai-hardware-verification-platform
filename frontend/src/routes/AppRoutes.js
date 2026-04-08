@@ -171,7 +171,7 @@ export default function AppRoutes({
 
   const PageComponent = PAGE_COMPONENTS[currentPage] || Dashboard;
   if (currentPage === "plans") {
-    return <PlanList onOpenMonitor={(id) => setPlanMonitorId(id)} onCreatePlan={() => setCurrentPage("plans-create")} />;
+    return <PlanList onOpenMonitor={(id) => setPlanMonitorId(id)} onCreatePlan={() => setCurrentPage("plans-create")} onViewReport={(reportId) => setChipReportId(reportId)} />;
   }
   if (currentPage === "chips") {
     return (

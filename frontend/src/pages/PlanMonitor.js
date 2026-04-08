@@ -317,7 +317,7 @@ export default function PlanMonitor({ planId, onBack }) {
   });
 
   /* ── 渲染单条日志 ── */
-  const renderLogEntry = (log, i) => {
+  const renderLogEntry = (log, i, lineNo) => {
     const level = (log.level || "INFO").toUpperCase();
     const logType = (log.logType || "TEXT").toUpperCase();
     const metrics = parseMetrics(log.metrics);
@@ -359,7 +359,26 @@ export default function PlanMonitor({ planId, onBack }) {
     }
 
     return (
-      <div key={log.id || i} style={style}>
+      <div key={log.id || i} style={{ ...style, display: "flex", alignItems: "flex-start" }}>
+        {/* Line number gutter */}
+        <span
+          style={{
+            display: "inline-block",
+            minWidth: 40,
+            width: 40,
+            textAlign: "right",
+            paddingRight: 10,
+            color: "#bbb",
+            fontSize: 11,
+            userSelect: "none",
+            flexShrink: 0,
+            borderRight: "1px solid #e8e8e8",
+            marginRight: 8,
+          }}
+        >
+          {lineNo}
+        </span>
+        <div style={{ flex: 1 }}>
         <span style={{ color: "#999" }}>{formatTimestamp(log.createdAt)}</span>
         {" "}
         <span style={{ color: levelColor, fontWeight: 600 }}>{"[" + level + "]"}</span>
@@ -395,6 +414,7 @@ export default function PlanMonitor({ planId, onBack }) {
             <Progress percent={progressValue} size="small" status="active" />
           </div>
         )}
+        </div>
       </div>
     );
   };
@@ -612,7 +632,7 @@ export default function PlanMonitor({ planId, onBack }) {
             <span>实时执行日志</span>
             <ConnectionIndicator />
             <Text type="secondary" style={{ fontSize: 12 }}>
-              {logs.length} 条日志
+              {filteredLogs.length}/{logs.length} 条日志
             </Text>
           </Space>
         }
@@ -696,7 +716,7 @@ export default function PlanMonitor({ planId, onBack }) {
                 : "暂无日志记录"}
             </div>
           ) : (
-            filteredLogs.map(renderLogEntry)
+            filteredLogs.map((log, i) => renderLogEntry(log, i, i + 1))
           )}
         </div>
         {/* 新日志提示按钮 */}

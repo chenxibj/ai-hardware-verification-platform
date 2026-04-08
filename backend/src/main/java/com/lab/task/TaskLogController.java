@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lab.config.TaskLogWebSocketHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -338,6 +339,61 @@ public class TaskLogController {
         }
 
         return ResponseEntity.ok(Map.of("code", 0, "data", result, "message", "success"));
+    }
+
+
+    /**
+     * GET /api/tasks/{taskId}/logs/page — 分页获取任务日志 (page + size 模式)
+     * #248: 为 TaskExecutionLogs 组件提供标准分页接口
+     */
+    @GetMapping("/{taskId}/logs/page")
+    public ResponseEntity<Map<String, Object>> getLogsPaged(
+            @PathVariable Long taskId,
+            @RequestParam(required = false, defaultValue = "0") int page,
+            @RequestParam(required = false, defaultValue = "50") int size,
+            @RequestParam(required = false) String level,
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) String keyword) {
+
+        String effectiveLevel = (level != null && !level.isEmpty() && !"ALL".equalsIgnoreCase(level)) ? level : null;
+        String effectiveType = (type != null && !type.isEmpty() && !"ALL".equalsIgnoreCase(type)) ? type : null;
+
+        Page<TaskLog> logPage;
+        long totalCount;
+
+        if (keyword != null && !keyword.isEmpty()) {
+            // For keyword search, use existing method with offset
+            int offset = page * size;
+            List<TaskLog> logs = taskLogRepository.findFilteredCursorWithKeyword(
+                    taskId, null, null, effectiveLevel, effectiveType, keyword, size + 1);
+            boolean hasMore = logs.size() > size;
+            if (hasMore) logs = logs.subList(0, size);
+            totalCount = taskLogRepository.countByTaskIdFiltered(taskId, effectiveLevel, effectiveType);
+
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("items", logs);
+            data.put("total", totalCount);
+            data.put("page", page);
+            data.put("size", size);
+            data.put("totalPages", (int) Math.ceil((double) totalCount / size));
+            data.put("hasMore", hasMore);
+
+            return ResponseEntity.ok(Map.of("code", 0, "data", data, "message", "success"));
+        }
+
+        logPage = taskLogRepository.findByTaskIdPageable(
+                taskId, effectiveLevel, effectiveType, PageRequest.of(page, size));
+        totalCount = logPage.getTotalElements();
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("items", logPage.getContent());
+        data.put("total", totalCount);
+        data.put("page", page);
+        data.put("size", size);
+        data.put("totalPages", logPage.getTotalPages());
+        data.put("hasMore", logPage.hasNext());
+
+        return ResponseEntity.ok(Map.of("code", 0, "data", data, "message", "success"));
     }
 
     /**

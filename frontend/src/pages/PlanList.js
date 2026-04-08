@@ -12,7 +12,7 @@ import {
   ReloadOutlined, EyeOutlined, DeleteOutlined, PlayCircleOutlined,
   PauseCircleOutlined, StopOutlined, PlusOutlined,
   FileTextOutlined, CheckCircleOutlined, CloseCircleOutlined,
-  ExclamationCircleOutlined, CopyOutlined, BugOutlined,
+  ExclamationCircleOutlined, CopyOutlined, BugOutlined, BarChartOutlined,
 } from "@ant-design/icons";
 import { Link } from "react-router-dom";
 import DebugPanel from "../components/tasks/DebugPanel";
@@ -56,7 +56,7 @@ const getProgressStatus = (status) => {
   }
 };
 
-export default function PlanList({ onOpenMonitor, onCreatePlan }) {
+export default function PlanList({ onOpenMonitor, onCreatePlan, onViewReport }) {
 
   /* 列表 state */
   const [plans, setPlans] = useState([]);
@@ -66,6 +66,8 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
   const [pageSize, setPageSize] = useState(20);
   const [statusFilter, setStatusFilter] = useState(undefined);
   const [chipFilter, setChipFilter] = useState(undefined);
+  const [sortField, setSortField] = useState("createdAt");
+  const [sortOrder, setSortOrder] = useState("descend");
 
   /* 统计 */
   const [stats, setStats] = useState({ total: 0, running: 0, completed: 0, failed: 0 });
@@ -100,12 +102,34 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
   };
 
   /* ── API: 获取任务列表 ── */
+  /* ── 查看报告 ── */
+  const handleViewReport = async (record) => {
+    try {
+      const { data: resp } = await api.get(`/chip-reports/plan/${record.id}`);
+      if (resp.code === 0 && resp.data && resp.data.length > 0) {
+        const reportId = resp.data[0].id;
+        if (onViewReport) {
+          onViewReport(reportId);
+        } else {
+          message.info("报告ID: " + reportId);
+        }
+      } else {
+        message.warning("该任务暂无评测报告");
+      }
+    } catch (e) {
+      message.error("查询报告失败: " + (e.response?.data?.message || e.message));
+    }
+  };
+
   const fetchPlans = useCallback(async () => {
     setLoading(true);
     try {
       const params = { page, size: pageSize };
       if (statusFilter) params.status = statusFilter;
       if (chipFilter) params.chipId = chipFilter;
+      // Sort: convert antd sortOrder to backend format
+      const dir = sortOrder === "ascend" ? "asc" : "desc";
+      params.sort = sortField + "," + dir;
       const { data: resp } = await api.get("/plans", { params });
       if (resp.code === 0) {
         const planList = resp.data || [];
@@ -118,7 +142,7 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, statusFilter, chipFilter]);
+  }, [page, pageSize, statusFilter, chipFilter, sortField, sortOrder]);
 
   /* ── Bug #199: 从后端统计 API 获取（替代4次API调用） ── */
   const fetchStats = useCallback(async () => {
@@ -238,6 +262,9 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
     },
     {
       title: "创建时间", dataIndex: "createdAt", key: "createdAt", width: 170,
+      sorter: true,
+      sortOrder: sortField === "createdAt" ? sortOrder : null,
+      defaultSortOrder: "descend",
       render: (v) => v ? new Date(v).toLocaleString("zh-CN") : "-",
     },
     {
@@ -254,6 +281,14 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
               <Button type="link" size="small" icon={<CopyOutlined />}
                 onClick={() => handleClone(record.id)} />
             </Tooltip>
+
+            {st === "COMPLETED" && (
+              <Tooltip title={"查看报告"}>
+                <Button type="link" size="small" icon={<BarChartOutlined />}
+                  style={{ color: "#722ed1" }}
+                  onClick={() => handleViewReport(record)} />
+              </Tooltip>
+            )}
 
             {st === "FAILED" && (
               <Tooltip title={"调试"}>
@@ -362,6 +397,12 @@ export default function PlanList({ onOpenMonitor, onCreatePlan }) {
           dataSource={plans}
           loading={loading}
           scroll={{ x: 1200 }}
+          onChange={(pagination, filters, sorter) => {
+            if (sorter.field) {
+              setSortField(sorter.field);
+              setSortOrder(sorter.order || "descend");
+            }
+          }}
           pagination={{
             current: page + 1,
             pageSize,
