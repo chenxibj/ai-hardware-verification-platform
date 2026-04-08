@@ -1,17 +1,19 @@
 /**
  * @file NodeList.js
- * @description 计算节点管理 — 列表 + 注册Modal
- * @feat #167
+ * @description 计算节点管理 — 列表 + 注册Modal + 诊断/修复 (#247)
+ * @feat #167, #247
  */
 import React, { useState, useEffect, useCallback } from "react";
 import {
   Card, Table, Tag, Badge, Button, Space, Input, Select, Modal, Form, Row, Col,
-  Typography, Tooltip, message, Popconfirm, Progress
+  Typography, Tooltip, message, Popconfirm, Progress, Drawer, Descriptions, Divider, Spin
 } from "antd";
 import {
   PlusOutlined, ReloadOutlined, DeleteOutlined,
   EditOutlined, EyeOutlined, SearchOutlined,
-  ClusterOutlined
+  ClusterOutlined, MedicineBoxOutlined, BugOutlined,
+  CheckCircleFilled, CloseCircleFilled, ExclamationCircleFilled,
+  ToolOutlined
 } from "@ant-design/icons";
 import api from "../utils/api";
 import dayjs from "dayjs";
@@ -21,7 +23,7 @@ import "dayjs/locale/zh-cn";
 dayjs.extend(relativeTime);
 dayjs.locale("zh-cn");
 
-const { Text, Title } = Typography;
+const { Text, Title, Paragraph } = Typography;
 
 const NODE_TYPE_COLORS = {
   CPU: "blue",
@@ -38,6 +40,12 @@ const NODE_STATUS_MAP = {
   ERROR: { text: "异常", color: "#ff4d4f", badge: "error" },
 };
 
+const HEALTH_CONFIG = {
+  HEALTHY: { color: "#52c41a", text: "健康", icon: <CheckCircleFilled style={{ color: "#52c41a" }} /> },
+  DEGRADED: { color: "#faad14", text: "亚健康", icon: <ExclamationCircleFilled style={{ color: "#faad14" }} /> },
+  UNHEALTHY: { color: "#ff4d4f", text: "不健康", icon: <CloseCircleFilled style={{ color: "#ff4d4f" }} /> },
+};
+
 export default function NodeList({ onOpenDetail }) {
   const [nodes, setNodes] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -47,6 +55,22 @@ export default function NodeList({ onOpenDetail }) {
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState(null);
   const [form] = Form.useForm();
+
+  // #247: 诊断/修复状态
+  const [diagModalVisible, setDiagModalVisible] = useState(false);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagResult, setDiagResult] = useState(null);
+  const [diagNodeName, setDiagNodeName] = useState("");
+
+  const [repairModalVisible, setRepairModalVisible] = useState(false);
+  const [repairLoading, setRepairLoading] = useState(false);
+  const [repairResult, setRepairResult] = useState(null);
+  const [repairNodeName, setRepairNodeName] = useState("");
+
+  // #247: 节点详情 Drawer
+  const [detailDrawerVisible, setDetailDrawerVisible] = useState(false);
+  const [detailNode, setDetailNode] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const fetchNodes = useCallback(async () => {
     setLoading(true);
@@ -58,7 +82,6 @@ export default function NodeList({ onOpenDetail }) {
         setNodes(res.data.data || []);
       }
     } catch (err) {
-      // Nodes might require auth
       if (err.response?.status !== 401) {
         message.error("获取节点列表失败");
       }
@@ -68,6 +91,7 @@ export default function NodeList({ onOpenDetail }) {
 
   useEffect(() => { fetchNodes(); }, [fetchNodes]);
 
+  /* ============ 注册/编辑 ============ */
   const handleRegister = () => {
     setEditingNode(null);
     form.resetFields();
@@ -102,7 +126,6 @@ export default function NodeList({ onOpenDetail }) {
       const values = await form.validateFields();
       setSubmitting(true);
 
-      // Include type in tags
       let tags = values.tags || "";
       if (values.type && !tags.toUpperCase().includes(values.type)) {
         tags = tags ? `${values.type},${tags}` : values.type;
@@ -151,6 +174,70 @@ export default function NodeList({ onOpenDetail }) {
     setSubmitting(false);
   };
 
+  /* ============ #247: 诊断 ============ */
+  const handleDiagnose = async (node) => {
+    setDiagNodeName(node.name);
+    setDiagResult(null);
+    setDiagModalVisible(true);
+    setDiagLoading(true);
+    try {
+      const res = await api.post(`/nodes/${node.id}/diagnose`);
+      if (res.data.code === 0) {
+        setDiagResult(res.data.data);
+      } else {
+        message.error(res.data.message || "诊断失败");
+      }
+    } catch (err) {
+      message.error(err.response?.data?.message || "诊断请求失败");
+    }
+    setDiagLoading(false);
+  };
+
+  /* ============ #247: 修复 ============ */
+  const handleRepair = async (node) => {
+    setRepairNodeName(node.name);
+    setRepairResult(null);
+    setRepairModalVisible(true);
+    setRepairLoading(true);
+    try {
+      const res = await api.post(`/nodes/${node.id}/repair`);
+      if (res.data.code === 0) {
+        setRepairResult(res.data.data);
+        if (res.data.data?.success) {
+          message.success("节点修复成功");
+          fetchNodes();
+        }
+      } else {
+        message.error(res.data.message || "修复失败");
+      }
+    } catch (err) {
+      message.error(err.response?.data?.message || "修复请求失败");
+    }
+    setRepairLoading(false);
+  };
+
+  const handleRepairFromDiag = (nodeId) => {
+    setDiagModalVisible(false);
+    const node = nodes.find(n => n.id === nodeId);
+    if (node) handleRepair(node);
+  };
+
+  /* ============ #247: 节点详情 Drawer ============ */
+  const handleOpenDetail = async (node) => {
+    setDetailNode(node);
+    setDetailDrawerVisible(true);
+    // Fetch latest detail
+    setDetailLoading(true);
+    try {
+      const res = await api.get(`/nodes/${node.id}`);
+      if (res.data.code === 0) {
+        setDetailNode(res.data.data);
+      }
+    } catch { /* keep existing data */ }
+    setDetailLoading(false);
+  };
+
+  /* ============ Helpers ============ */
   const extractType = (tags) => {
     if (!tags) return null;
     const upper = tags.toUpperCase();
@@ -161,11 +248,11 @@ export default function NodeList({ onOpenDetail }) {
     return null;
   };
 
-  const parseHardwareInfo = (hwStr) => {
-    if (!hwStr) return {};
+  const parseJSON = (str) => {
+    if (!str) return null;
     try {
-      return typeof hwStr === "string" ? JSON.parse(hwStr) : hwStr;
-    } catch { return {}; }
+      return typeof str === "string" ? JSON.parse(str) : str;
+    } catch { return null; }
   };
 
   const filteredNodes = nodes.filter(n => {
@@ -174,13 +261,179 @@ export default function NodeList({ onOpenDetail }) {
     return true;
   });
 
+  /* ============ 诊断结果渲染 ============ */
+  const renderDiagCheck = (label, value) => {
+    if (value === true) {
+      return <div style={{ marginBottom: 4 }}><CheckCircleFilled style={{ color: "#52c41a", marginRight: 8 }} />{label}: <Text type="success">正常</Text></div>;
+    }
+    if (value === false) {
+      return <div style={{ marginBottom: 4 }}><CloseCircleFilled style={{ color: "#ff4d4f", marginRight: 8 }} />{label}: <Text type="danger">异常</Text></div>;
+    }
+    return <div style={{ marginBottom: 4 }}><ExclamationCircleFilled style={{ color: "#d9d9d9", marginRight: 8 }} />{label}: <Text type="secondary">{String(value)}</Text></div>;
+  };
+
+  const renderDiagResult = () => {
+    if (!diagResult) return null;
+    const healthCfg = HEALTH_CONFIG[diagResult.health] || HEALTH_CONFIG.UNHEALTHY;
+    const heartbeatText = diagResult.minutesSinceHeartbeat >= 0
+      ? `${diagResult.minutesSinceHeartbeat} 分钟前`
+      : "从未";
+
+    return (
+      <div>
+        <div style={{ textAlign: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 48 }}>{healthCfg.icon}</div>
+          <Title level={4} style={{ color: healthCfg.color, margin: "8px 0 0" }}>
+            {healthCfg.text}
+          </Title>
+          <Text type="secondary">节点 {diagResult.nodeName} · 当前状态 {diagResult.currentStatus}</Text>
+        </div>
+
+        <Divider style={{ margin: "12px 0" }} />
+
+        <div style={{ padding: "0 8px" }}>
+          {renderDiagCheck("Ping 连通性", diagResult.pingReachable)}
+          {renderDiagCheck("SSH 可达", diagResult.sshConnectable)}
+          {renderDiagCheck("Agent 进程", diagResult.agentRunning)}
+          <div style={{ marginBottom: 4 }}>
+            {diagResult.minutesSinceHeartbeat >= 0 && diagResult.minutesSinceHeartbeat <= 5
+              ? <CheckCircleFilled style={{ color: "#52c41a", marginRight: 8 }} />
+              : <CloseCircleFilled style={{ color: "#ff4d4f", marginRight: 8 }} />
+            }
+            心跳: <Text type={diagResult.minutesSinceHeartbeat >= 0 && diagResult.minutesSinceHeartbeat <= 5 ? "success" : "danger"}>
+              {heartbeatText}
+            </Text>
+          </div>
+        </div>
+
+        {diagResult.issues?.length > 0 && (
+          <>
+            <Divider style={{ margin: "12px 0" }} />
+            <div style={{ padding: "0 8px" }}>
+              <Text strong style={{ color: "#ff4d4f" }}>问题:</Text>
+              {diagResult.issues.map((issue, i) => (
+                <div key={i} style={{ marginTop: 4, paddingLeft: 8 }}>
+                  <CloseCircleFilled style={{ color: "#ff4d4f", marginRight: 6, fontSize: 12 }} />
+                  <Text>{issue}</Text>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {diagResult.suggestions?.length > 0 && (
+          <div style={{ padding: "8px 8px 0" }}>
+            <Text strong style={{ color: "#1890ff" }}>建议:</Text>
+            {diagResult.suggestions.map((sug, i) => (
+              <div key={i} style={{ marginTop: 4, paddingLeft: 8 }}>
+                <span style={{ marginRight: 6 }}>💡</span>
+                <Text type="secondary">{sug}</Text>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {diagResult.issues?.length > 0 && (
+          <>
+            <Divider style={{ margin: "12px 0" }} />
+            <div style={{ textAlign: "center" }}>
+              <Button
+                type="primary"
+                danger
+                icon={<ToolOutlined />}
+                onClick={() => handleRepairFromDiag(diagResult.nodeId)}
+              >
+                一键修复
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  /* ============ 修复结果渲染 ============ */
+  const renderRepairResult = () => {
+    if (!repairResult) return null;
+    return (
+      <div>
+        <div style={{ textAlign: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 48 }}>
+            {repairResult.success
+              ? <CheckCircleFilled style={{ color: "#52c41a" }} />
+              : <CloseCircleFilled style={{ color: "#ff4d4f" }} />
+            }
+          </div>
+          <Title level={4} style={{ color: repairResult.success ? "#52c41a" : "#ff4d4f", margin: "8px 0 0" }}>
+            {repairResult.success ? "修复成功" : "修复失败"}
+          </Title>
+          <Text type="secondary">节点 {repairResult.nodeName}</Text>
+        </div>
+
+        <Divider style={{ margin: "12px 0" }} />
+
+        <div style={{ padding: "0 8px" }}>
+          <Text strong>修复过程:</Text>
+          {repairResult.actions?.map((action, i) => (
+            <div key={i} style={{ marginTop: 6, paddingLeft: 8 }}>
+              <CheckCircleFilled style={{ color: "#52c41a", marginRight: 6, fontSize: 12 }} />
+              <Text>{action}</Text>
+            </div>
+          ))}
+        </div>
+
+        {repairResult.error && (
+          <div style={{ padding: "8px", marginTop: 8 }}>
+            <Text type="danger">{repairResult.error}</Text>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  /* ============ 硬件/环境信息展示 ============ */
+  const renderJsonInfo = (title, jsonStr) => {
+    const data = parseJSON(jsonStr);
+    if (!data || Object.keys(data).length === 0) {
+      return <Text type="secondary">暂无数据</Text>;
+    }
+    const labelMap = {
+      hostname: "主机名", os: "操作系统", os_version: "系统版本", architecture: "架构",
+      cpu_model: "CPU 型号", cpu_cores_physical: "物理核心", cpu_cores_logical: "逻辑核心",
+      cpu_threads: "线程数", cpu_frequency_mhz: "CPU 频率(MHz)",
+      memory_total_gb: "总内存(GB)", memory_available_gb: "可用内存(GB)",
+      disk_total_gb: "磁盘总量(GB)", disk_used_gb: "磁盘使用(GB)", disk_free_gb: "磁盘空闲(GB)",
+      gpu_count: "GPU 数量", gpu_devices: "GPU 设备",
+      python_version: "Python", pip_packages: "Pip 包数",
+      cpuUsage: "CPU 使用率(%)", memoryUsage: "内存使用率(%)",
+      cpu_percent: "CPU 使用率(%)", memory_used_percent: "内存使用率(%)",
+    };
+    return (
+      <Descriptions size="small" column={1} bordered style={{ marginTop: 8 }}>
+        {Object.entries(data).map(([key, value]) => {
+          const label = labelMap[key] || key;
+          let display;
+          if (Array.isArray(value)) {
+            display = value.map((v, i) => <Tag key={i} style={{ marginBottom: 2 }}>{typeof v === "object" ? JSON.stringify(v) : String(v)}</Tag>);
+          } else if (typeof value === "object" && value !== null) {
+            display = <Text code style={{ fontSize: 11 }}>{JSON.stringify(value)}</Text>;
+          } else {
+            display = String(value);
+          }
+          return <Descriptions.Item key={key} label={label}>{display}</Descriptions.Item>;
+        })}
+      </Descriptions>
+    );
+  };
+
+  /* ============ 表格列定义 ============ */
   const columns = [
     {
       title: "名称",
       dataIndex: "name",
       width: 160,
       render: (text, record) => (
-        <Button type="link" style={{ padding: 0 }} onClick={() => onOpenDetail?.(record.id)}>
+        <Button type="link" style={{ padding: 0 }} onClick={() => handleOpenDetail(record)}>
           <ClusterOutlined style={{ marginRight: 4 }} />
           {text}
         </Button>
@@ -206,8 +459,17 @@ export default function NodeList({ onOpenDetail }) {
       title: "状态",
       dataIndex: "status",
       width: 100,
-      render: (status) => {
+      render: (status, record) => {
         const info = NODE_STATUS_MAP[status] || { text: status, badge: "default" };
+        if (status === "OFFLINE" || status === "ERROR") {
+          return (
+            <Tooltip title="点击诊断">
+              <span style={{ cursor: "pointer" }} onClick={() => handleDiagnose(record)}>
+                <Badge status={info.badge} text={<Text style={{ color: info.color }}>{info.text}</Text>} />
+              </span>
+            </Tooltip>
+          );
+        }
         return <Badge status={info.badge} text={info.text} />;
       },
     },
@@ -215,8 +477,8 @@ export default function NodeList({ onOpenDetail }) {
       title: "CPU",
       width: 100,
       render: (_, record) => {
-        const hw = parseHardwareInfo(record.hardwareInfo);
-        if (hw.cpuUsage != null) {
+        const hw = parseJSON(record.hardwareInfo);
+        if (hw?.cpuUsage != null) {
           return <Progress percent={Math.round(hw.cpuUsage)} size="small" strokeWidth={4} />;
         }
         return <Text type="secondary">-</Text>;
@@ -226,8 +488,8 @@ export default function NodeList({ onOpenDetail }) {
       title: "内存",
       width: 100,
       render: (_, record) => {
-        const hw = parseHardwareInfo(record.hardwareInfo);
-        if (hw.memoryUsage != null) {
+        const hw = parseJSON(record.hardwareInfo);
+        if (hw?.memoryUsage != null) {
           return <Progress percent={Math.round(hw.memoryUsage)} size="small" strokeWidth={4} />;
         }
         return <Text type="secondary">-</Text>;
@@ -251,11 +513,17 @@ export default function NodeList({ onOpenDetail }) {
     },
     {
       title: "操作",
-      width: 150,
+      width: 220,
       render: (_, record) => (
         <Space size={4}>
           <Tooltip title="详情">
-            <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => onOpenDetail?.(record.id)} />
+            <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => handleOpenDetail(record)} />
+          </Tooltip>
+          <Tooltip title="诊断">
+            <Button type="text" size="small" icon={<BugOutlined />} onClick={() => handleDiagnose(record)} />
+          </Tooltip>
+          <Tooltip title="修复">
+            <Button type="text" size="small" icon={<ToolOutlined />} onClick={() => handleRepair(record)} />
           </Tooltip>
           <Tooltip title="编辑">
             <Button type="text" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
@@ -313,6 +581,7 @@ export default function NodeList({ onOpenDetail }) {
         />
       </Card>
 
+      {/* 注册/编辑 Modal */}
       <Modal
         title={editingNode ? "编辑节点" : "注册节点"}
         open={modalVisible}
@@ -353,6 +622,102 @@ export default function NodeList({ onOpenDetail }) {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* #247: 诊断结果 Modal */}
+      <Modal
+        title={<><BugOutlined /> 节点诊断 — {diagNodeName}</>}
+        open={diagModalVisible}
+        onCancel={() => setDiagModalVisible(false)}
+        footer={[
+          <Button key="close" onClick={() => setDiagModalVisible(false)}>关闭</Button>,
+        ]}
+        width={520}
+      >
+        {diagLoading ? (
+          <div style={{ textAlign: "center", padding: "40px 0" }}>
+            <Spin size="large" />
+            <div style={{ marginTop: 16 }}><Text type="secondary">正在诊断中，请稍候...</Text></div>
+          </div>
+        ) : renderDiagResult()}
+      </Modal>
+
+      {/* #247: 修复结果 Modal */}
+      <Modal
+        title={<><ToolOutlined /> 节点修复 — {repairNodeName}</>}
+        open={repairModalVisible}
+        onCancel={() => setRepairModalVisible(false)}
+        footer={[
+          <Button key="close" onClick={() => setRepairModalVisible(false)}>关闭</Button>,
+        ]}
+        width={480}
+      >
+        {repairLoading ? (
+          <div style={{ textAlign: "center", padding: "40px 0" }}>
+            <Spin size="large" />
+            <div style={{ marginTop: 16 }}><Text type="secondary">正在修复中，请稍候...</Text></div>
+          </div>
+        ) : renderRepairResult()}
+      </Modal>
+
+      {/* #247: 节点详情 Drawer */}
+      <Drawer
+        title={<><ClusterOutlined /> 节点详情 — {detailNode?.name}</>}
+        open={detailDrawerVisible}
+        onClose={() => setDetailDrawerVisible(false)}
+        width={560}
+      >
+        {detailNode && (
+          <Spin spinning={detailLoading}>
+            <Descriptions column={2} bordered size="small">
+              <Descriptions.Item label="ID">{detailNode.id}</Descriptions.Item>
+              <Descriptions.Item label="名称">{detailNode.name}</Descriptions.Item>
+              <Descriptions.Item label="IP 地址">{detailNode.ipAddress || "-"}</Descriptions.Item>
+              <Descriptions.Item label="Agent 端口">{detailNode.agentPort || "-"}</Descriptions.Item>
+              <Descriptions.Item label="状态">
+                {(() => {
+                  const info = NODE_STATUS_MAP[detailNode.status] || { text: detailNode.status, badge: "default" };
+                  return <Badge status={info.badge} text={info.text} />;
+                })()}
+              </Descriptions.Item>
+              <Descriptions.Item label="类型">
+                {(() => {
+                  const type = extractType(detailNode.tags);
+                  return type ? <Tag color={NODE_TYPE_COLORS[type]}>{type}</Tag> : "-";
+                })()}
+              </Descriptions.Item>
+              <Descriptions.Item label="标签" span={2}>{detailNode.tags || "-"}</Descriptions.Item>
+              <Descriptions.Item label="描述" span={2}>{detailNode.description || "-"}</Descriptions.Item>
+              <Descriptions.Item label="最后心跳" span={2}>
+                {detailNode.lastHeartbeat
+                  ? `${dayjs(detailNode.lastHeartbeat).fromNow()} (${dayjs(detailNode.lastHeartbeat).format("YYYY-MM-DD HH:mm:ss")})`
+                  : "从未"
+                }
+              </Descriptions.Item>
+              {detailNode.errorMessage && (
+                <Descriptions.Item label="错误信息" span={2}>
+                  <Text type="danger">{detailNode.errorMessage}</Text>
+                </Descriptions.Item>
+              )}
+            </Descriptions>
+
+            <Divider orientation="left">硬件信息</Divider>
+            {renderJsonInfo("硬件信息", detailNode.hardwareInfo)}
+
+            <Divider orientation="left">环境信息</Divider>
+            {renderJsonInfo("环境信息", detailNode.envInfo)}
+
+            <Divider />
+            <Space>
+              <Button icon={<BugOutlined />} onClick={() => { setDetailDrawerVisible(false); handleDiagnose(detailNode); }}>
+                诊断
+              </Button>
+              <Button type="primary" icon={<ToolOutlined />} onClick={() => { setDetailDrawerVisible(false); handleRepair(detailNode); }}>
+                修复
+              </Button>
+            </Space>
+          </Spin>
+        )}
+      </Drawer>
     </div>
   );
 }

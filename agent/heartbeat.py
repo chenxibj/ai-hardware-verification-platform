@@ -1,4 +1,4 @@
-"""心跳上报模块"""
+"""心跳上报模块 — #247: 心跳404自动重注册"""
 import json
 import logging
 import os
@@ -6,6 +6,7 @@ import threading
 import time
 import requests
 from collector import get_system_metrics
+from register import register_node
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ class HeartbeatThread(threading.Thread):
     def __init__(self, node_id, config):
         super().__init__(daemon=True, name="heartbeat")
         self.node_id = node_id
+        self.config = config
         self.platform_url = config["platform"]["url"]
         self.token = config["platform"]["token"]
         self.interval = config["heartbeat"]["interval"]
@@ -44,6 +46,18 @@ class HeartbeatThread(threading.Thread):
                 "X-Agent-Token": self.token,
             }
             resp = requests.post(url, json=metrics, headers=headers, timeout=10)
+
+            # #247: 心跳返回404时自动重注册
+            if resp.status_code == 404:
+                logger.warning("心跳 404（节点不存在），尝试自动重注册...")
+                node_info = register_node(self.config)
+                if node_info and node_info.get("id"):
+                    self.node_id = node_info["id"]
+                    logger.info("自动重注册成功，新 node_id=%s", self.node_id)
+                else:
+                    logger.error("自动重注册失败，将在下次心跳时重试")
+                return
+
             if resp.status_code == 200:
                 logger.debug("心跳发送成功 CPU=%.1f%% MEM=%.1f%%",
                              metrics["cpu_percent"], metrics["memory_used_percent"])
