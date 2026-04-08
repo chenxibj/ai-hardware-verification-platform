@@ -30,6 +30,7 @@ import java.util.stream.Collectors;
 public class TaskLogController {
 
     private final TaskLogRepository taskLogRepository;
+    private final EvaluationTaskRepository evaluationTaskRepository;
     private final TaskLogWebSocketHandler webSocketHandler;
     private final ObjectMapper objectMapper;
 
@@ -64,6 +65,12 @@ public class TaskLogController {
         logEntry.setLevel(String.valueOf(body.getOrDefault("level", "INFO")));
         logEntry.setLogType(String.valueOf(body.getOrDefault("type", "TEXT")));
         logEntry.setSource(String.valueOf(body.getOrDefault("source", "AGENT")));
+
+        // #244: Auto-fill planId from task if not provided
+        EvaluationTask task = evaluationTaskRepository.findById(taskId).orElse(null);
+        if (task != null && task.getPlanId() != null) {
+            logEntry.setPlanId(task.getPlanId());
+        }
 
         // handle metrics if present
         Object metricsObj = body.get("metrics");
@@ -116,6 +123,13 @@ public class TaskLogController {
             return ResponseEntity.ok(result(0, "empty entries, skipped"));
         }
 
+        // #244: Resolve planId from task as fallback
+        Long resolvedPlanId = null;
+        EvaluationTask task = evaluationTaskRepository.findById(taskId).orElse(null);
+        if (task != null) {
+            resolvedPlanId = task.getPlanId();
+        }
+
         List<TaskLog> savedLogs = new ArrayList<>();
         for (Map<String, Object> entry : entries) {
             TaskLog logEntry = new TaskLog();
@@ -136,6 +150,10 @@ public class TaskLogController {
                 try {
                     logEntry.setPlanId(Long.valueOf(String.valueOf(planIdObj)));
                 } catch (NumberFormatException ignored) {}
+            }
+            // #244: Auto-fill planId from task if not provided by agent
+            if (logEntry.getPlanId() == null && resolvedPlanId != null) {
+                logEntry.setPlanId(resolvedPlanId);
             }
             Object nodeIdObj = entry.get("nodeId");
             if (nodeIdObj != null) {

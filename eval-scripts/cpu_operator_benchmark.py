@@ -28,20 +28,29 @@ def get_system_info():
 def benchmark_op(name, func, warmup=5, iterations=50, flops=0, peak_gflops=None):
     """#236: Enhanced with GFLOPS, memory, CV, warmup overhead"""
     # Measure warmup
+    print(f"[EVAL] {name}: 开始 warmup ({warmup} iterations)...", flush=True)
     warmup_lats = []
     for _ in range(warmup):
         t0 = time.perf_counter(); func(); warmup_lats.append((time.perf_counter() - t0) * 1000)
+    warmup_mean = float(np.mean(warmup_lats)) if warmup_lats else 0
+    print(f"[EVAL] {name}: Warmup 完成, mean={warmup_mean:.3f}ms", flush=True)
 
     # Memory before
     mem_before = 0
     if HAS_PSUTIL:
         mem_before = psutil.Process().memory_info().rss / (1024 * 1024)
 
+    print(f"[EVAL] {name}: 开始正式测量 ({iterations} iterations)...", flush=True)
     latencies = []
     cpu_start = time.process_time()
     wall_start = time.perf_counter()
-    for _ in range(iterations):
+    for i in range(iterations):
         t0 = time.perf_counter(); func(); latencies.append((time.perf_counter() - t0) * 1000)
+        # Print progress every 25% of iterations
+        if iterations >= 20 and (i + 1) % max(1, iterations // 4) == 0:
+            pct = (i + 1) * 100 // iterations
+            cur_mean = float(np.mean(latencies))
+            print(f"[EVAL] {name}: 进度 {i+1}/{iterations} ({pct}%), 当前 mean={cur_mean:.3f}ms", flush=True)
     wall_elapsed = time.perf_counter() - wall_start
     cpu_elapsed = time.process_time() - cpu_start
 
@@ -82,12 +91,19 @@ def benchmark_op(name, func, warmup=5, iterations=50, flops=0, peak_gflops=None)
         result["gflops"] = "N/A"
         result["compute_util_percent"] = "N/A"
 
+    mem_delta = round(mem_after - mem_before, 2)
+    print(f"[METRIC] {name} 完成: latency_mean={lat_mean:.3f}ms, p50={result['latency_ms_p50']:.3f}ms, "
+          f"p99={result['latency_ms_p99']:.3f}ms, throughput={result['throughput_ops']:.1f} ops/s, "
+          f"memory_delta={mem_delta}MB", flush=True)
+
     return result
 
 def benchmark_attention(name, func_parts, warmup=5, iterations=50):
     """Attention 专用 benchmark，记录分步延迟"""
     # func_parts: dict with keys 'qkt', 'softmax', 'av', 'full'
+    print(f"[EVAL] {name}: 开始 warmup ({warmup} iterations)...", flush=True)
     for _ in range(warmup): func_parts['full']()
+    print(f"[EVAL] {name}: Warmup 完成", flush=True)
 
     latencies_qkt = []
     latencies_softmax = []
@@ -96,7 +112,8 @@ def benchmark_attention(name, func_parts, warmup=5, iterations=50):
     cpu_start = time.process_time()
     wall_start = time.perf_counter()
 
-    for _ in range(iterations):
+    print(f"[EVAL] {name}: 开始正式测量 ({iterations} iterations)...", flush=True)
+    for i in range(iterations):
         # Full pass
         t0 = time.perf_counter(); func_parts['full'](); latencies_full.append((time.perf_counter() - t0) * 1000)
         # QK^T
@@ -129,6 +146,9 @@ def benchmark_attention(name, func_parts, warmup=5, iterations=50):
                       "p95": round(np.percentile(latencies_av, 95), 3), "p99": round(np.percentile(latencies_av, 99), 3)},
         }
     }
+    print(f"[METRIC] {name} 完成: latency_mean={result['latency_ms_mean']:.3f}ms, "
+          f"p50={result['latency_ms_p50']:.3f}ms, p99={result['latency_ms_p99']:.3f}ms, "
+          f"throughput={result['throughput_ops']:.1f} ops/s", flush=True)
     return result
 
 
@@ -304,26 +324,10 @@ def get_all_ops(size, iterations):
 def run_single_test_case(test_case, iterations=100):
     """
     运行单个测试用例。
-    test_case: dict with keys:
-      - operator: str (MatMul, Softmax, LayerNorm, Conv2D, ReLU, GELU, SiLU, Sigmoid, Attention, etc.)
-      - 算子特定参数（见下文）
-    
-    MatMul:    {"operator": "MatMul", "shape_a": [M,K], "shape_b": [K,N]}
-    Softmax:   {"operator": "Softmax", "shape": [d1,d2,...]}
-    LayerNorm: {"operator": "LayerNorm", "shape": [d1,d2,...]}
-    Conv2D:    {"operator": "Conv2D", "input_shape": [N,C,H,W], "kernel_shape": [Cout,Cin,KH,KW], "stride": 1, "padding": 0}
-    ReLU:      {"operator": "ReLU", "shape": [d1,d2,...]}
-    GELU:      {"operator": "GELU", "shape": [d1,d2,...]}
-    SiLU:      {"operator": "SiLU", "shape": [d1,d2,...]}
-    Sigmoid:   {"operator": "Sigmoid", "shape": [d1,d2,...]}
-    Attention: {"operator": "Attention", "qkv_shape": [B,H,S,D]}
-    Transpose: {"operator": "Transpose", "shape": [d1,d2]}
-    BatchNorm: {"operator": "BatchNorm", "shape": [d1,d2]}
-    MatInverse:{"operator": "MatInverse", "size": N}
-    SVD:       {"operator": "SVD", "shape": [M,N]}
     """
     op = test_case["operator"]
     op_lower = op.lower()
+    print(f"[EVAL] 开始评测: {op}, 参数={json.dumps({k:v for k,v in test_case.items() if not k.startswith('_')}, ensure_ascii=False)}", flush=True)
 
     if op_lower == "matmul":
         shape_a = tuple(test_case["shape_a"])
@@ -417,6 +421,7 @@ def run_benchmarks(size=512, iterations=50, operator_filter=None, test_cases=Non
 
     results = []
     for name, func, shape, desc in ops:
+        print(f"[EVAL] 开始评测: {name}, shape={shape}", flush=True)
         iters = min(iterations, 20) if name in ("MatInverse", "SVD") else iterations
         # #236: Calculate FLOPs for backward-compat mode
         flops = 0
@@ -559,9 +564,13 @@ def main():
     all_results = []
     all_accuracy = []
 
+    print(f"[EVAL] === CPU算子基准测试开始 === size={size}, iterations={iterations}, dtypes={dtypes}, "
+          f"test_cases={len(test_cases) if test_cases else 'N/A'}", flush=True)
+
     for dtype in dtypes:
         dtype_upper = dtype.upper()
         peak_gflops = peak_gflops_fp16 if dtype_upper == "FP16" else peak_gflops_fp32
+        print(f"[EVAL] --- dtype={dtype_upper} 开始 ---", flush=True)
 
         # Inject dtype and peak_gflops into test cases
         if test_cases:
@@ -645,6 +654,7 @@ def main():
     if all_accuracy:
         output["accuracy_results"] = all_accuracy
 
+    print(f"[EVAL] === 测试完成 === 共{len(all_results)}个算子, {passed_count}个通过, 平均延迟{avg_lat:.2f}ms", flush=True)
     print(json.dumps(output, ensure_ascii=False))
 
 
