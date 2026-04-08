@@ -12,7 +12,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   Card, Button, Tag, Badge, Space, Row, Col, Table, Progress, Descriptions,
   message, Spin, Typography, Divider, Modal, Form, Input, InputNumber, Select, Empty,
-  Tooltip, Tabs, Alert,
+  Tooltip, Tabs, Alert, Checkbox,
 } from "antd";
 import {
   ArrowLeftOutlined, EditOutlined, PlusOutlined, FileTextOutlined,
@@ -20,7 +20,7 @@ import {
   EyeOutlined, ThunderboltOutlined, DatabaseOutlined, AppstoreOutlined,
   RadarChartOutlined, HistoryOutlined, ProfileOutlined, InfoCircleOutlined,
   RiseOutlined, ExperimentOutlined, NumberOutlined, FireOutlined,
-  DashboardOutlined,
+  DashboardOutlined, SwapOutlined, SafetyCertificateOutlined,
 } from "@ant-design/icons";
 import ReactECharts from "echarts-for-react";
 import RadarChart, { DIMENSIONS } from "../components/RadarChart";
@@ -82,7 +82,13 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
   const [plansLoading, setPlansLoading] = useState(false);
   const [reports, setReports] = useState([]);
   const [selectedReportId, setSelectedReportId] = useState(null);
-  const [activeTab, setActiveTab] = useState("profile");
+  const [activeTab, setActiveTab] = useState("info");
+
+  /* 报告对比 */
+  const [compareIds, setCompareIds] = useState([]);
+  const [comparing, setComparing] = useState(false);
+  const [compareData, setCompareData] = useState(null);
+  const [showCompare, setShowCompare] = useState(false);
 
   /* 编辑 Modal */
   const [techModalVisible, setTechModalVisible] = useState(false);
@@ -213,8 +219,54 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
     }
   };
 
+  /* ── 报告对比 ── */
+  const handleCompare = async () => {
+    if (compareIds.length < 2) {
+      message.warning("请至少选择 2 份报告进行对比");
+      return;
+    }
+    setComparing(true);
+    try {
+      const res = await api.get("/chip-reports/compare", { params: { ids: compareIds.join(",") } });
+      if (res.data?.code === 0) {
+        setCompareData(res.data.data);
+        setShowCompare(true);
+      } else {
+        message.error(res.data?.message || "对比失败");
+      }
+    } catch (err) {
+      message.error("对比失败: " + (err.response?.data?.message || err.message));
+    } finally {
+      setComparing(false);
+    }
+  };
+
+  const handleSetReportBaseline = async (reportId) => {
+    try {
+      const res = await api.put("/chip-reports/" + reportId + "/set-baseline");
+      if (res.data?.code === 0) {
+        message.success("✅ 已标记为可采信基线，芯片画像已更新");
+        fetchReports();
+        fetchChip();
+      } else {
+        message.error(res.data?.message || "标记失败");
+      }
+    } catch (err) {
+      message.error("标记失败: " + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const toggleCompareId = (id) => {
+    setCompareIds(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      if (prev.length >= 5) { message.warning("最多选择 5 份报告对比"); return prev; }
+      return [...prev, id];
+    });
+  };
+
   /* ── 获取最新报告数据 ── */
   const latestReport = reports.length > 0 ? reports[0] : null;
+  const baselineReport = reports.find(r => r.isBaseline) || latestReport;
   const selectedReport = reports.find(r => r.id === selectedReportId) || latestReport;
   const completedReport = reports.find(r => r.status === "PUBLISHED" || r.status === "COMPLETED") || latestReport;
 
@@ -373,98 +425,6 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
   /* ── Tab Items ── */
   const tabItems = [
     {
-      key: "profile",
-      label: <span><RadarChartOutlined /> 能力画像</span>,
-      children: (
-        <div>
-          {/* 综合评分 */}
-          {overallScore != null && (
-            <Card style={{ marginBottom: 16 }}>
-              <Row gutter={24} align="middle">
-                <Col xs={24} md={8} style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 64, fontWeight: "bold", color: getScoreColor(overallScore), lineHeight: 1 }}>
-                    {overallScore.toFixed ? overallScore.toFixed(1) : overallScore}
-                  </div>
-                  <div style={{ marginTop: 8 }}>
-                    <Tag color={grade?.color} style={{ fontSize: 16, padding: "4px 16px" }}>{grade?.text}</Tag>
-                  </div>
-                  <Text type="secondary" style={{ fontSize: 13, marginTop: 8, display: "block" }}>综合评分</Text>
-                </Col>
-                <Col xs={24} md={16}>
-                  <RadarChart data={radarData} height={320} />
-                </Col>
-              </Row>
-            </Card>
-          )}
-
-          {/* 各维度评分详情 */}
-          {Object.keys(dimensionScores).length > 0 && (
-            <Card title="维度评分详情" style={{ marginBottom: 16 }}>
-              <Row gutter={[16, 12]}>
-                {Object.entries(DIM_CN).map(([key, name]) => {
-                  const score = dimensionScores[key] || 0;
-                  return (
-                    <Col xs={24} sm={12} md={8} key={key}>
-                      <div style={{ marginBottom: 4 }}>
-                        <Text>{name}</Text>
-                        <Text strong style={{ float: "right", color: getScoreColor(score) }}>
-                          {score.toFixed ? score.toFixed(1) : score}
-                        </Text>
-                      </div>
-                      <Progress
-                        percent={Math.round(score)}
-                        strokeColor={getScoreColor(score)}
-                        showInfo={false}
-                        size="small"
-                      />
-                    </Col>
-                  );
-                })}
-              </Row>
-            </Card>
-          )}
-
-          {/* 适用场景分析 */}
-          {scenarioRecs.length > 0 && (
-            <Card title="适用场景分析" style={{ marginBottom: 16 }}>
-              <Row gutter={16}>
-                {["recommended", "caution", "unverified"].map((type) => {
-                  const items = scenarioRecs.filter(r => r.type === type);
-                  if (items.length === 0) return null;
-                  const config = {
-                    recommended: { title: "✅ 推荐场景", color: "#f6ffed", borderColor: "#b7eb8f" },
-                    caution: { title: "⚠️ 需关注场景", color: "#fffbe6", borderColor: "#ffe58f" },
-                    unverified: { title: "❌ 待验证场景", color: "#fff2f0", borderColor: "#ffccc7" },
-                  }[type];
-                  return (
-                    <Col xs={24} md={8} key={type}>
-                      <Card size="small" title={config.title}
-                        style={{ background: config.color, borderColor: config.borderColor, height: "100%" }}>
-                        {items.map((item, idx) => (
-                          <div key={idx} style={{ marginBottom: idx < items.length - 1 ? 12 : 0 }}>
-                            <Text strong>{item.scenario}</Text>
-                            <br />
-                            <Text type="secondary" style={{ fontSize: 12 }}>{item.reason}</Text>
-                          </div>
-                        ))}
-                      </Card>
-                    </Col>
-                  );
-                })}
-              </Row>
-            </Card>
-          )}
-
-          {!overallScore && radarData.length === 0 && (
-            <Empty description="暂无评测数据，请先创建评测任务" style={{ padding: 60 }}>
-              <Button type="primary" icon={<PlusOutlined />}
-                onClick={() => onCreatePlan && onCreatePlan(chipId)}>创建评测任务</Button>
-            </Empty>
-          )}
-        </div>
-      ),
-    },
-    {
       key: "info",
       label: <span><InfoCircleOutlined /> 基本信息</span>,
       children: (
@@ -564,6 +524,101 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
       ),
     },
     {
+      key: "profile",
+      label: <span><RadarChartOutlined /> 能力画像</span>,
+      children: (
+        <div>
+          {/* 综合评分 */}
+          {overallScore != null && (
+            <Card style={{ marginBottom: 16 }}>
+              <Row gutter={24} align="middle">
+                <Col xs={24} md={8} style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 64, fontWeight: "bold", color: getScoreColor(overallScore), lineHeight: 1 }}>
+                    {overallScore.toFixed ? overallScore.toFixed(1) : overallScore}
+                  </div>
+                  <div style={{ marginTop: 8 }}>
+                    <Tag color={grade?.color} style={{ fontSize: 16, padding: "4px 16px" }}>{grade?.text}</Tag>
+                  </div>
+                  <Text type="secondary" style={{ fontSize: 13, marginTop: 8, display: "block" }}>综合评分</Text>
+                  {baselineReport && (
+                    <Tag color="blue" style={{ marginTop: 4 }}>📌 基于 {baselineReport.reportNo}</Tag>
+                  )}
+                </Col>
+                <Col xs={24} md={16}>
+                  <RadarChart data={radarData} height={320} />
+                </Col>
+              </Row>
+            </Card>
+          )}
+
+          {/* 各维度评分详情 */}
+          {Object.keys(dimensionScores).length > 0 && (
+            <Card title="维度评分详情" style={{ marginBottom: 16 }}>
+              <Row gutter={[16, 12]}>
+                {Object.entries(DIM_CN).map(([key, name]) => {
+                  const score = dimensionScores[key] || 0;
+                  return (
+                    <Col xs={24} sm={12} md={8} key={key}>
+                      <div style={{ marginBottom: 4 }}>
+                        <Text>{name}</Text>
+                        <Text strong style={{ float: "right", color: getScoreColor(score) }}>
+                          {score.toFixed ? score.toFixed(1) : score}
+                        </Text>
+                      </div>
+                      <Progress
+                        percent={Math.round(score)}
+                        strokeColor={getScoreColor(score)}
+                        showInfo={false}
+                        size="small"
+                      />
+                    </Col>
+                  );
+                })}
+              </Row>
+            </Card>
+          )}
+
+          {/* 适用场景分析 */}
+          {scenarioRecs.length > 0 && (
+            <Card title="适用场景分析" style={{ marginBottom: 16 }}>
+              <Row gutter={16}>
+                {["recommended", "caution", "unverified"].map((type) => {
+                  const items = scenarioRecs.filter(r => r.type === type);
+                  if (items.length === 0) return null;
+                  const config = {
+                    recommended: { title: "✅ 推荐场景", color: "#f6ffed", borderColor: "#b7eb8f" },
+                    caution: { title: "⚠️ 需关注场景", color: "#fffbe6", borderColor: "#ffe58f" },
+                    unverified: { title: "❌ 待验证场景", color: "#fff2f0", borderColor: "#ffccc7" },
+                  }[type];
+                  return (
+                    <Col xs={24} md={8} key={type}>
+                      <Card size="small" title={config.title}
+                        style={{ background: config.color, borderColor: config.borderColor, height: "100%" }}>
+                        {items.map((item, idx) => (
+                          <div key={idx} style={{ marginBottom: idx < items.length - 1 ? 12 : 0 }}>
+                            <Text strong>{item.scenario}</Text>
+                            <br />
+                            <Text type="secondary" style={{ fontSize: 12 }}>{item.reason}</Text>
+                          </div>
+                        ))}
+                      </Card>
+                    </Col>
+                  );
+                })}
+              </Row>
+            </Card>
+          )}
+
+          {!overallScore && radarData.length === 0 && (
+            <Empty description="暂无评测数据，请先创建评测任务" style={{ padding: 60 }}>
+              <Button type="primary" icon={<PlusOutlined />}
+                onClick={() => onCreatePlan && onCreatePlan(chipId)}>创建评测任务</Button>
+            </Empty>
+          )}
+        </div>
+      ),
+    },
+    {
       key: "history",
       label: <span><HistoryOutlined /> 评测历史</span>,
       children: (
@@ -610,30 +665,258 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
             }
           >
             {plans.length === 0 && !plansLoading ? (
-              /* 空状态引导（#160 增强） */
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={
-                  <span style={{ color: "#666" }}>
-                    该芯片暂无评测记录，点击创建首个评测任务
-                  </span>
-                }
+                description={<span style={{ color: "#666" }}>该芯片暂无评测记录</span>}
               >
                 <Button type="primary" icon={<PlusOutlined />}
-                  onClick={() => onCreatePlan && onCreatePlan(chipId)}>
-                  创建评测任务
-                </Button>
+                  onClick={() => onCreatePlan && onCreatePlan(chipId)}>创建评测任务</Button>
               </Empty>
             ) : (
-              <Table
-                rowKey="id"
-                columns={planColumns}
-                dataSource={plans}
-                loading={plansLoading}
-                scroll={{ x: 800 }}
-                pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条评测记录` }}
-              />
+              <Table rowKey="id" columns={planColumns} dataSource={plans}
+                loading={plansLoading} scroll={{ x: 800 }}
+                pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条评测记录` }} />
             )}
+
+          {/* ── 报告对比选择区 ── */}
+          {reports.length >= 2 && (
+            <Card title={<Space><SwapOutlined /> 报告横向对比</Space>}
+              style={{ marginTop: 16 }}
+              extra={
+                <Space>
+                  {compareIds.length >= 2 && (
+                    <Button type="primary" icon={<SwapOutlined />}
+                      loading={comparing} onClick={handleCompare}>
+                      📊 对比选中报告 ({compareIds.length})
+                    </Button>
+                  )}
+                  {compareIds.length > 0 && (
+                    <Button onClick={() => { setCompareIds([]); setShowCompare(false); setCompareData(null); }}>
+                      清除选择
+                    </Button>
+                  )}
+                </Space>
+              }
+            >
+              <Row gutter={[12, 12]}>
+                {reports.map(r => (
+                  <Col xs={24} sm={12} md={8} key={r.id}>
+                    <Card
+                      size="small"
+                      hoverable
+                      style={{
+                        borderColor: compareIds.includes(r.id) ? "#1890ff" : r.isBaseline ? "#52c41a" : undefined,
+                        borderWidth: compareIds.includes(r.id) ? 2 : 1,
+                      }}
+                      onClick={() => toggleCompareId(r.id)}
+                    >
+                      <Space>
+                        <Checkbox checked={compareIds.includes(r.id)} />
+                        <div>
+                          <div>
+                            <Text strong>{r.reportNo}</Text>
+                            {r.isBaseline && <Tag color="blue" style={{ marginLeft: 4 }}>🏷️ 基线</Tag>}
+                          </div>
+                          <div>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              {r.createdAt ? new Date(r.createdAt).toLocaleDateString("zh-CN") : "-"}
+                            </Text>
+                            <Text style={{ marginLeft: 8, color: getScoreColor(r.overallScore || 0), fontWeight: "bold" }}>
+                              {(r.overallScore || 0).toFixed(1)} 分
+                            </Text>
+                          </div>
+                          <div style={{ marginTop: 4 }}>
+                            <Button type="link" size="small" icon={<SafetyCertificateOutlined />}
+                              disabled={r.isBaseline}
+                              onClick={(e) => { e.stopPropagation(); handleSetReportBaseline(r.id); }}>
+                              {r.isBaseline ? "已是基线" : "设为基线"}
+                            </Button>
+                          </div>
+                        </div>
+                      </Space>
+                    </Card>
+                  </Col>
+                ))}
+              </Row>
+            </Card>
+          )}
+
+          {/* ── 对比面板 ── */}
+          {showCompare && compareData && (
+            <Card title="📊 报告对比分析" style={{ marginTop: 16 }}>
+              {/* 综合评分对比 */}
+              <Title level={5}>综合评分对比</Title>
+              <Row gutter={16} style={{ marginBottom: 16 }}>
+                {compareData.reports.map((r, idx) => {
+                  const colors = ["#1890ff", "#f5222d", "#52c41a", "#fa8c16", "#722ed1"];
+                  return (
+                    <Col key={r.id} xs={24} sm={12} md={8}>
+                      <Card size="small" style={{ borderLeft: "4px solid " + colors[idx % colors.length] }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div>
+                            <Text strong>{r.reportNo}</Text>
+                            {r.isBaseline && <Tag color="blue" style={{ marginLeft: 4 }}>🏷️</Tag>}
+                            <br />
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              {r.createdAt ? new Date(r.createdAt).toLocaleDateString("zh-CN") : "-"}
+                            </Text>
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontSize: 28, fontWeight: "bold", color: getScoreColor(r.overallScore || 0) }}>
+                              {(r.overallScore || 0).toFixed(1)}
+                            </div>
+                          </div>
+                        </div>
+                      </Card>
+                    </Col>
+                  );
+                })}
+              </Row>
+
+              {/* 雷达图叠加 */}
+              {compareData.reports.length > 0 && compareData.reports[0].radarData && (() => {
+                const colors = ["#1890ff", "#f5222d", "#52c41a", "#fa8c16", "#722ed1"];
+                const dimLabels = ["计算性能", "访存性能", "数学函数", "Attention能力", "归一化性能", "模型推理"];
+                const dimKeys = ["compute_perf", "memory_perf", "math_func", "attention", "normalization", "model_inference"];
+
+                const radarOption = {
+                  tooltip: {},
+                  legend: {
+                    data: compareData.reports.map(r => r.reportNo),
+                    bottom: 0,
+                  },
+                  radar: {
+                    indicator: dimLabels.map(name => ({ name, max: 100 })),
+                    shape: "polygon",
+                  },
+                  series: [{
+                    type: "radar",
+                    data: compareData.reports.map((r, idx) => ({
+                      value: dimKeys.map(k => {
+                        const dims = r.dimensions || {};
+                        return dims[k] != null ? Number(dims[k]).toFixed(1) : 0;
+                      }),
+                      name: r.reportNo,
+                      lineStyle: { color: colors[idx % colors.length], width: 2 },
+                      itemStyle: { color: colors[idx % colors.length] },
+                      areaStyle: { color: colors[idx % colors.length], opacity: 0.1 },
+                    })),
+                  }],
+                };
+
+                return (
+                  <>
+                    <Divider />
+                    <Title level={5}>六维雷达图叠加</Title>
+                    <ReactECharts option={radarOption} style={{ height: 400 }} />
+                  </>
+                );
+              })()}
+
+              {/* 维度评分对比表 */}
+              {compareData.changes && compareData.changes.length > 0 && (
+                <>
+                  <Divider />
+                  <Title level={5}>维度评分变化</Title>
+                  <Table
+                    dataSource={compareData.changes}
+                    rowKey="dimension"
+                    pagination={false}
+                    size="small"
+                    columns={[
+                      { title: "维度", dataIndex: "dimensionName", key: "dimensionName",
+                        render: v => <Text strong>{v}</Text> },
+                      ...compareData.reports.map((r, idx) => ({
+                        title: <Space>{r.reportNo}{r.isBaseline && <Tag color="blue" size="small">基线</Tag>}</Space>,
+                        key: "rpt_" + r.id,
+                        align: "center",
+                        render: (_, record) => {
+                          const dims = r.dimensions || {};
+                          const val = dims[record.dimension];
+                          return (
+                            <Text style={{ color: getScoreColor(val || 0), fontWeight: "bold" }}>
+                              {val != null ? Number(val).toFixed(1) : "-"}
+                            </Text>
+                          );
+                        },
+                      })),
+                      { title: "变化", key: "change", align: "center", width: 120,
+                        render: (_, record) => {
+                          const delta = record.delta;
+                          if (Math.abs(delta) < 0.5) return <Text type="secondary">→ 无变化</Text>;
+                          if (delta > 0) return <Text style={{ color: "#52c41a" }}>↑ +{delta.toFixed(1)}</Text>;
+                          return <Text style={{ color: "#ff4d4f" }}>↓ {delta.toFixed(1)}</Text>;
+                        },
+                      },
+                    ]}
+                  />
+                </>
+              )}
+
+              {/* 算子级对比 */}
+              {compareData.reports.length >= 2 && (() => {
+                const allOps = new Map();
+                compareData.reports.forEach((r, idx) => {
+                  (r.operatorRanking || []).forEach(op => {
+                    const name = op.testItem || op.name || "Unknown";
+                    if (!allOps.has(name)) allOps.set(name, { name, dimension: op.dimension || "其他", scores: [], latencies: [] });
+                    const entry = allOps.get(name);
+                    while (entry.scores.length < idx) { entry.scores.push(null); entry.latencies.push(null); }
+                    entry.scores.push(op.score);
+                    entry.latencies.push(op.latencyMean ?? op.avgLatency ?? null);
+                  });
+                });
+                // Pad all entries
+                allOps.forEach(entry => {
+                  while (entry.scores.length < compareData.reports.length) { entry.scores.push(null); entry.latencies.push(null); }
+                });
+
+                const opData = Array.from(allOps.values()).filter(o => o.scores.some(s => s != null));
+                if (opData.length === 0) return null;
+
+                return (
+                  <>
+                    <Divider />
+                    <Title level={5}>算子级对比</Title>
+                    <Table
+                      dataSource={opData}
+                      rowKey="name"
+                      pagination={opData.length > 20 ? { pageSize: 20 } : false}
+                      size="small"
+                      scroll={{ x: 600 }}
+                      columns={[
+                        { title: "算子", dataIndex: "name", key: "name", width: 140, fixed: "left",
+                          render: (v, record) => <Space><span>{v}</span><Tag style={{ fontSize: 10 }}>{record.dimension}</Tag></Space> },
+                        ...compareData.reports.map((r, idx) => ({
+                          title: r.reportNo.replace("RPT-", ""),
+                          key: "score_" + idx,
+                          align: "center",
+                          width: 100,
+                          render: (_, record) => {
+                            const score = record.scores[idx];
+                            if (score == null) return <Tag color="warning" style={{ fontSize: 10 }}>⚠️ 缺失</Tag>;
+                            return <Text style={{ color: getScoreColor(score), fontWeight: "bold" }}>{Number(score).toFixed(1)}</Text>;
+                          },
+                        })),
+                        { title: "变化", key: "delta", align: "center", width: 100,
+                          render: (_, record) => {
+                            const first = record.scores.find(s => s != null);
+                            const last = [...record.scores].reverse().find(s => s != null);
+                            if (first == null || last == null) return <Tag color="warning">⚠️</Tag>;
+                            const delta = last - first;
+                            const pct = first !== 0 ? Math.abs(delta / first) * 100 : 0;
+                            if (pct < 5) return <Text type="secondary">→</Text>;
+                            if (delta > 0) return <Text style={{ color: "#52c41a" }}>↑ +{delta.toFixed(1)}</Text>;
+                            return <Text style={{ color: "#ff4d4f" }}>↓ {delta.toFixed(1)}</Text>;
+                          },
+                        },
+                      ]}
+                    />
+                  </>
+                );
+              })()}
+            </Card>
+          )}
           </Card>
 
           {/* 评分趋势折线图 */}
