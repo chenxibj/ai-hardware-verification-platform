@@ -1,4 +1,4 @@
-"""任务执行模块 (#225 实时日志 + #226 async + #229 结构化日志)"""
+"""任务执行模块 (#225 实时日志 + #226 async + #229 结构化日志 + #243 LogReporter)"""
 import json
 import logging
 import os
@@ -11,6 +11,11 @@ from datetime import datetime, timezone
 from typing import Optional, Dict, List
 import requests
 from collector import collect_during_execution
+try:
+    from log_reporter import LogReporter
+    HAS_LOG_REPORTER = True
+except ImportError:
+    HAS_LOG_REPORTER = False
 
 logger = logging.getLogger(__name__)
 

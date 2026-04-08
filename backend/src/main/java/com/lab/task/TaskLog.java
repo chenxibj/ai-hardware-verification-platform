@@ -12,7 +12,7 @@ import java.time.Instant;
 
 /**
  * 任务执行日志（实时流式日志）
- * #224 / #225 / #229
+ * #224 / #225 / #229 / #243
  */
 @Data
 @Entity
@@ -63,6 +63,16 @@ public class TaskLog {
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
+
+    // #243: 新增字段
+    @Column(name = "plan_id")
+    private Long planId;
+
+    @Column(name = "node_id", length = 100)
+    private String nodeId;
+
+    @Column(name = "sequence", insertable = false, updatable = false)
+    private Long sequence;
 
     /**
      * 简单构造器 — 用于 Agent 日志上报

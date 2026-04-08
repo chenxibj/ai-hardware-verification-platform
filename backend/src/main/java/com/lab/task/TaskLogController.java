@@ -7,10 +7,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -19,6 +21,7 @@ import java.util.stream.Collectors;
  * #229 - 增强过滤 + 批量上报 + WebSocket 推送
  * #233 - stats/metrics/METRIC渲染/游标分页/多格式导出
  * #234 - 搜索过滤
+ * #243 - batchId 幂等 + planId/nodeId 支持
  */
 @Slf4j
 @RestController
@@ -29,6 +32,18 @@ public class TaskLogController {
     private final TaskLogRepository taskLogRepository;
     private final TaskLogWebSocketHandler webSocketHandler;
     private final ObjectMapper objectMapper;
+
+    // #243: batchId 幂等缓存 — batchId -> 写入时间戳（TTL 10min）
+    private final ConcurrentHashMap<String, Long> processedBatchIds = new ConcurrentHashMap<>();
+
+    /**
+     * #243: 定时清理过期 batchId（每 5 分钟执行一次，TTL 10 分钟）
+     */
+    @Scheduled(fixedRate = 300_000)
+    public void cleanupExpiredBatchIds() {
+        long cutoff = System.currentTimeMillis() - 600_000; // 10 min
+        processedBatchIds.entrySet().removeIf(e -> e.getValue() < cutoff);
+    }
 
     /**
      * Agent POST /api/tasks/{taskId}/logs — 上报执行日志（兼容旧版）
@@ -71,15 +86,32 @@ public class TaskLogController {
 
     /**
      * POST /api/tasks/{taskId}/logs/batch — 批量结构化上报
-     * #229
+     * #229 + #243: 支持 batchId 幂等 + 新格式 { batchId, logs: [...] }
+     * 向后兼容旧格式 { entries: [...] }
      */
     @PostMapping("/{taskId}/logs/batch")
     public ResponseEntity<Map<String, Object>> batchAppendLogs(
             @PathVariable Long taskId,
             @RequestBody Map<String, Object> body) {
 
+        // #243: batchId 幂等检查
+        String batchId = (String) body.get("batchId");
+        if (batchId != null && !batchId.isEmpty()) {
+            Long prev = processedBatchIds.putIfAbsent(batchId, System.currentTimeMillis());
+            if (prev != null) {
+                log.debug("Duplicate batchId={} for task {}, skipping", batchId, taskId);
+                return ResponseEntity.ok(result(0, "duplicate batchId, skipped"));
+            }
+        }
+
+        // 兼容新旧格式: "logs" (新) 或 "entries" (旧)
         @SuppressWarnings("unchecked")
-        List<Map<String, Object>> entries = (List<Map<String, Object>>) body.get("entries");
+        List<Map<String, Object>> entries = (List<Map<String, Object>>) body.get("logs");
+        if (entries == null) {
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> oldEntries = (List<Map<String, Object>>) body.get("entries");
+            entries = oldEntries;
+        }
         if (entries == null || entries.isEmpty()) {
             return ResponseEntity.ok(result(0, "empty entries, skipped"));
         }
@@ -91,8 +123,24 @@ public class TaskLogController {
             logEntry.setMessage(String.valueOf(entry.getOrDefault("message", "")));
             logEntry.setContent(String.valueOf(entry.getOrDefault("message", "")));
             logEntry.setLevel(String.valueOf(entry.getOrDefault("level", "INFO")));
-            logEntry.setLogType(String.valueOf(entry.getOrDefault("type", "TEXT")));
+            // 兼容 "logType" (新) 和 "type" (旧)
+            String logType = entry.containsKey("logType")
+                    ? String.valueOf(entry.get("logType"))
+                    : String.valueOf(entry.getOrDefault("type", "TEXT"));
+            logEntry.setLogType(logType);
             logEntry.setSource(String.valueOf(entry.getOrDefault("source", "AGENT")));
+
+            // #243: planId / nodeId
+            Object planIdObj = entry.get("planId");
+            if (planIdObj != null) {
+                try {
+                    logEntry.setPlanId(Long.valueOf(String.valueOf(planIdObj)));
+                } catch (NumberFormatException ignored) {}
+            }
+            Object nodeIdObj = entry.get("nodeId");
+            if (nodeIdObj != null) {
+                logEntry.setNodeId(String.valueOf(nodeIdObj));
+            }
 
             Object metricsObj = entry.get("metrics");
             if (metricsObj != null) {
@@ -122,7 +170,7 @@ public class TaskLogController {
             broadcastLog(savedLog);
         }
 
-        log.debug("Batch received {} log entries for task {}", savedLogs.size(), taskId);
+        log.debug("Batch received {} log entries for task {} (batchId={})", savedLogs.size(), taskId, batchId);
         return ResponseEntity.ok(result(0, "ok, saved " + savedLogs.size()));
     }
 
@@ -370,6 +418,9 @@ public class TaskLogController {
             data.put("content", logEntry.getContent());
             data.put("metrics", logEntry.getMetrics());
             data.put("source", logEntry.getSource());
+            data.put("planId", logEntry.getPlanId());
+            data.put("nodeId", logEntry.getNodeId());
+            data.put("sequence", logEntry.getSequence());
             data.put("createdAt", logEntry.getCreatedAt() != null ? logEntry.getCreatedAt().toString() : Instant.now().toString());
             wsMessage.put("data", data);
 
