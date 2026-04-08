@@ -33,18 +33,18 @@ const PLAN_STATUS_MAP = {
 
 const CHIP_TYPE_COLORS = { GPU: "blue", NPU: "green", TPU: "purple", CPU: "orange", OTHER: "default" };
 
-/* ── 进度模拟（后端暂无 progress 字段，根据状态给默认值） ── */
+/* ── 真实进度（基于后端 progress/completedTasks/totalTasks 字段） ── */
 const getProgress = (record) => {
-  if (record.progress !== undefined && record.progress !== null) return record.progress;
-  switch (record.status) {
-    case "DRAFT":     return 0;
-    case "RUNNING":   return 45;
-    case "PAUSED":    return 30;
-    case "COMPLETED": return 100;
-    case "FAILED":    return 60;
-    case "CANCELLED": return 20;
-    default:          return 0;
-  }
+  // 后端已返回 progress 字段
+  if (record.progress != null && record.progress > 0) return record.progress;
+  // 基于 completedTasks / totalTasks 计算
+  const completed = record.completedTasks || 0;
+  const total = record.totalTasks || 0;
+  if (total > 0) return Math.round((completed / total) * 100);
+  // 终态
+  if (record.status === "COMPLETED") return 100;
+  if (record.status === "DRAFT") return 0;
+  return 0;
 };
 
 const getProgressStatus = (status) => {

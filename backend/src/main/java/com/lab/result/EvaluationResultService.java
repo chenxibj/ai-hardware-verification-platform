@@ -530,7 +530,10 @@ public class EvaluationResultService {
             if (r.getMetricsSummary() == null) continue;
             try {
                 Map<String, Object> metrics = objectMapper.readValue(r.getMetricsSummary(), new TypeReference<>() {});
-                double score = toDouble(metrics.getOrDefault("score", 50));
+                // Compute score from latency instead of trusting stored score field
+                Map<String, Object> flatM = flattenMetrics(metrics);
+                double lat = toDouble(flatM.getOrDefault("latency_ms_mean", flatM.getOrDefault("latency_mean", flatM.getOrDefault("latencyMean", flatM.getOrDefault("avg_latency_ms", 0)))));
+                double score = lat > 0 ? Math.max(0, Math.min(100, 100 - 20 * Math.log10(lat))) : 0;
                 EvaluationTask task = taskMap.get(r.getTaskId());
                 String dimension = categorizeToDimension(task);
                 if (dimScores.containsKey(dimension)) {
@@ -546,9 +549,9 @@ public class EvaluationResultService {
         for (String dim : dimensions) {
             List<Double> scores = dimScores.get(dim);
             if (scores.isEmpty()) {
-                result.put(dim, 50.0); // default
+                result.put(dim, 0.0); // no data for this dimension
             } else {
-                result.put(dim, scores.stream().mapToDouble(Double::doubleValue).average().orElse(50));
+                result.put(dim, scores.stream().mapToDouble(Double::doubleValue).average().orElse(0));
             }
         }
         return result;
@@ -590,4 +593,37 @@ public class EvaluationResultService {
         if (val instanceof Number) return ((Number) val).doubleValue();
         try { return Double.parseDouble(val.toString()); } catch (Exception e) { return 0; }
     }
+
+    /**
+     * Flatten nested metrics structure for score calculation.
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> flattenMetrics(Map<String, Object> metrics) {
+        Map<String, Object> flat = new LinkedHashMap<>(metrics);
+        try {
+            Object resultObj = metrics.get("result");
+            if (resultObj instanceof Map) {
+                Map<String, Object> result = (Map<String, Object>) resultObj;
+                Object evalResult = result.get("eval_result");
+                if (evalResult instanceof Map) {
+                    Map<String, Object> eval = (Map<String, Object>) evalResult;
+                    Object summary = eval.get("summary");
+                    if (summary instanceof Map) {
+                        flat.putAll((Map<String, Object>) summary);
+                    }
+                    Object results = eval.get("results");
+                    if (results instanceof java.util.List) {
+                        java.util.List<Object> resultList = (java.util.List<Object>) results;
+                        if (!resultList.isEmpty() && resultList.get(0) instanceof Map) {
+                            ((Map<String, Object>) resultList.get(0)).forEach(flat::putIfAbsent);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Failed to flatten metrics: {}", e.getMessage());
+        }
+        return flat;
+    }
+
 }

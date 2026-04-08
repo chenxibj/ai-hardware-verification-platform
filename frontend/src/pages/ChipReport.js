@@ -86,15 +86,31 @@ function generateSummary(dimScores, overallScore) {
   return text;
 }
 
-/* 模拟精度数据 */
-function generateAccuracyData(operators) {
+/* 从真实评测数据提取精度信息（不使用随机数） */
+function extractAccuracyData(operators, report) {
   if (!operators || operators.length === 0) return [];
-  const dtypes = ["FP32", "FP16", "BF16", "INT8"];
-  return dtypes.map(dtype => {
-    const total = operators.length;
-    const passed = Math.floor(total * (0.7 + Math.random() * 0.3));
-    return { dtype, total, passed, rate: total > 0 ? ((passed / total) * 100).toFixed(1) : "0" };
-  });
+  // 1. 尝试从 report 的 metrics_summary 提取 accuracy_checks
+  const metricsSummary = safeParse(report?.metricsSummary);
+  if (metricsSummary?.accuracy_checks && Array.isArray(metricsSummary.accuracy_checks)) {
+    return metricsSummary.accuracy_checks.map(check => ({
+      dtype: check.dtype || "Unknown",
+      total: check.total || 0,
+      passed: check.passed || 0,
+      rate: check.total > 0 ? ((check.passed / check.total) * 100).toFixed(1) : "0",
+    }));
+  }
+  // 2. 从算子 pass/fail 状态汇总（真实数据）
+  const totalOps = operators.length;
+  const passedOps = operators.filter(o => o.passed).length;
+  if (totalOps > 0) {
+    return [{
+      dtype: "综合",
+      total: totalOps,
+      passed: passedOps,
+      rate: ((passedOps / totalOps) * 100).toFixed(1),
+    }];
+  }
+  return [];
 }
 
 /* 提取模型评测数据 */
@@ -106,7 +122,7 @@ function extractModelData(operators) {
       name: op.testItem || op.name || "Unknown",
       latency: op.latencyMean ?? op.avgLatency ?? 0,
       throughput: op.throughput ?? 0,
-      memoryUsage: op.memoryUsage ?? (Math.random() * 8 + 2).toFixed(1),
+      memoryUsage: op.memoryUsage ?? op.memory_delta_mb ?? null,
       score: op.score ?? 0,
       passed: op.passed,
     }));
@@ -190,7 +206,7 @@ export default function ChipReport({ reportId, onBack }) {
 
   const totalOps = operators.length;
   const passedOps = operators.filter(o => o.passed).length;
-  const accuracyData = generateAccuracyData(operators);
+  const accuracyData = extractAccuracyData(operators, report);
   const modelData = extractModelData(operators);
 
   // 算子排行表列
@@ -679,8 +695,8 @@ export default function ChipReport({ reportId, onBack }) {
       >
         <Alert
           type="info" showIcon
-          message="CPU 模拟模式"
-          description="当前评测数据在 CPU 模式下生成，用于验证平台功能。真实 GPU/NPU 数据需连接硬件节点执行评测。"
+          message="CPU 评测模式"
+          description="当前评测数据在 CPU 模式下生成。真实 GPU/NPU 评测需连接硬件节点执行。"
           style={{ marginBottom: 16 }}
         />
         <Row gutter={24}>
@@ -698,7 +714,7 @@ export default function ChipReport({ reportId, onBack }) {
             <Title level={5}>软件栈 & 报告</Title>
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="评测框架">AHVP Agent v1.0</Descriptions.Item>
-              <Descriptions.Item label="运行时">CPU 模拟 (Python 3.10 + PyTorch 2.x)</Descriptions.Item>
+              <Descriptions.Item label="运行时">CPU 评测 (NumPy + Python 3)</Descriptions.Item>
               <Descriptions.Item label="报告编号">{report.reportNo}</Descriptions.Item>
               <Descriptions.Item label="生成时间">{reportTime}</Descriptions.Item>
               <Descriptions.Item label="报告状态">

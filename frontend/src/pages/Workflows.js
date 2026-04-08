@@ -146,14 +146,7 @@ export default function Workflows() {
   };
 
   const handleRun = () => {
-    setNodes(nds=>nds.map((n,i)=>({...n,data:{...n.data,status:i===0?"running":"pending"}})));
-    message.info("工作流开始执行（模拟）");
-    let step = 0;
-    const timer = setInterval(()=>{
-      step++;
-      setNodes(nds=>nds.map((n,i)=>({...n,data:{...n.data,status:i<step?"done":i===step?"running":"pending"}})));
-      if(step>=nodes.length){ clearInterval(timer); message.success("工作流执行完成"); }
-    }, 1500);
+    message.info("工作流引擎开发中，敬请期待");
   };
 
   const handleExport = () => {
@@ -199,7 +192,7 @@ export default function Workflows() {
               <Button icon={<PlusOutlined/>} type="primary" onClick={()=>setPaletteVisible(true)}>添加节点</Button>
               <Button icon={<SaveOutlined/>} onClick={handleSave}>保存</Button>
               <Button icon={<ExportOutlined/>} onClick={handleExport}>导出</Button>
-              <Button icon={<PlayCircleOutlined/>} type="primary" style={{background:"#52c41a",borderColor:"#52c41a"}} onClick={handleRun}>运行</Button>
+              <Tooltip title="工作流引擎开发中"><Button icon={<PlayCircleOutlined/>} style={{background:"#52c41a",borderColor:"#52c41a",color:"#fff"}} onClick={handleRun}>执行（开发中）</Button></Tooltip>
             </Space>
           </Col>
         </Row>

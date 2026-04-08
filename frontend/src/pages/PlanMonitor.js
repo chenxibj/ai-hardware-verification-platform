@@ -62,13 +62,13 @@ function formatDuration(startedAt, completedAt) {
   return Math.floor(sec / 3600) + "h " + Math.floor((sec % 3600) / 60) + "m";
 }
 
-/* ── 模拟资源数据 ── */
-function simulateResource(tasks) {
+/* ── 任务统计 ── */
+function computeTaskStats(tasks) {
   const running = tasks.filter(t => t.status === "RUNNING").length;
-  return {
-    cpu: Math.min(95, 15 + running * 18 + Math.floor(Math.random() * 8)),
-    memory: Math.min(90, 30 + running * 12 + Math.floor(Math.random() * 6)),
-  };
+  const completed = tasks.filter(t => t.status === "COMPLETED").length;
+  const failed = tasks.filter(t => t.status === "FAILED").length;
+  const total = tasks.length;
+  return { running, completed, failed, total };
 }
 
 /* ── 格式化时间戳 ── */
@@ -113,7 +113,7 @@ export default function PlanMonitor({ planId, onBack }) {
   const [logSearch, setLogSearch] = useState("");
   const [logLevelFilter, setLogLevelFilter] = useState("ALL");
   const [logTypeFilter, setLogTypeFilter] = useState("ALL");
-  const [resource, setResource] = useState({ cpu: 0, memory: 0 });
+  const [taskStats, setTaskStats] = useState({ running: 0, completed: 0, failed: 0, total: 0 });
   const [wsConnected, setWsConnected] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
   const [hasNewLogs, setHasNewLogs] = useState(false);
@@ -153,7 +153,7 @@ export default function PlanMonitor({ planId, onBack }) {
         newTasks.forEach((t) => { map[t.id] = t.status; });
         prevTasksRef.current = map;
         setTasks(newTasks);
-        setResource(simulateResource(newTasks));
+        setTaskStats(computeTaskStats(newTasks));
       }
     } catch (e) {
       console.error("fetchTasks error", e);
@@ -672,24 +672,16 @@ export default function PlanMonitor({ planId, onBack }) {
         <Row gutter={24} align="middle">
           <Col xs={24} md={5} style={{ textAlign: "center" }}>
             <DashboardOutlined style={{ fontSize: 18, color: "#1890ff", marginBottom: 8 }} />
-            <div style={{ fontSize: 12, color: "#999", marginBottom: 4 }}>{"CPU \u4F7F\u7528\u7387"}</div>
-            <Progress
-              type="circle"
-              percent={resource.cpu}
-              size={80}
-              strokeColor={resource.cpu > 80 ? "#ff4d4f" : resource.cpu > 60 ? "#faad14" : "#52c41a"}
-              format={p => <span style={{ fontSize: 16, fontWeight: "bold" }}>{p}%</span>}
-            />
+            <div style={{ fontSize: 12, color: "#999", marginBottom: 4 }}>{"\u8FD0\u884C\u4E2D\u4EFB\u52A1"}</div>
+            <div style={{ fontSize: 28, fontWeight: "bold", color: taskStats.running > 0 ? "#1890ff" : "#999" }}>
+              {taskStats.running}
+            </div>
           </Col>
           <Col xs={24} md={5} style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 12, color: "#999", marginBottom: 4 }}>{"\u5185\u5B58\u4F7F\u7528\u7387"}</div>
-            <Progress
-              type="circle"
-              percent={resource.memory}
-              size={80}
-              strokeColor={resource.memory > 80 ? "#ff4d4f" : resource.memory > 60 ? "#faad14" : "#1890ff"}
-              format={p => <span style={{ fontSize: 16, fontWeight: "bold" }}>{p}%</span>}
-            />
+            <div style={{ fontSize: 12, color: "#999", marginBottom: 4 }}>{"\u5DF2\u5B8C\u6210 / \u603B\u8BA1"}</div>
+            <div style={{ fontSize: 28, fontWeight: "bold", color: "#52c41a" }}>
+              {taskStats.completed}<span style={{ fontSize: 14, color: "#999", fontWeight: "normal" }}> / {taskStats.total}</span>
+            </div>
           </Col>
           <Col xs={12} md={4}>
             <Statistic title={"\u5DF2\u8017\u65F6"} value={elapsedStr} valueStyle={{ fontSize: 18 }} />

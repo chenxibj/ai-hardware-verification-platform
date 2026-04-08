@@ -163,7 +163,7 @@ public class ReportGenerator {
                 try {
                     Map<String, Object> m = objectMapper.readValue(r.getMetricsSummary(),
                             new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
-                    double score = toDouble(m.getOrDefault("score", 50));
+                    double score = toDouble(m.getOrDefault("score", 0));
                     if (score < worstScore) {
                         worstScore = score;
                         EvaluationTask t = taskMap.get(r.getTaskId());
@@ -207,12 +207,12 @@ public class ReportGenerator {
     private String generateRecommendations(Map<String, Double> dimScores, double overallScore) {
         List<Map<String, Object>> recs = new ArrayList<>();
 
-        double compute = dimScores.getOrDefault("compute_perf", 50.0);
-        double memory = dimScores.getOrDefault("memory_perf", 50.0);
-        double math = dimScores.getOrDefault("math_func", 50.0);
-        double attention = dimScores.getOrDefault("attention", 50.0);
-        double norm = dimScores.getOrDefault("normalization", 50.0);
-        double model = dimScores.getOrDefault("model_inference", 50.0);
+        double compute = dimScores.getOrDefault("compute_perf", 0.0);
+        double memory = dimScores.getOrDefault("memory_perf", 0.0);
+        double math = dimScores.getOrDefault("math_func", 0.0);
+        double attention = dimScores.getOrDefault("attention", 0.0);
+        double norm = dimScores.getOrDefault("normalization", 0.0);
+        double model = dimScores.getOrDefault("model_inference", 0.0);
 
         // 推荐场景
         if (compute >= 75 && model >= 70) {

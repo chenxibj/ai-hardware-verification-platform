@@ -128,13 +128,9 @@ export default function ResourceMonitor() {
     return () => clearInterval(timer);
   }, [fetchData]);
 
-  // Simulated trend data (in production this would come from metrics API)
-  const cpuTrend = useMemo(() =>
-    Array.from({ length: 12 }, (_, i) => Math.round(20 + Math.random() * 50 + Math.sin(i * 0.5) * 15)),
-  []);
-  const memTrend = useMemo(() =>
-    Array.from({ length: 12 }, (_, i) => Math.round(30 + Math.random() * 40 + Math.cos(i * 0.3) * 10)),
-  []);
+  // 趋势数据需要接入监控系统
+  const cpuTrend = null;
+  const memTrend = null;
 
   // Alert: offline nodes and high-load nodes
   const offlineNodes = nodes.filter(n => n.status === "OFFLINE" || n.status === "ERROR");
@@ -234,13 +230,17 @@ export default function ResourceMonitor() {
         </Col>
       </Row>
 
-      {/* Resource Trend Charts */}
+      {/* Resource Trend Charts — 需接入监控系统 */}
       <Row gutter={[16, 16]}>
-        <Col xs={24} md={12}>
-          <TrendChart title="CPU 使用率趋势" data={cpuTrend} color="#722ed1" unit="%" />
-        </Col>
-        <Col xs={24} md={12}>
-          <TrendChart title="内存使用率趋势" data={memTrend} color="#eb2f96" unit="%" />
+        <Col xs={24}>
+          <Card size="small" title="资源趋势">
+            <Alert
+              type="info"
+              showIcon
+              message="趋势数据需要接入监控系统"
+              description="资源使用率趋势图需对接 Prometheus 等监控系统后启用。当前可通过节点状态矩阵查看实时节点情况。"
+            />
+          </Card>
         </Col>
       </Row>
     </Spin>

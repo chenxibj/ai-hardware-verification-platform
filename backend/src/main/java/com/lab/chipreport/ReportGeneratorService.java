@@ -326,7 +326,13 @@ public class ReportGeneratorService {
                 double p95Latency = toDouble(flatMetrics.getOrDefault("latency_ms_p95", flatMetrics.getOrDefault("latency_p95", flatMetrics.getOrDefault("latencyP95", 0))));
                 double p99Latency = toDouble(flatMetrics.getOrDefault("latency_ms_p99", flatMetrics.getOrDefault("latency_p99", flatMetrics.getOrDefault("latencyP99", 0))));
                 double throughput = toDouble(flatMetrics.getOrDefault("throughput_qps", flatMetrics.getOrDefault("throughput_ops", flatMetrics.getOrDefault("throughput", flatMetrics.getOrDefault("avg_throughput_qps", 0)))));
-                double score = toDouble(metrics.getOrDefault("score", flatMetrics.getOrDefault("score", 50)));
+                // Compute score from latency (like ScoringService) instead of using stored fallback
+                double score;
+                if (avgLatency > 0) {
+                    score = Math.max(0, Math.min(100, 100 - 20 * Math.log10(avgLatency)));
+                } else {
+                    score = 0;
+                }
 
                 String dimension = categorizeToDimension(task);
 

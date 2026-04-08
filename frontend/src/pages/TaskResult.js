@@ -74,19 +74,14 @@ export default function TaskResult({ taskId, onBack }) {
         setLogContent(res.data.data.content || "");
       }
     } catch (e) {
-      // fallback: 使用前端模拟
-      setLogContent(generateFallbackLog(taskId));
+      message.error("日志加载失败");
+      setLogContent("");
     } finally {
       setLogLoading(false);
     }
   };
 
-  const generateFallbackLog = (id) => {
-    return `[${new Date().toISOString()}] INFO Starting evaluation task TASK-${String(id).padStart(3, '0')}\n` +
-      `[${new Date().toISOString()}] INFO Loading evaluation environment...\n` +
-      `[${new Date().toISOString()}] INFO Evaluation in progress...\n` +
-      `[${new Date().toISOString()}] INFO Evaluation completed.\n`;
-  };
+  // generateFallbackLog removed — 不再生成假日志
 
   if (loading) {
     return <div style={{ textAlign: "center", padding: 80 }}><Spin size="large" tip="加载中..." /></div>;

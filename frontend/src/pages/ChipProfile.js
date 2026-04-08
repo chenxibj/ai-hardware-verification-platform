@@ -773,8 +773,8 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
               <Card title="评测环境信息" size="small">
                 <Alert
                   type="info" showIcon
-                  message="CPU 模拟模式"
-                  description="当前评测数据在 CPU 模式下生成，用于验证平台功能。真实 GPU/NPU 数据需连接硬件节点执行评测。"
+                  message="CPU 评测模式"
+                  description="当前评测数据在 CPU 模式下生成。真实 GPU/NPU 评测需连接硬件节点执行。"
                   style={{ marginBottom: 12 }}
                 />
                 <Descriptions column={2} size="small">
