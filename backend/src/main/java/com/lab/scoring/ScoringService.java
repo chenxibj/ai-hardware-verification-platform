@@ -60,6 +60,38 @@ public class ScoringService {
     }
 
     /**
+     * Navigate nested JSON to find actual metrics data.
+     * Structure: {result: {eval_result: {summary: {...}, results: [{...}]}}}
+     */
+    private JsonNode findMetricsNode(JsonNode root) {
+        // First check if metrics are at the top level
+        if (root.has("latency_ms_mean") || root.has("latency_mean") || root.has("latencyMean") || root.has("avg_latency_ms")) {
+            return root;
+        }
+        // Navigate to result.eval_result
+        JsonNode result = root.path("result");
+        if (!result.isMissingNode()) {
+            JsonNode evalResult = result.path("eval_result");
+            if (!evalResult.isMissingNode()) {
+                // Try results[0] first (has per-operator metrics)
+                JsonNode results = evalResult.path("results");
+                if (results.isArray() && results.size() > 0) {
+                    JsonNode first = results.get(0);
+                    if (first.has("latency_ms_mean") || first.has("latency_mean")) {
+                        return first;
+                    }
+                }
+                // Fall back to summary
+                JsonNode summary = evalResult.path("summary");
+                if (!summary.isMissingNode() && (summary.has("avg_latency_ms") || summary.has("latency_ms_mean"))) {
+                    return summary;
+                }
+            }
+        }
+        return root;
+    }
+
+    /**
      * 基于延迟计算单个任务评分（0-100）
      */
     public double scoreLatency(double latencyMs) {
@@ -74,12 +106,20 @@ public class ScoringService {
     public double scoreFromMetrics(String metricsSummary) {
         if (metricsSummary == null || metricsSummary.isEmpty()) return 0;
         try {
-            JsonNode node = objectMapper.readTree(metricsSummary);
-            if (node.has("latencyMean") && !node.get("latencyMean").isNull()) {
-                return scoreLatency(node.get("latencyMean").asDouble());
+            JsonNode root = objectMapper.readTree(metricsSummary);
+            // Navigate nested structure: try root, then result.eval_result.summary, then result.eval_result.results[0]
+            JsonNode node = findMetricsNode(root);
+            // Check multiple field name variants for latency
+            String latKey = node.has("latency_ms_mean") ? "latency_ms_mean" : node.has("latency_mean") ? "latency_mean" : node.has("latencyMean") ? "latencyMean" : node.has("avg_latency_ms") ? "avg_latency_ms" : null;
+            if (latKey != null && !node.get(latKey).isNull()) {
+                return scoreLatency(node.get(latKey).asDouble());
             }
             if (node.has("latencyP50") && !node.get("latencyP50").isNull()) {
                 return scoreLatency(node.get("latencyP50").asDouble());
+            }
+            // Also check score field
+            if (root.has("score") && !root.get("score").isNull()) {
+                return root.get("score").asDouble();
             }
             return 0;
         } catch (Exception e) {
@@ -155,8 +195,18 @@ public class ScoringService {
             try {
                 if (result.getMetricsSummary() != null) {
                     JsonNode metrics = objectMapper.readTree(result.getMetricsSummary());
-                    item.put("latencyMean", metrics.has("latencyMean") ? metrics.get("latencyMean").asDouble() : null);
-                    item.put("throughput", metrics.has("throughput") ? metrics.get("throughput").asDouble() : null);
+                    // Navigate nested metrics structure
+                    JsonNode metricsNode = findMetricsNode(metrics);
+                    double latVal = metricsNode.has("latency_ms_mean") ? metricsNode.get("latency_ms_mean").asDouble() :
+                                    metricsNode.has("avg_latency_ms") ? metricsNode.get("avg_latency_ms").asDouble() :
+                                    metricsNode.has("latency_mean") ? metricsNode.get("latency_mean").asDouble() :
+                                    metricsNode.has("latencyMean") ? metricsNode.get("latencyMean").asDouble() : 0;
+                    item.put("latencyMean", latVal > 0 ? latVal : null);
+                    double tpVal = metricsNode.has("throughput_qps") ? metricsNode.get("throughput_qps").asDouble() :
+                                   metricsNode.has("throughput_ops") ? metricsNode.get("throughput_ops").asDouble() :
+                                   metricsNode.has("throughput") ? metricsNode.get("throughput").asDouble() :
+                                   metricsNode.has("avg_throughput_qps") ? metricsNode.get("avg_throughput_qps").asDouble() : 0;
+                    item.put("throughput", tpVal > 0 ? tpVal : null);
                 }
             } catch (Exception e) {
                 log.warn("Failed to parse metrics for ranking: {}", e.getMessage());

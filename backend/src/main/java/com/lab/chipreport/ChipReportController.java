@@ -28,6 +28,7 @@ import java.util.Map;
 public class ChipReportController {
 
     private final ChipReportRepository reportRepository;
+    private final ReportGeneratorService reportGeneratorService;
 
     @PostMapping
     @RequireRole(Role.ENGINEER)
@@ -183,6 +184,13 @@ public class ChipReportController {
     public ResponseEntity<Map<String, Object>> getReportsByPlan(@PathVariable Long planId) {
         List<ChipReport> reports = reportRepository.findByPlanId(planId);
         return ResponseEntity.ok(success(reports));
+    }
+
+    @PostMapping("/regenerate/{planId}")
+    @RequireRole(Role.ENGINEER)
+    public ResponseEntity<Map<String, Object>> regenerateReport(@PathVariable Long planId) {
+        ChipReport report = reportGeneratorService.generateReport(planId);
+        return ResponseEntity.ok(Map.of("code", 0, "message", "Report regenerated", "data", report));
     }
 
     private String generateReportNo() {

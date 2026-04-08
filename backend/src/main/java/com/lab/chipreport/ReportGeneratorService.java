@@ -319,11 +319,14 @@ public class ReportGeneratorService {
                 String name = task != null ? task.getTestItem() : "unknown";
                 if (name == null) name = task != null ? task.getName() : "unknown";
 
-                double avgLatency = toDouble(metrics.getOrDefault("latency_mean", metrics.getOrDefault("latencyMean", 0)));
-                double p95Latency = toDouble(metrics.getOrDefault("latency_p95", metrics.getOrDefault("latencyP95", 0)));
-                double p99Latency = toDouble(metrics.getOrDefault("latency_p99", metrics.getOrDefault("latencyP99", 0)));
-                double throughput = toDouble(metrics.getOrDefault("throughput", 0));
-                double score = toDouble(metrics.getOrDefault("score", 50));
+                // Navigate nested structure: metrics may be at top-level or nested in result.eval_result
+                Map<String, Object> flatMetrics = flattenMetrics(metrics);
+
+                double avgLatency = toDouble(flatMetrics.getOrDefault("latency_ms_mean", flatMetrics.getOrDefault("latency_mean", flatMetrics.getOrDefault("latencyMean", flatMetrics.getOrDefault("avg_latency_ms", 0)))));
+                double p95Latency = toDouble(flatMetrics.getOrDefault("latency_ms_p95", flatMetrics.getOrDefault("latency_p95", flatMetrics.getOrDefault("latencyP95", 0))));
+                double p99Latency = toDouble(flatMetrics.getOrDefault("latency_ms_p99", flatMetrics.getOrDefault("latency_p99", flatMetrics.getOrDefault("latencyP99", 0))));
+                double throughput = toDouble(flatMetrics.getOrDefault("throughput_qps", flatMetrics.getOrDefault("throughput_ops", flatMetrics.getOrDefault("throughput", flatMetrics.getOrDefault("avg_throughput_qps", 0)))));
+                double score = toDouble(metrics.getOrDefault("score", flatMetrics.getOrDefault("score", 50)));
 
                 String dimension = categorizeToDimension(task);
 
@@ -354,6 +357,45 @@ public class ReportGeneratorService {
     }
 
     /**
+     * Flatten nested metrics structure.
+     * Agent reports metrics in: {result: {eval_result: {summary: {...}, results: [{...}]}}}
+     * This extracts the useful metrics into a flat map.
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> flattenMetrics(Map<String, Object> metrics) {
+        Map<String, Object> flat = new LinkedHashMap<>(metrics);
+        try {
+            // Try result.eval_result path
+            Object resultObj = metrics.get("result");
+            if (resultObj instanceof Map) {
+                Map<String, Object> result = (Map<String, Object>) resultObj;
+                Object evalResult = result.get("eval_result");
+                if (evalResult instanceof Map) {
+                    Map<String, Object> eval = (Map<String, Object>) evalResult;
+                    // Merge summary fields
+                    Object summary = eval.get("summary");
+                    if (summary instanceof Map) {
+                        flat.putAll((Map<String, Object>) summary);
+                    }
+                    // Merge first result entry (per-operator metrics)
+                    Object results = eval.get("results");
+                    if (results instanceof java.util.List) {
+                        java.util.List<Object> resultList = (java.util.List<Object>) results;
+                        if (!resultList.isEmpty() && resultList.get(0) instanceof Map) {
+                            Map<String, Object> firstResult = (Map<String, Object>) resultList.get(0);
+                            // Only add fields not already present from summary
+                            firstResult.forEach(flat::putIfAbsent);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Failed to flatten metrics: {}", e.getMessage());
+        }
+        return flat;
+    }
+
+        /**
      * 根据任务的 testItem 分类到六维度中文名
      */
     private String categorizeToDimension(EvaluationTask task) {
