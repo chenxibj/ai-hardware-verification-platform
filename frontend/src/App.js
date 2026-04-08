@@ -25,6 +25,31 @@ function App() {
   const [nodeDetailId, setNodeDetailId] = useState(null);
   const [reportCompareIds, setReportCompareIds] = useState([]);
 
+  /* #171 parse URL query params for share links (?report=X, ?plan=X, ?chip=X) */
+  useEffect(() => {
+    if (isAuthenticated) {
+      const params = new URLSearchParams(window.location.search);
+      const reportId = params.get("report");
+      const planId = params.get("plan");
+      const chipId = params.get("chip");
+
+      if (reportId) {
+        setChipReportId(Number(reportId));
+        setCurrentPage("chip-report");
+        window.history.replaceState({}, "", window.location.pathname);
+      } else if (planId) {
+        setPlanMonitorId(Number(planId));
+        setCurrentPage("plan-monitor");
+        window.history.replaceState({}, "", window.location.pathname);
+      } else if (chipId) {
+        setChipProfileId(Number(chipId));
+        setCurrentPage("chip-profile");
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
+
   useEffect(() => {
     if (isAuthenticated) {
       api.get("/notifications/count").then(r => {
