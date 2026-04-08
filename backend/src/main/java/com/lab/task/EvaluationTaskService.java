@@ -109,7 +109,7 @@ public class EvaluationTaskService {
         EvaluationTask saved = taskRepository.save(task);
         log.info("Updated task {} status from {} to {}", taskId, oldStatus, status);
         // #229: Broadcast status change via WebSocket
-        try { webSocketHandler.broadcastTaskStatus(taskId, status.name()); } catch (Exception e) { log.warn("WS broadcast failed: {}", e.getMessage()); }
+        try { webSocketHandler.broadcastTaskStatus(taskId, task.getPlanId(), status.name()); } catch (Exception e) { log.warn("WS broadcast failed: {}", e.getMessage()); }
         
         // 任务完成/失败后立刻触发下一个任务分发（不等 60s 定时扫描）
         if (status == EvaluationTask.TaskStatus.COMPLETED || 

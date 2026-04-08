@@ -443,7 +443,7 @@ public class TaskLogController {
             wsMessage.put("data", data);
 
             String json = objectMapper.writeValueAsString(wsMessage);
-            webSocketHandler.broadcastToTask(logEntry.getTaskId(), json);
+            webSocketHandler.broadcastLog(logEntry.getTaskId(), logEntry.getPlanId(), json);
         } catch (Exception e) {
             log.warn("WebSocket broadcast failed for task {}: {}", logEntry.getTaskId(), e.getMessage());
         }

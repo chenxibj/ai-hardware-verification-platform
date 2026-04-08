@@ -123,4 +123,99 @@ public interface TaskLogRepository extends JpaRepository<TaskLog, Long> {
             @Param("taskId") Long taskId,
             @Param("level") String level,
             @Param("logType") String logType);
+
+    // ── #244: Plan-level log queries ──
+
+    @Query("SELECT t FROM TaskLog t WHERE t.planId = :planId " +
+           "AND (:afterId IS NULL OR t.id > :afterId) " +
+           "AND (:level IS NULL OR t.level = :level) " +
+           "AND (:logType IS NULL OR t.logType = :logType) " +
+           "ORDER BY t.id ASC")
+    List<TaskLog> findByPlanIdFiltered(
+            @Param("planId") Long planId,
+            @Param("afterId") Long afterId,
+            @Param("level") String level,
+            @Param("logType") String logType,
+            Pageable pageable);
+
+    @Query(value = "SELECT * FROM task_logs t WHERE t.plan_id = :planId " +
+           "AND (:afterId IS NULL OR t.id > :afterId) " +
+           "AND (:level IS NULL OR t.level = :level) " +
+           "AND (:logType IS NULL OR t.log_type = :logType) " +
+           "AND t.message ILIKE '%' || :keyword || '%' " +
+           "ORDER BY t.id ASC LIMIT :lim",
+           nativeQuery = true)
+    List<TaskLog> findByPlanIdFilteredWithKeyword(
+            @Param("planId") Long planId,
+            @Param("afterId") Long afterId,
+            @Param("level") String level,
+            @Param("logType") String logType,
+            @Param("keyword") String keyword,
+            @Param("lim") int lim);
+
+    long countByPlanId(Long planId);
+
+    @Query("SELECT tl.level, COUNT(tl) FROM TaskLog tl WHERE tl.planId = :planId GROUP BY tl.level")
+    List<Object[]> countByPlanIdGroupByLevel(@Param("planId") Long planId);
+
+    @Query("SELECT tl.logType, COUNT(tl) FROM TaskLog tl WHERE tl.planId = :planId GROUP BY tl.logType")
+    List<Object[]> countByPlanIdGroupByLogType(@Param("planId") Long planId);
+
+    // ── #246: Global log queries ──
+
+    @Query(value = "SELECT * FROM task_logs t WHERE 1=1 " +
+           "AND (:planId IS NULL OR t.plan_id = :planId) " +
+           "AND (:taskId IS NULL OR t.task_id = :taskId) " +
+           "AND (:level IS NULL OR t.level = :level) " +
+           "AND (:logType IS NULL OR t.log_type = :logType) " +
+           "AND (:keyword IS NULL OR t.message ILIKE '%' || :keyword || '%') " +
+           "AND (:startTime IS NULL OR t.created_at >= CAST(:startTime AS timestamp)) " +
+           "AND (:endTime IS NULL OR t.created_at <= CAST(:endTime AS timestamp)) " +
+           "ORDER BY t.id DESC " +
+           "LIMIT :lim OFFSET :off",
+           nativeQuery = true)
+    List<TaskLog> findGlobalFiltered(
+            @Param("planId") Long planId,
+            @Param("taskId") Long taskId,
+            @Param("level") String level,
+            @Param("logType") String logType,
+            @Param("keyword") String keyword,
+            @Param("startTime") String startTime,
+            @Param("endTime") String endTime,
+            @Param("lim") int lim,
+            @Param("off") int off);
+
+    @Query(value = "SELECT COUNT(*) FROM task_logs t WHERE 1=1 " +
+           "AND (:planId IS NULL OR t.plan_id = :planId) " +
+           "AND (:taskId IS NULL OR t.task_id = :taskId) " +
+           "AND (:level IS NULL OR t.level = :level) " +
+           "AND (:logType IS NULL OR t.log_type = :logType) " +
+           "AND (:keyword IS NULL OR t.message ILIKE '%' || :keyword || '%') " +
+           "AND (:startTime IS NULL OR t.created_at >= CAST(:startTime AS timestamp)) " +
+           "AND (:endTime IS NULL OR t.created_at <= CAST(:endTime AS timestamp))",
+           nativeQuery = true)
+    long countGlobalFiltered(
+            @Param("planId") Long planId,
+            @Param("taskId") Long taskId,
+            @Param("level") String level,
+            @Param("logType") String logType,
+            @Param("keyword") String keyword,
+            @Param("startTime") String startTime,
+            @Param("endTime") String endTime);
+
+    // Global stats
+    @Query("SELECT COUNT(tl) FROM TaskLog tl")
+    long countAll();
+
+    @Query("SELECT COUNT(tl) FROM TaskLog tl WHERE tl.level = :level")
+    long countByLevel(@Param("level") String level);
+
+    @Query("SELECT COUNT(tl) FROM TaskLog tl WHERE tl.createdAt >= :since")
+    long countSince(@Param("since") Instant since);
+
+    // Plan-level index
+    @Query(value = "CREATE INDEX IF NOT EXISTS idx_task_logs_plan_id ON task_logs(plan_id)", nativeQuery = true)
+    @Modifying
+    @Transactional
+    void createPlanIdIndex();
 }

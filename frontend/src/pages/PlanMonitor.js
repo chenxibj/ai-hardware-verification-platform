@@ -1,7 +1,7 @@
 /**
  * @file PlanMonitor.js
  * @description 执行监控页面 — 资源仪表盘 + 任务列表(含重试/跳过) + 实时日志
- * Issue: #134, #163, #229-#234
+ * Issue: #134, #163, #229-#234, #244, #245
  */
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
@@ -14,31 +14,33 @@ import {
   ClockCircleOutlined, ExclamationCircleOutlined,
   SyncOutlined, ExperimentOutlined, RobotOutlined,
   ForwardOutlined, DashboardOutlined, SearchOutlined,
-  DownloadOutlined, ArrowDownOutlined,
+  DownloadOutlined, ArrowDownOutlined, ExpandOutlined, CompressOutlined,
+  UpOutlined,
 } from "@ant-design/icons";
 import api from "../utils/api";
+import useLogWebSocket from "../hooks/useLogWebSocket";
 
 const { Title, Text } = Typography;
 
 /* ── 状态颜色映射 ── */
 const TASK_STATUS_MAP = {
-  COMPLETED: { color: "green",      text: "\u5DF2\u5B8C\u6210", icon: <CheckCircleOutlined /> },
-  RUNNING:   { color: "blue",       text: "\u8FD0\u884C\u4E2D", icon: <SyncOutlined spin /> },
-  PENDING:   { color: "default",    text: "\u6392\u961F\u4E2D", icon: <ClockCircleOutlined /> },
-  QUEUED:    { color: "default",    text: "\u6392\u961F\u4E2D", icon: <ClockCircleOutlined /> },
-  FAILED:    { color: "red",        text: "\u5931\u8D25",   icon: <ExclamationCircleOutlined /> },
-  PAUSED:    { color: "orange",     text: "\u5DF2\u6682\u505C", icon: <PauseCircleOutlined /> },
-  CANCELLED: { color: "default",    text: "\u5DF2\u53D6\u6D88", icon: <StopOutlined /> },
-  SKIPPED:   { color: "gold",       text: "\u5DF2\u8DF3\u8FC7", icon: <ForwardOutlined /> },
+  COMPLETED: { color: "green",      text: "已完成", icon: <CheckCircleOutlined /> },
+  RUNNING:   { color: "blue",       text: "运行中", icon: <SyncOutlined spin /> },
+  PENDING:   { color: "default",    text: "排队中", icon: <ClockCircleOutlined /> },
+  QUEUED:    { color: "default",    text: "排队中", icon: <ClockCircleOutlined /> },
+  FAILED:    { color: "red",        text: "失败",   icon: <ExclamationCircleOutlined /> },
+  PAUSED:    { color: "orange",     text: "已暂停", icon: <PauseCircleOutlined /> },
+  CANCELLED: { color: "default",    text: "已取消", icon: <StopOutlined /> },
+  SKIPPED:   { color: "gold",       text: "已跳过", icon: <ForwardOutlined /> },
 };
 
 const PLAN_STATUS_MAP = {
-  DRAFT:     { text: "\u8349\u7A3F",   badge: "default" },
-  RUNNING:   { text: "\u8FD0\u884C\u4E2D", badge: "processing" },
-  PAUSED:    { text: "\u5DF2\u6682\u505C", badge: "warning" },
-  COMPLETED: { text: "\u5DF2\u5B8C\u6210", badge: "success" },
-  FAILED:    { text: "\u5931\u8D25",   badge: "error" },
-  CANCELLED: { text: "\u5DF2\u53D6\u6D88", badge: "default" },
+  DRAFT:     { text: "草稿",   badge: "default" },
+  RUNNING:   { text: "运行中", badge: "processing" },
+  PAUSED:    { text: "已暂停", badge: "warning" },
+  COMPLETED: { text: "已完成", badge: "success" },
+  FAILED:    { text: "失败",   badge: "error" },
+  CANCELLED: { text: "已取消", badge: "default" },
 };
 
 const SUBJECT_ICONS = {
@@ -47,8 +49,8 @@ const SUBJECT_ICONS = {
 };
 
 const SUBJECT_LABELS = {
-  OPERATOR: "\u7B97\u5B50\u8BC4\u6D4B",
-  MODEL: "\u6A21\u578B\u63A8\u7406",
+  OPERATOR: "算子评测",
+  MODEL: "模型推理",
 };
 
 /* ── 计算耗时 ── */
@@ -93,45 +95,25 @@ function parseMetrics(metricsStr) {
   }
 }
 
-/**
- * 从 API 响应中提取日志数组
- * 兼容旧格式 (data = [...]) 和新格式 (data = { items: [...], hasMore, nextCursor })
- */
-function extractLogsFromResponse(respData) {
-  if (!respData) return [];
-  if (Array.isArray(respData)) return respData;
-  if (respData.items && Array.isArray(respData.items)) return respData.items;
-  return [];
-}
-
 export default function PlanMonitor({ planId, onBack }) {
   const [plan, setPlan] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [logs, setLogs] = useState([]);
-  const [logFilter, setLogFilter] = useState("all");
-  const [logSearch, setLogSearch] = useState("");
   const [logLevelFilter, setLogLevelFilter] = useState("ALL");
   const [logTypeFilter, setLogTypeFilter] = useState("ALL");
+  const [logSearch, setLogSearch] = useState("");
   const [taskStats, setTaskStats] = useState({ running: 0, completed: 0, failed: 0, total: 0 });
-  const [wsConnected, setWsConnected] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
   const [hasNewLogs, setHasNewLogs] = useState(false);
-  const prevTasksRef = useRef({});
+  const [expanded, setExpanded] = useState(false);
   const timerRef = useRef(null);
   const startTimeRef = useRef(Date.now());
-  const wsRef = useRef(null);
-  const reconnectTimerRef = useRef(null);
-  const reconnectDelayRef = useRef(1000);
-  const pollingTimerRef = useRef(null);
-  const lastLogIdRef = useRef(null);
   const logContainerRef = useRef(null);
-  const logsRef = useRef([]);
 
-  // Keep logsRef in sync
-  useEffect(() => {
-    logsRef.current = logs;
-  }, [logs]);
+  // #245: WebSocket-based real-time logs
+  const { logs, connectionState, loadOlderLogs, hasOlderLogs } = useLogWebSocket(planId, {
+    enabled: true,
+  });
 
   /* ── 获取任务信息 ── */
   const fetchPlan = useCallback(async () => {
@@ -149,9 +131,6 @@ export default function PlanMonitor({ planId, onBack }) {
       const { data: resp } = await api.get("/plans/" + planId + "/tasks");
       if (resp.code === 0) {
         const newTasks = resp.data || [];
-        const map = {};
-        newTasks.forEach((t) => { map[t.id] = t.status; });
-        prevTasksRef.current = map;
         setTasks(newTasks);
         setTaskStats(computeTaskStats(newTasks));
       }
@@ -159,158 +138,6 @@ export default function PlanMonitor({ planId, onBack }) {
       console.error("fetchTasks error", e);
     }
   }, [planId]);
-
-  /* ── 加载历史日志 (REST API) — 兼容游标分页 ── */
-  const fetchLogs = useCallback(async (afterId) => {
-    try {
-      let url = "/tasks/" + getActiveTaskId() + "/logs?limit=500";
-      if (afterId) url += "&afterId=" + afterId;
-      const { data: resp } = await api.get(url);
-      if (resp.code === 0 && resp.data) {
-        const logsArray = extractLogsFromResponse(resp.data);
-        if (logsArray.length > 0) {
-          const newLogs = logsArray.map(normalizeLog);
-          if (afterId) {
-            setLogs(prev => {
-              const merged = [...prev, ...newLogs];
-              return merged.slice(-1000);
-            });
-          } else {
-            setLogs(newLogs.slice(-1000));
-          }
-          const lastLog = logsArray[logsArray.length - 1];
-          if (lastLog && lastLog.id) {
-            lastLogIdRef.current = lastLog.id;
-          }
-        }
-      }
-    } catch (e) {
-      console.error("fetchLogs error", e);
-    }
-  }, []);
-
-  /* ── 获取当前活跃的任务 ID (用于日志) ── */
-  function getActiveTaskId() {
-    // If filtering a specific task, use that
-    if (logFilter !== "all") return logFilter;
-    // Otherwise use the first RUNNING task, or the first task
-    const running = tasks.find(t => t.status === "RUNNING");
-    if (running) return running.id;
-    return tasks.length > 0 ? tasks[0].id : null;
-  }
-
-  /* ── 规范化日志对象 ── */
-  function normalizeLog(raw) {
-    return {
-      id: raw.id,
-      taskId: raw.taskId,
-      level: raw.level || "INFO",
-      logType: raw.logType || raw.log_type || "TEXT",
-      message: raw.message || raw.content || "",
-      metrics: raw.metrics,
-      source: raw.source || "AGENT",
-      createdAt: raw.createdAt || raw.created_at,
-    };
-  }
-
-  /* ── WebSocket 连接管理 ── */
-  const connectWebSocket = useCallback((taskId) => {
-    if (!taskId) return;
-    // Close existing
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = window.location.host;
-    const wsUrl = protocol + "//" + host + "/ws/tasks?taskId=" + taskId;
-
-    try {
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        console.log("WebSocket connected for task", taskId);
-        setWsConnected(true);
-        reconnectDelayRef.current = 1000; // reset backoff
-        // Stop polling fallback if active
-        if (pollingTimerRef.current) {
-          clearInterval(pollingTimerRef.current);
-          pollingTimerRef.current = null;
-        }
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === "LOG_ENTRY" && msg.data) {
-            const logEntry = normalizeLog(msg.data);
-            if (logEntry.id) lastLogIdRef.current = logEntry.id;
-            setLogs(prev => [...prev, logEntry].slice(-1000));
-            if (!autoScroll) setHasNewLogs(true);
-          } else if (msg.type === "TASK_STATUS" && msg.data) {
-            // Refresh task list on status change
-            fetchTasks();
-            fetchPlan();
-          }
-        } catch (e) {
-          console.warn("WS message parse error", e);
-        }
-      };
-
-      ws.onclose = (event) => {
-        console.log("WebSocket closed", event.code, event.reason);
-        setWsConnected(false);
-        wsRef.current = null;
-        // Start fallback polling
-        startPollingFallback(taskId);
-        // Attempt reconnect with exponential backoff
-        const delay = reconnectDelayRef.current;
-        reconnectDelayRef.current = Math.min(delay * 2, 30000);
-        reconnectTimerRef.current = setTimeout(() => {
-          // Only reconnect if there are RUNNING tasks
-          const hasRunning = tasks.some(t => t.status === "RUNNING");
-          if (hasRunning) {
-            connectWebSocket(taskId);
-          }
-        }, delay);
-      };
-
-      ws.onerror = (err) => {
-        console.error("WebSocket error", err);
-        // onclose will handle reconnection
-      };
-    } catch (e) {
-      console.error("WebSocket creation failed", e);
-      startPollingFallback(taskId);
-    }
-  }, [autoScroll, tasks, fetchTasks, fetchPlan]);
-
-  /* ── HTTP 轮询 fallback — 兼容游标分页 ── */
-  const startPollingFallback = useCallback((taskId) => {
-    if (pollingTimerRef.current) return; // already polling
-    console.log("Starting HTTP polling fallback for task", taskId);
-    pollingTimerRef.current = setInterval(async () => {
-      try {
-        let url = "/tasks/" + taskId + "/logs?limit=50";
-        if (lastLogIdRef.current) url += "&afterId=" + lastLogIdRef.current;
-        const { data: resp } = await api.get(url);
-        if (resp.code === 0 && resp.data) {
-          const logsArray = extractLogsFromResponse(resp.data);
-          if (logsArray.length > 0) {
-            const newLogs = logsArray.map(normalizeLog);
-            const lastLog = logsArray[logsArray.length - 1];
-            if (lastLog && lastLog.id) lastLogIdRef.current = lastLog.id;
-            setLogs(prev => [...prev, ...newLogs].slice(-1000));
-            if (!autoScroll) setHasNewLogs(true);
-          }
-        }
-      } catch (e) {
-        console.warn("Polling error", e);
-      }
-    }, 2000);
-  }, [autoScroll]);
 
   /* ── 首次加载 + 轮询 ── */
   useEffect(() => {
@@ -323,34 +150,8 @@ export default function PlanMonitor({ planId, onBack }) {
     }, 10000);
     return () => {
       clearInterval(timerRef.current);
-      if (wsRef.current) wsRef.current.close();
-      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-      if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
     };
   }, [fetchPlan, fetchTasks]);
-
-  /* ── WebSocket / 日志加载逻辑 ── */
-  useEffect(() => {
-    if (tasks.length === 0) return;
-    const hasRunning = tasks.some(t => t.status === "RUNNING");
-    const taskId = getActiveTaskId();
-
-    if (hasRunning && taskId) {
-      // Load existing logs first, then connect WS
-      fetchLogs(null).then(() => {
-        connectWebSocket(taskId);
-      });
-    } else if (taskId) {
-      // Task not running — load full logs via REST
-      fetchLogs(null);
-      // Clean up WS
-      if (wsRef.current) wsRef.current.close();
-      if (pollingTimerRef.current) {
-        clearInterval(pollingTimerRef.current);
-        pollingTimerRef.current = null;
-      }
-    }
-  }, [tasks.length > 0 && tasks.some(t => t.status === "RUNNING"), logFilter]);
 
   /* ── 自动滚动 ── */
   useEffect(() => {
@@ -380,28 +181,28 @@ export default function PlanMonitor({ planId, onBack }) {
 
   /* ── 操作 ── */
   const PLAN_ACTION_CONFIRM = {
-    pause:  { title: "\u786E\u8BA4\u6682\u505C", content: "\u6682\u505C\u540E\u6B63\u5728\u8FD0\u884C\u7684\u4EFB\u52A1\u5C06\u7EE7\u7EED\u5B8C\u6210\uFF0C\u65B0\u4EFB\u52A1\u4E0D\u518D\u542F\u52A8\u3002", okText: "\u786E\u8BA4\u6682\u505C" },
-    resume: { title: "\u786E\u8BA4\u6062\u590D", content: "\u6062\u590D\u540E\u5C06\u7EE7\u7EED\u6267\u884C\u6392\u961F\u4E2D\u7684\u4EFB\u52A1\u3002", okText: "\u786E\u8BA4\u6062\u590D" },
-    start:  { title: "\u786E\u8BA4\u542F\u52A8", content: "\u542F\u52A8\u540E\u5C06\u5F00\u59CB\u6267\u884C\u8BC4\u6D4B\u4EFB\u52A1\u3002", okText: "\u786E\u8BA4\u542F\u52A8" },
-    cancel: { title: "\u786E\u8BA4\u53D6\u6D88", content: "\u53D6\u6D88\u540E\u8BE5\u4EFB\u52A1\u5C06\u505C\u6B62\u6267\u884C\uFF0C\u5DF2\u5B8C\u6210\u7684\u4EFB\u52A1\u7ED3\u679C\u4FDD\u7559\u3002\u786E\u8BA4\u53D6\u6D88\uFF1F", okText: "\u786E\u8BA4\u53D6\u6D88", okType: "danger" },
+    pause:  { title: "确认暂停", content: "暂停后正在运行的任务将继续完成，新任务不再启动。", okText: "确认暂停" },
+    resume: { title: "确认恢复", content: "恢复后将继续执行排队中的任务。", okText: "确认恢复" },
+    start:  { title: "确认启动", content: "启动后将开始执行评测任务。", okText: "确认启动" },
+    cancel: { title: "确认取消", content: "取消后该任务将停止执行，已完成的任务结果保留。确认取消？", okText: "确认取消", okType: "danger" },
   };
 
   const handlePlanAction = (action, label) => {
-    const confirmCfg = PLAN_ACTION_CONFIRM[action] || { title: "\u786E\u8BA4" + label, content: "\u786E\u5B9A\u8981" + label + "\u8BE5\u4EFB\u52A1\u5417\uFF1F", okText: "\u786E\u8BA4" };
+    const confirmCfg = PLAN_ACTION_CONFIRM[action] || { title: "确认" + label, content: "确定要" + label + "该任务吗？", okText: "确认" };
     Modal.confirm({
       title: confirmCfg.title,
       content: confirmCfg.content,
-      okText: confirmCfg.okText || "\u786E\u8BA4",
+      okText: confirmCfg.okText || "确认",
       okType: confirmCfg.okType || "primary",
-      cancelText: "\u8FD4\u56DE",
+      cancelText: "返回",
       onOk: async () => {
         try {
           await api.put("/plans/" + planId + "/" + action);
-          message.success(label + "\u6210\u529F");
+          message.success(label + "成功");
           fetchPlan();
           fetchTasks();
         } catch (e) {
-          message.error(label + "\u5931\u8D25: " + (e.response?.data?.message || e.message));
+          message.error(label + "失败: " + (e.response?.data?.message || e.message));
         }
       },
     });
@@ -409,17 +210,17 @@ export default function PlanMonitor({ planId, onBack }) {
 
   const handleRetryTask = (taskId) => {
     Modal.confirm({
-      title: "\u786E\u8BA4\u91CD\u8BD5",
-      content: "\u5C06\u91CD\u65B0\u6267\u884C\u8BE5\u5931\u8D25\u4EFB\u52A1\uFF0C\u662F\u5426\u7EE7\u7EED\uFF1F",
-      okText: "\u786E\u8BA4\u91CD\u8BD5",
-      cancelText: "\u8FD4\u56DE",
+      title: "确认重试",
+      content: "将重新执行该失败任务，是否继续？",
+      okText: "确认重试",
+      cancelText: "返回",
       onOk: async () => {
         try {
           await api.post("/tasks/" + taskId + "/retry");
-          message.success("\u91CD\u8BD5\u5DF2\u63D0\u4EA4");
+          message.success("重试已提交");
           fetchTasks();
         } catch (e) {
-          message.error("\u91CD\u8BD5\u5931\u8D25: " + (e.response?.data?.message || e.message));
+          message.error("重试失败: " + (e.response?.data?.message || e.message));
         }
       },
     });
@@ -428,21 +229,21 @@ export default function PlanMonitor({ planId, onBack }) {
   const handleRetryAllFailed = () => {
     const failedTasks = tasks.filter(t => t.status === "FAILED");
     if (failedTasks.length === 0) {
-      message.info("\u6CA1\u6709\u5931\u8D25\u7684\u4EFB\u52A1\u9700\u8981\u91CD\u8BD5");
+      message.info("没有失败的任务需要重试");
       return;
     }
     Modal.confirm({
-      title: "\u786E\u8BA4\u91CD\u8BD5\u5168\u90E8\u5931\u8D25\u4EFB\u52A1",
-      content: "\u5C06\u91CD\u8BD5 " + failedTasks.length + " \u4E2A\u5931\u8D25\u4EFB\u52A1\uFF0C\u662F\u5426\u7EE7\u7EED\uFF1F",
-      okText: "\u786E\u8BA4\u91CD\u8BD5",
-      cancelText: "\u8FD4\u56DE",
+      title: "确认重试全部失败任务",
+      content: "将重试 " + failedTasks.length + " 个失败任务，是否继续？",
+      okText: "确认重试",
+      cancelText: "返回",
       onOk: async () => {
         try {
           await Promise.all(failedTasks.map(t => api.post("/tasks/" + t.id + "/retry")));
-          message.success("\u5DF2\u63D0\u4EA4 " + failedTasks.length + " \u4E2A\u91CD\u8BD5\u4EFB\u52A1");
+          message.success("已提交 " + failedTasks.length + " 个重试任务");
           fetchTasks();
         } catch (e) {
-          message.error("\u90E8\u5206\u91CD\u8BD5\u5931\u8D25");
+          message.error("部分重试失败");
           fetchTasks();
         }
       },
@@ -452,11 +253,11 @@ export default function PlanMonitor({ planId, onBack }) {
   const handleSkipTask = async (taskId) => {
     try {
       await api.post("/tasks/" + taskId + "/skip");
-      message.success("\u5DF2\u8DF3\u8FC7\u8BE5\u4EFB\u52A1");
+      message.success("已跳过该任务");
       fetchTasks();
       fetchPlan();
     } catch (e) {
-      message.error("\u8DF3\u8FC7\u5931\u8D25: " + (e.response?.data?.message || e.message));
+      message.error("跳过失败: " + (e.response?.data?.message || e.message));
     }
   };
 
@@ -488,7 +289,7 @@ export default function PlanMonitor({ planId, onBack }) {
     ? remaining < 60 ? "~" + remaining + "s"
     : remaining < 3600 ? "~" + Math.floor(remaining / 60) + "m"
     : "~" + Math.floor(remaining / 3600) + "h " + Math.floor((remaining % 3600) / 60) + "m"
-    : plan?.status === "COMPLETED" ? "\u5DF2\u5B8C\u6210" : "-";
+    : plan?.status === "COMPLETED" ? "已完成" : "-";
 
   /* ── 排队序号计算 ── */
   const queuePosition = {};
@@ -507,22 +308,20 @@ export default function PlanMonitor({ planId, onBack }) {
     grouped[key].push(t);
   });
 
-  /* ── 日志过滤 (#234: 级别 + 类型 + 任务 + 关键字) ── */
+  /* ── #244: 日志过滤 (级别 + 类型 + 关键字) ── */
   const filteredLogs = logs.filter(log => {
-    if (logFilter !== "all" && String(log.taskId) !== String(logFilter)) return false;
     if (logLevelFilter !== "ALL" && (log.level || "INFO").toUpperCase() !== logLevelFilter) return false;
     if (logTypeFilter !== "ALL" && (log.logType || "TEXT").toUpperCase() !== logTypeFilter) return false;
     if (logSearch && !(log.message || "").toLowerCase().includes(logSearch.toLowerCase())) return false;
     return true;
   });
 
-  /* ── 渲染单条日志 (#233: 增强 METRIC 渲染) ── */
+  /* ── 渲染单条日志 ── */
   const renderLogEntry = (log, i) => {
     const level = (log.level || "INFO").toUpperCase();
     const logType = (log.logType || "TEXT").toUpperCase();
     const metrics = parseMetrics(log.metrics);
 
-    // Style by level
     let style = {
       padding: "4px 8px",
       lineHeight: 1.6,
@@ -551,16 +350,12 @@ export default function PlanMonitor({ planId, onBack }) {
       : logType === "SYSTEM" ? "#52c41a"
       : logType === "ERROR" ? "#ff4d4f" : "#999";
 
-    // Extract progress info for PROGRESS type
     let progressValue = null;
     if (logType === "PROGRESS") {
       const pctMatch = (log.message || "").match(/(\d+(?:\.\d+)?)%/);
       const fracMatch = (log.message || "").match(/(\d+)\s*\/\s*(\d+)/);
-      if (pctMatch) {
-        progressValue = parseFloat(pctMatch[1]);
-      } else if (fracMatch) {
-        progressValue = Math.round((parseInt(fracMatch[1]) / parseInt(fracMatch[2])) * 100);
-      }
+      if (pctMatch) progressValue = parseFloat(pctMatch[1]);
+      else if (fracMatch) progressValue = Math.round((parseInt(fracMatch[1]) / parseInt(fracMatch[2])) * 100);
     }
 
     return (
@@ -574,7 +369,6 @@ export default function PlanMonitor({ planId, onBack }) {
         )}
         <span>{log.message}</span>
 
-        {/* #233 P1-3: METRIC 性能指标增强渲染 */}
         {logType === "METRIC" && metrics && (
           <div style={{ marginTop: 4, display: "flex", gap: 8, flexWrap: "wrap", marginLeft: 16 }}>
             {metrics.latency_ms_p50 != null && <Tag color="blue">{"P50: " + metrics.latency_ms_p50 + "ms"}</Tag>}
@@ -584,7 +378,6 @@ export default function PlanMonitor({ planId, onBack }) {
             {metrics.cpu_util_percent != null && <Tag color="purple">{"CPU: " + metrics.cpu_util_percent + "%"}</Tag>}
             {metrics.memory_util_percent != null && <Tag color="cyan">{"MEM: " + metrics.memory_util_percent + "%"}</Tag>}
             {metrics.status && <Tag color={metrics.status === "PASS" ? "success" : "error"}>{metrics.status}</Tag>}
-            {/* Fallback: show all other numeric metrics */}
             {Object.entries(metrics)
               .filter(([k]) => !["latency_ms_p50", "latency_ms_p95", "latency_ms_p99", "throughput_qps",
                                   "cpu_util_percent", "memory_util_percent", "status"].includes(k))
@@ -597,7 +390,6 @@ export default function PlanMonitor({ planId, onBack }) {
           </div>
         )}
 
-        {/* PROGRESS: show progress bar */}
         {logType === "PROGRESS" && progressValue !== null && (
           <div style={{ marginTop: 4, marginLeft: 16, maxWidth: 300 }}>
             <Progress percent={progressValue} size="small" status="active" />
@@ -633,18 +425,14 @@ export default function PlanMonitor({ planId, onBack }) {
           </Text>
           {task.status === "FAILED" && (
             <Space size={4}>
-              <Tooltip title={task.errorMessage || "\u6267\u884C\u5931\u8D25\uFF0C\u65E0\u8BE6\u7EC6\u9519\u8BEF\u4FE1\u606F"}>
+              <Tooltip title={task.errorMessage || "执行失败，无详细错误信息"}>
                 <ExclamationCircleOutlined style={{ color: "#ff4d4f", cursor: "pointer" }} />
               </Tooltip>
-              <Popconfirm title={"\u786E\u5B9A\u91CD\u8BD5\u8BE5\u4EFB\u52A1\uFF1F"} onConfirm={() => handleRetryTask(task.id)}>
-                <Button type="link" size="small" icon={<ReloadOutlined />}>
-                  {"\u91CD\u8BD5"}
-                </Button>
+              <Popconfirm title="确定重试该任务？" onConfirm={() => handleRetryTask(task.id)}>
+                <Button type="link" size="small" icon={<ReloadOutlined />}>重试</Button>
               </Popconfirm>
-              <Popconfirm title={"\u786E\u5B9A\u8DF3\u8FC7\u8BE5\u4EFB\u52A1\uFF1F\u8DF3\u8FC7\u540E\u4E0D\u4F1A\u518D\u6267\u884C"} onConfirm={() => handleSkipTask(task.id)}>
-                <Button type="link" size="small" icon={<ForwardOutlined />} style={{ color: "#faad14" }}>
-                  {"\u8DF3\u8FC7"}
-                </Button>
+              <Popconfirm title="确定跳过该任务？跳过后不会再执行" onConfirm={() => handleSkipTask(task.id)}>
+                <Button type="link" size="small" icon={<ForwardOutlined />} style={{ color: "#faad14" }}>跳过</Button>
               </Popconfirm>
             </Space>
           )}
@@ -653,18 +441,31 @@ export default function PlanMonitor({ planId, onBack }) {
     );
   };
 
+  /* ── WebSocket 连接状态指示器 ── */
+  const ConnectionIndicator = () => {
+    if (connectionState === "connected") {
+      return <Tag color="green" style={{ fontSize: 11 }}>🟢 WebSocket 已连接</Tag>;
+    } else if (connectionState === "reconnecting") {
+      return <Tag color="orange" style={{ fontSize: 11 }}>🟡 重连中...</Tag>;
+    } else {
+      return <Tag color="red" style={{ fontSize: 11 }}>🔴 离线 (HTTP 轮询)</Tag>;
+    }
+  };
+
   if (loading) {
-    return <div style={{ textAlign: "center", padding: 80 }}><Spin size="large" tip={"\u52A0\u8F7D\u4E2D..."} /></div>;
+    return <div style={{ textAlign: "center", padding: 80 }}><Spin size="large" tip="加载中..." /></div>;
   }
 
   const planStatus = plan ? (PLAN_STATUS_MAP[plan.status] || { text: plan.status, badge: "default" }) : {};
+
+  const logPanelHeight = expanded ? "calc(100vh - 120px)" : 600;
 
   return (
     <div>
       {/* 返回按钮 */}
       <Button type="link" icon={<ArrowLeftOutlined />} onClick={onBack}
         style={{ marginBottom: 12, paddingLeft: 0 }}>
-        {"\u8FD4\u56DE\u4EFB\u52A1\u5217\u8868"}
+        返回任务列表
       </Button>
 
       {/* ── 顶部: 资源仪表盘 ── */}
@@ -672,30 +473,30 @@ export default function PlanMonitor({ planId, onBack }) {
         <Row gutter={24} align="middle">
           <Col xs={24} md={5} style={{ textAlign: "center" }}>
             <DashboardOutlined style={{ fontSize: 18, color: "#1890ff", marginBottom: 8 }} />
-            <div style={{ fontSize: 12, color: "#999", marginBottom: 4 }}>{"\u8FD0\u884C\u4E2D\u4EFB\u52A1"}</div>
+            <div style={{ fontSize: 12, color: "#999", marginBottom: 4 }}>运行中任务</div>
             <div style={{ fontSize: 28, fontWeight: "bold", color: taskStats.running > 0 ? "#1890ff" : "#999" }}>
               {taskStats.running}
             </div>
           </Col>
           <Col xs={24} md={5} style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 12, color: "#999", marginBottom: 4 }}>{"\u5DF2\u5B8C\u6210 / \u603B\u8BA1"}</div>
+            <div style={{ fontSize: 12, color: "#999", marginBottom: 4 }}>已完成 / 总计</div>
             <div style={{ fontSize: 28, fontWeight: "bold", color: "#52c41a" }}>
               {taskStats.completed}<span style={{ fontSize: 14, color: "#999", fontWeight: "normal" }}> / {taskStats.total}</span>
             </div>
           </Col>
           <Col xs={12} md={4}>
-            <Statistic title={"\u5DF2\u8017\u65F6"} value={elapsedStr} valueStyle={{ fontSize: 18 }} />
+            <Statistic title="已耗时" value={elapsedStr} valueStyle={{ fontSize: 18 }} />
           </Col>
           <Col xs={12} md={4}>
-            <Statistic title={"\u9884\u4F30\u5269\u4F59"} value={remainStr} valueStyle={{ fontSize: 18, color: "#1890ff" }} />
+            <Statistic title="预估剩余" value={remainStr} valueStyle={{ fontSize: 18, color: "#1890ff" }} />
           </Col>
           <Col xs={12} md={3}>
-            <Statistic title={"\u4EFB\u52A1\u8FDB\u5EA6"}
+            <Statistic title="任务进度"
               value={(statCounts.completed + statCounts.skipped) + "/" + (plan?.totalTasks || tasks.length)}
               valueStyle={{ fontSize: 18 }} />
           </Col>
           <Col xs={12} md={3}>
-            <Statistic title={"\u5931\u8D25/\u8DF3\u8FC7"}
+            <Statistic title="失败/跳过"
               value={statCounts.failed + "/" + statCounts.skipped}
               valueStyle={{ fontSize: 18, color: statCounts.failed > 0 ? "#ff4d4f" : "#999" }} />
           </Col>
@@ -709,35 +510,29 @@ export default function PlanMonitor({ planId, onBack }) {
             <Space size="middle">
               <Title level={4} style={{ margin: 0 }}>{plan?.name || "-"}</Title>
               <Badge status={planStatus.badge} text={planStatus.text} />
-              <Text type="secondary">{"\u82AF\u7247 #" + (plan?.chipId || "")}</Text>
+              <Text type="secondary">{"芯片 #" + (plan?.chipId || "")}</Text>
             </Space>
           </Col>
           <Col>
             <Space>
               {plan?.status === "RUNNING" && (
-                <Popconfirm title={"\u786E\u5B9A\u8981\u6682\u505C\u8BC4\u6D4B\uFF1F\u6682\u505C\u540E\u53EF\u6062\u590D\u7EE7\u7EED\u6267\u884C"} onConfirm={() => handlePlanAction("pause", "\u6682\u505C")}>
-                  <Button icon={<PauseCircleOutlined />}>
-                    {"\u6682\u505C"}
-                  </Button>
+                <Popconfirm title="确定要暂停评测？暂停后可恢复继续执行" onConfirm={() => handlePlanAction("pause", "暂停")}>
+                  <Button icon={<PauseCircleOutlined />}>暂停</Button>
                 </Popconfirm>
               )}
               {plan?.status === "PAUSED" && (
                 <Button type="primary" icon={<PlayCircleOutlined />}
-                  onClick={() => handlePlanAction("resume", "\u6062\u590D")}>
-                  {"\u6062\u590D"}
-                </Button>
+                  onClick={() => handlePlanAction("resume", "恢复")}>恢复</Button>
               )}
               {plan?.status === "DRAFT" && (
                 <Button type="primary" icon={<PlayCircleOutlined />}
-                  onClick={() => handlePlanAction("start", "\u542F\u52A8")}>
-                  {"\u542F\u52A8\u6267\u884C"}
-                </Button>
+                  onClick={() => handlePlanAction("start", "启动")}>启动执行</Button>
               )}
               {(plan?.status === "RUNNING" || plan?.status === "PAUSED") && (
                 <Button danger icon={<StopOutlined />}
-                  onClick={() => handlePlanAction("cancel", "\u53D6\u6D88")}>{"\u53D6\u6D88"}</Button>
+                  onClick={() => handlePlanAction("cancel", "取消")}>取消</Button>
               )}
-              <Tooltip title={"\u624B\u52A8\u5237\u65B0"}>
+              <Tooltip title="手动刷新">
                 <Button icon={<ReloadOutlined />} onClick={() => { fetchPlan(); fetchTasks(); }} />
               </Tooltip>
             </Space>
@@ -750,26 +545,26 @@ export default function PlanMonitor({ planId, onBack }) {
 
         <Row gutter={24}>
           <Col xs={12} sm={5}>
-            <Statistic title={"\u5DF2\u5B8C\u6210"} value={statCounts.completed}
+            <Statistic title="已完成" value={statCounts.completed}
               valueStyle={{ color: "#52c41a" }}
               prefix={<CheckCircleOutlined />} />
           </Col>
           <Col xs={12} sm={5}>
-            <Statistic title={"\u8FD0\u884C\u4E2D"} value={statCounts.running}
+            <Statistic title="运行中" value={statCounts.running}
               valueStyle={{ color: "#1890ff" }}
               prefix={<SyncOutlined />} />
           </Col>
           <Col xs={12} sm={5}>
-            <Statistic title={"\u6392\u961F\u4E2D"} value={statCounts.pending}
+            <Statistic title="排队中" value={statCounts.pending}
               prefix={<ClockCircleOutlined />} />
           </Col>
           <Col xs={12} sm={5}>
-            <Statistic title={"\u5931\u8D25"} value={statCounts.failed}
+            <Statistic title="失败" value={statCounts.failed}
               valueStyle={{ color: "#ff4d4f" }}
               prefix={<ExclamationCircleOutlined />} />
           </Col>
           <Col xs={12} sm={4}>
-            <Statistic title={"\u5DF2\u8DF3\u8FC7"} value={statCounts.skipped}
+            <Statistic title="已跳过" value={statCounts.skipped}
               valueStyle={{ color: "#faad14" }}
               prefix={<ForwardOutlined />} />
           </Col>
@@ -777,9 +572,9 @@ export default function PlanMonitor({ planId, onBack }) {
       </Card>
 
       {/* ── 中部：分组任务列表 ── */}
-      <Card title={"\u4EFB\u52A1\u5217\u8868"} style={{ marginBottom: 16 }}>
+      <Card title="任务列表" style={{ marginBottom: 16 }}>
         {Object.keys(grouped).length === 0 ? (
-          <Text type="secondary">{"\u6682\u65E0\u4EFB\u52A1"}</Text>
+          <Text type="secondary">暂无任务</Text>
         ) : (
           <Collapse defaultActiveKey={Object.keys(grouped)} ghost>
             {Object.entries(grouped).map(([subject, subjectTasks]) => {
@@ -794,11 +589,11 @@ export default function PlanMonitor({ planId, onBack }) {
                     <Space>
                       {SUBJECT_ICONS[subject] || <ExperimentOutlined />}
                       <Text strong>{SUBJECT_LABELS[subject] || subject}</Text>
-                      <Text type="secondary">{"(" + subjectTasks.length + " \u9879)"}</Text>
-                      {completed > 0 && <Tag color="green">{completed + " \u5B8C\u6210"}</Tag>}
-                      {running > 0 && <Tag color="blue">{running + " \u8FD0\u884C\u4E2D"}</Tag>}
-                      {failed > 0 && <Tag color="red">{failed + " \u5931\u8D25"}</Tag>}
-                      {skipped > 0 && <Tag color="gold">{skipped + " \u8DF3\u8FC7"}</Tag>}
+                      <Text type="secondary">{"(" + subjectTasks.length + " 项)"}</Text>
+                      {completed > 0 && <Tag color="green">{completed + " 完成"}</Tag>}
+                      {running > 0 && <Tag color="blue">{running + " 运行中"}</Tag>}
+                      {failed > 0 && <Tag color="red">{failed + " 失败"}</Tag>}
+                      {skipped > 0 && <Tag color="gold">{skipped + " 跳过"}</Tag>}
                     </Space>
                   }
                 >
@@ -810,65 +605,50 @@ export default function PlanMonitor({ planId, onBack }) {
         )}
       </Card>
 
-      {/* ── 底部：实时日志面板 (#229, #233, #234) ── */}
+      {/* ── 底部：实时日志面板 (#244, #245) ── */}
       <Card
         title={
           <Space>
-            <span>{"\u5B9E\u65F6\u6267\u884C\u65E5\u5FD7"}</span>
-            {wsConnected ? (
-              <Tag color="green" style={{ fontSize: 11 }}>{"WebSocket \u5DF2\u8FDE\u63A5"}</Tag>
-            ) : tasks.some(t => t.status === "RUNNING") ? (
-              <Tag color="orange" style={{ fontSize: 11 }}>{"HTTP \u8F6E\u8BE2\u4E2D"}</Tag>
-            ) : null}
+            <span>实时执行日志</span>
+            <ConnectionIndicator />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {logs.length} 条日志
+            </Text>
           </Space>
         }
         size="small"
         extra={
           <Space wrap>
-            {/* #234: 任务过滤 */}
-            <Select
-              value={logFilter}
-              onChange={(v) => { setLogFilter(v); setLogs([]); lastLogIdRef.current = null; }}
-              style={{ width: 160 }}
-              size="small"
-            >
-              <Select.Option value="all">{"\u5168\u90E8\u4EFB\u52A1"}</Select.Option>
-              {tasks.map(t => (
-                <Select.Option key={t.id} value={String(t.id)}>
-                  {t.testItem || t.name}
-                </Select.Option>
-              ))}
-            </Select>
-            {/* #234: 级别过滤 */}
+            {/* 级别过滤 */}
             <Select
               value={logLevelFilter}
               onChange={setLogLevelFilter}
               style={{ width: 100 }}
               size="small"
             >
-              <Select.Option value="ALL">{"\u5168\u90E8\u7EA7\u522B"}</Select.Option>
+              <Select.Option value="ALL">全部级别</Select.Option>
               <Select.Option value="INFO">INFO</Select.Option>
               <Select.Option value="WARN">WARN</Select.Option>
               <Select.Option value="ERROR">ERROR</Select.Option>
               <Select.Option value="DEBUG">DEBUG</Select.Option>
             </Select>
-            {/* #234: 类型过滤 */}
+            {/* 类型过滤 */}
             <Select
               value={logTypeFilter}
               onChange={setLogTypeFilter}
               style={{ width: 120 }}
               size="small"
             >
-              <Select.Option value="ALL">{"\u5168\u90E8\u7C7B\u578B"}</Select.Option>
-              <Select.Option value="TEXT">TEXT</Select.Option>
-              <Select.Option value="METRIC">METRIC</Select.Option>
-              <Select.Option value="PROGRESS">PROGRESS</Select.Option>
-              <Select.Option value="ERROR">ERROR</Select.Option>
+              <Select.Option value="ALL">全部类型</Select.Option>
               <Select.Option value="SYSTEM">SYSTEM</Select.Option>
+              <Select.Option value="EVAL">EVAL</Select.Option>
+              <Select.Option value="METRIC">METRIC</Select.Option>
+              <Select.Option value="TEXT">TEXT</Select.Option>
+              <Select.Option value="PROGRESS">PROGRESS</Select.Option>
             </Select>
-            {/* #234: 关键字搜索 */}
+            {/* 关键字搜索 */}
             <Input
-              placeholder={"\u641C\u7D22\u65E5\u5FD7..."}
+              placeholder="搜索日志..."
               prefix={<SearchOutlined />}
               value={logSearch}
               onChange={e => setLogSearch(e.target.value)}
@@ -876,9 +656,26 @@ export default function PlanMonitor({ planId, onBack }) {
               size="small"
               allowClear
             />
+            {/* 全屏切换 */}
+            <Tooltip title={expanded ? "退出全屏" : "全屏"}>
+              <Button
+                size="small"
+                icon={expanded ? <CompressOutlined /> : <ExpandOutlined />}
+                onClick={() => setExpanded(!expanded)}
+              />
+            </Tooltip>
           </Space>
         }
       >
+        {/* 加载更早日志按钮 */}
+        {hasOlderLogs && (
+          <div style={{ textAlign: "center", padding: "8px 0" }}>
+            <Button size="small" icon={<UpOutlined />} onClick={loadOlderLogs}>
+              加载更早日志
+            </Button>
+          </div>
+        )}
+
         <div
           ref={logContainerRef}
           onScroll={handleLogScroll}
@@ -886,7 +683,7 @@ export default function PlanMonitor({ planId, onBack }) {
             background: "#fafafa",
             border: "1px solid #e8e8e8",
             borderRadius: 6,
-            maxHeight: 400,
+            maxHeight: logPanelHeight,
             overflowY: "auto",
             minHeight: 80,
             position: "relative",
@@ -895,8 +692,8 @@ export default function PlanMonitor({ planId, onBack }) {
           {filteredLogs.length === 0 ? (
             <div style={{ padding: 20, textAlign: "center", color: "#999" }}>
               {tasks.some(t => t.status === "RUNNING")
-                ? "\u7B49\u5F85\u4EFB\u52A1\u6267\u884C\u65E5\u5FD7..."
-                : "\u6682\u65E0\u65E5\u5FD7\u8BB0\u5F55"}
+                ? "等待任务执行日志..."
+                : "暂无日志记录"}
             </div>
           ) : (
             filteredLogs.map(renderLogEntry)
@@ -911,7 +708,7 @@ export default function PlanMonitor({ planId, onBack }) {
               icon={<ArrowDownOutlined />}
               onClick={scrollToBottom}
             >
-              {"\u2193 \u6709\u65B0\u65E5\u5FD7"}
+              ↓ 有新日志
             </Button>
           </div>
         )}
