@@ -102,6 +102,10 @@ public class ChipService {
         if (update.getProfileData() != null) chip.setProfileData(update.getProfileData());
         if (update.getTags() != null) chip.setTags(update.getTags());
         if (update.getRemark() != null) chip.setRemark(update.getRemark());
+        // #240: peak performance fields
+        if (update.getPeakGflopsFp32() != null) chip.setPeakGflopsFp32(update.getPeakGflopsFp32());
+        if (update.getPeakGflopsFp16() != null) chip.setPeakGflopsFp16(update.getPeakGflopsFp16());
+        if (update.getPeakBandwidthGbps() != null) chip.setPeakBandwidthGbps(update.getPeakBandwidthGbps());
         Chip saved = chipRepository.save(chip);
         log.info("Updated chip: {}", saved.getChipNo());
         return saved;

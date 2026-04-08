@@ -262,6 +262,74 @@ public class EvaluationResultService {
                 }
             }
 
+            // #239: Extract accuracy metrics from accuracy_results array
+            Object accuracyResults = null;
+            if (resultObj instanceof Map) {
+                Map<String, Object> resultMap = (Map<String, Object>) resultObj;
+                Object evalResult = resultMap.get("eval_result");
+                if (evalResult instanceof Map) {
+                    accuracyResults = ((Map<String, Object>) evalResult).get("accuracy_results");
+                }
+            }
+            if (accuracyResults == null) {
+                accuracyResults = data.get("accuracy_results");
+            }
+            if (accuracyResults instanceof List) {
+                List<Map<String, Object>> accList = (List<Map<String, Object>>) accuracyResults;
+                metrics.put("accuracy_results", accList);
+
+                // Summarize accuracy
+                Map<String, Object> accSummary = new LinkedHashMap<>();
+                int accPass = 0, accWarn = 0, accFail = 0;
+                for (Map<String, Object> acc : accList) {
+                    String verdict = (String) acc.getOrDefault("verdict", "UNKNOWN");
+                    if ("PASS".equals(verdict)) accPass++;
+                    else if ("WARNING".equals(verdict)) accWarn++;
+                    else if ("FAIL".equals(verdict)) accFail++;
+                }
+                accSummary.put("total", accList.size());
+                accSummary.put("pass", accPass);
+                accSummary.put("warning", accWarn);
+                accSummary.put("fail", accFail);
+                if (!accList.isEmpty()) {
+                    accSummary.put("accuracy_pass_rate",
+                        Math.round(accPass * 1000.0 / accList.size()) / 10.0);
+                }
+                // Add avg cosine_similarity
+                double sumCos = 0;
+                int cosCnt = 0;
+                for (Map<String, Object> acc : accList) {
+                    Object cos = acc.get("cosine_similarity");
+                    if (cos instanceof Number) {
+                        sumCos += ((Number) cos).doubleValue();
+                        cosCnt++;
+                    }
+                }
+                if (cosCnt > 0) {
+                    accSummary.put("avg_cosine_similarity", Math.round(sumCos / cosCnt * 100000000.0) / 100000000.0);
+                }
+                metrics.put("accuracy", accSummary);
+            }
+
+            // #239: Extract dtypes_tested from summary
+            Object summaryObj = null;
+            if (resultObj instanceof Map) {
+                Map<String, Object> resultMap = (Map<String, Object>) resultObj;
+                Object evalResult = resultMap.get("eval_result");
+                if (evalResult instanceof Map) {
+                    summaryObj = ((Map<String, Object>) evalResult).get("summary");
+                }
+            }
+            if (summaryObj instanceof Map) {
+                Map<String, Object> sum = (Map<String, Object>) summaryObj;
+                Object dtypes = sum.get("dtypes_tested");
+                if (dtypes != null) metrics.put("dtypes_tested", dtypes);
+                Object avgGflops = sum.get("avg_gflops");
+                if (avgGflops != null) metrics.put("avg_gflops", avgGflops);
+                Object maxGflops = sum.get("max_gflops");
+                if (maxGflops != null) metrics.put("max_gflops", maxGflops);
+            }
+
             log.info("Extracted metrics keys: {}", metrics.keySet());
             return metrics;
         } catch (Exception e) {

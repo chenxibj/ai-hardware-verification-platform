@@ -107,7 +107,9 @@ def execute():
         }), 409
 
     try:
-        executor.execute_async(task_id, eval_type, merged_params)
+        # #240: Extract chip info from dispatch payload
+        chip_info = data.get("chip", {})
+        executor.execute_async(task_id, eval_type, merged_params, chip_info=chip_info)
         # #226: 返回 202 Accepted（异步执行，结果通过回调上报）
         return jsonify({
             "code": 0,

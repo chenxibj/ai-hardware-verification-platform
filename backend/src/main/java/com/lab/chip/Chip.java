@@ -72,6 +72,17 @@ public class Chip {
     @Column(name = "profile_data", columnDefinition = "jsonb")
     private String profileData;
 
+
+    /** #240: 峰值算力指标 */
+    @Column(name = "peak_gflops_fp32")
+    private Double peakGflopsFp32;
+
+    @Column(name = "peak_gflops_fp16")
+    private Double peakGflopsFp16;
+
+    @Column(name = "peak_bandwidth_gbps")
+    private Double peakBandwidthGbps;
+
     private String tags;
     private String remark;
 

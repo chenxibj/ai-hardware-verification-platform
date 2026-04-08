@@ -3,6 +3,8 @@ package com.lab.task;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lab.node.ComputeNode;
 import com.lab.node.ComputeNodeRepository;
+import com.lab.chip.Chip;
+import com.lab.chip.ChipRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,6 +27,7 @@ public class TaskDispatcher {
 
     private final EvaluationTaskRepository taskRepository;
     private final ComputeNodeRepository nodeRepository;
+    private final ChipRepository chipRepository;
     private final ObjectMapper objectMapper;
 
     @Value("${agent.token:ahvp-agent-secret-2026}")
@@ -34,9 +37,11 @@ public class TaskDispatcher {
 
     public TaskDispatcher(EvaluationTaskRepository taskRepository,
                           ComputeNodeRepository nodeRepository,
+                          ChipRepository chipRepository,
                           ObjectMapper objectMapper) {
         this.taskRepository = taskRepository;
         this.nodeRepository = nodeRepository;
+        this.chipRepository = chipRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -160,6 +165,23 @@ public class TaskDispatcher {
         }
         payload.put("params", params);
         payload.put("config", params);
+
+        // #240: Include chip peak_gflops for compute utilization calculation
+        if (task.getChipId() != null) {
+            try {
+                chipRepository.findById(task.getChipId()).ifPresent(chip -> {
+                    Map<String, Object> chipInfo = new LinkedHashMap<>();
+                    chipInfo.put("chipId", chip.getId());
+                    chipInfo.put("chipName", chip.getName());
+                    if (chip.getPeakGflopsFp32() != null) chipInfo.put("peak_gflops_fp32", chip.getPeakGflopsFp32());
+                    if (chip.getPeakGflopsFp16() != null) chipInfo.put("peak_gflops_fp16", chip.getPeakGflopsFp16());
+                    if (chip.getPeakBandwidthGbps() != null) chipInfo.put("peak_bandwidth_gbps", chip.getPeakBandwidthGbps());
+                    payload.put("chip", chipInfo);
+                });
+            } catch (Exception e) {
+                log.warn("Failed to load chip info for task {}: {}", task.getId(), e.getMessage());
+            }
+        }
 
         return payload;
     }

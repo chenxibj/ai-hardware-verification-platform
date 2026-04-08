@@ -84,12 +84,15 @@ class TaskExecutor:
             raise ValueError("未知的评测类型: {}".format(eval_type))
         return script_name
 
-    def execute_async(self, task_id, eval_type, params=None):
+    def execute_async(self, task_id, eval_type, params=None, chip_info=None):
         """异步执行评测任务"""
         with self._lock:
             if self.current_task is not None:
                 raise RuntimeError("节点正在执行任务 {}, 无法接受新任务".format(self.current_task))
             self.current_task = task_id
+
+        # #240: Store chip_info for the task
+        self._chip_info = chip_info or {}
 
         try:
             thread = threading.Thread(
@@ -238,6 +241,9 @@ class TaskExecutor:
             metrics_collector.start()
 
             script_params = dict(params)
+            # #240: Inject chip info for GFLOPS utilization calculation
+            if self._chip_info:
+                script_params["_chip_info"] = self._chip_info
             cmd = ["python3", script_path]
             if script_params:
                 cmd.append(json.dumps(script_params))
