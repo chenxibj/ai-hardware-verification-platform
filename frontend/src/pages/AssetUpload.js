@@ -14,11 +14,13 @@ import api from "../utils/api";
 import { UPLOAD_ASSET_TYPES } from "./assets/constants";
 import AssetTypeSelector from "./assets/AssetTypeSelector";
 import FileQueue from "./assets/FileQueue";
+import BatchUpload from "../components/BatchUpload";
 
 const { Dragger } = Upload;
 const MAX_CONCURRENT = 3;
 
 export default function AssetUpload({ onBack }) {
+  const [uploadMode, setUploadMode] = useState("single"); // "single" or "batch"
   const [assetType, setAssetType] = useState(null);
   const [fileQueue, setFileQueue] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -143,10 +145,23 @@ export default function AssetUpload({ onBack }) {
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={onBack}>返回列表</Button>
-        <span style={{ fontSize: 18, fontWeight: 600 }}><CloudUploadOutlined /> 上传数字资产</span>
+      <div style={{ marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <Button icon={<ArrowLeftOutlined />} onClick={onBack}>返回列表</Button>
+          <span style={{ fontSize: 18, fontWeight: 600 }}><CloudUploadOutlined /> 上传数字资产</span>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Button type={uploadMode === "single" ? "primary" : "default"}
+            onClick={() => setUploadMode("single")}>单文件/多文件上传</Button>
+          <Button type={uploadMode === "batch" ? "primary" : "default"}
+            onClick={() => setUploadMode("batch")}>📦 压缩包批量上传</Button>
+        </div>
       </div>
+
+      {uploadMode === "batch" ? (
+        <BatchUpload onDone={onBack} />
+      ) : (
+      <div>
 
       <Steps current={currentStep} style={{ marginBottom: 24 }}
         items={[{ title: "选择类型" }, { title: "添加文件 & 填写信息" }, { title: "上传" }]} />
@@ -215,6 +230,8 @@ export default function AssetUpload({ onBack }) {
             </Button>
           </Card>
         </>
+      )}
+      </div>
       )}
     </div>
   );

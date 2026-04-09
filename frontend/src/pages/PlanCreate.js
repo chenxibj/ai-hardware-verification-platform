@@ -22,6 +22,7 @@ import {
 } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import api from "../utils/api";
+import AssetSelector, { savePlanAssets } from "../components/AssetSelector";
 
 const { Title, Text, Paragraph } = Typography;
 const { Panel } = Collapse;
@@ -193,6 +194,10 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
   const [selectedPoolId, setSelectedPoolId] = useState(null);
   const [selectionMode, setSelectionMode] = useState("pool"); // "pool" or "manual"
 
+  /* #268: 关联资产 */
+  const [assetSelectorVisible, setAssetSelectorVisible] = useState(false);
+  const [selectedAssetIds, setSelectedAssetIds] = useState([]);
+
   /* Step 6: 提交 */
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -352,6 +357,10 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
       const { data: resp } = await api.post("/plans", payload);
       if (resp.code === 0) {
         message.success(runNow ? "任务已创建并启动执行" : "任务已保存为草稿");
+        // #268: 保存 plan-asset 关联
+        if (selectedAssetIds.length > 0 && resp.data?.id) {
+          savePlanAssets(resp.data.id, selectedAssetIds);
+        }
         setCreatedPlanId(resp.data?.id || resp.data);
         setSubmitted(true);
       } else {
@@ -369,6 +378,7 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
     { title: "评测项", icon: <UnorderedListOutlined /> },
     { title: "配置参数", icon: <SettingOutlined /> },
     { title: "选择节点", icon: <ClusterOutlined /> },
+    { title: "关联资产", icon: <DatabaseOutlined /> },
     { title: "确认提交", icon: <CheckCircleOutlined /> },
   ];
 
@@ -379,6 +389,7 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
     if (current === 2) return true; // 评测项自动填充
     if (current === 3) return selectedPreset !== null;
     if (current === 4) return true; // 资源池或节点可选
+    if (current === 5) return true; // 关联资产可选
     return true;
   };
 
@@ -1067,7 +1078,46 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
    * ══════════════════════════════════════════════════════════ */
   const selectedNodes = nodes.filter(n => selectedNodeIds.includes(n.id));
 
+  /* ══════════════════════════════════════════════════════════
+   *  Step 6: 关联资产 (#268)
+   * ══════════════════════════════════════════════════════════ */
   const renderStep6 = () => (
+    <div>
+      <Alert message="可选: 关联数字资产到此评测任务，方便后续追溯" type="info" showIcon style={{ marginBottom: 16 }} />
+      <Card>
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <Space>
+            <Button type="primary" icon={<DatabaseOutlined />}
+              onClick={() => setAssetSelectorVisible(true)}>
+              选择资产
+            </Button>
+            <Text type="secondary">已选 {selectedAssetIds.length} 个资产</Text>
+          </Space>
+          {selectedAssetIds.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              {selectedAssetIds.map((id) => (
+                <Tag key={id} closable color="blue"
+                  onClose={() => setSelectedAssetIds((p) => p.filter((x) => x !== id))}>
+                  资产 #{id}
+                </Tag>
+              ))}
+            </div>
+          )}
+        </Space>
+      </Card>
+      <AssetSelector
+        visible={assetSelectorVisible}
+        onClose={() => setAssetSelectorVisible(false)}
+        selectedIds={selectedAssetIds}
+        onSelect={setSelectedAssetIds}
+      />
+    </div>
+  );
+
+  /* ══════════════════════════════════════════════════════════
+   *  Step 7: 确认提交
+   * ══════════════════════════════════════════════════════════ */
+  const renderStep7 = () => (
     <div>
       <Card style={{ marginBottom: 16 }}>
         <Title level={5}>📋 评测任务摘要</Title>
@@ -1161,7 +1211,7 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
     </div>
   );
 
-  const stepContent = [renderStep1, renderStep2, renderStep3, renderStep4, renderStep5, renderStep6];
+  const stepContent = [renderStep1, renderStep2, renderStep3, renderStep4, renderStep5, renderStep6, renderStep7];
 
   return (
     <div>
@@ -1182,7 +1232,7 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
           <div>
             <Space>
               <Text type="secondary" style={{ fontSize: 12 }}>步骤 {current + 1} / {steps.length}</Text>
-              {current < 5 && (
+              {current < 6 && (
                 <Button type="primary" disabled={!canNext()} onClick={() => setCurrent(current + 1)}>
                   下一步 <ArrowRightOutlined />
                 </Button>

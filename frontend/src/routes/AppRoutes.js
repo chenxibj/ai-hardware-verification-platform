@@ -51,6 +51,10 @@ import UserPreferences from "../pages/UserPreferences";
 import SchedulerConfig from "../pages/SchedulerConfig";
 import Billing from "../pages/Billing";
 import ReportList from "../pages/ReportList";
+import AssetValidation from "../pages/AssetValidation";
+import AssetRecycleBin from "../pages/AssetRecycleBin";
+import AssetBackup from "../pages/AssetBackup";
+import StorageMonitor from "../pages/StorageMonitor";
 
 const PAGE_COMPONENTS = {
   dashboard: Dashboard,
@@ -88,6 +92,10 @@ const PAGE_COMPONENTS = {
   "scheduler-config": SchedulerConfig,
   billing: Billing,
   "community-resources": CommunityResources,
+  "asset-validation": AssetValidation,
+  "asset-recycle-bin": AssetRecycleBin,
+  "asset-backup": AssetBackup,
+  "storage-monitor": StorageMonitor,
 };
 
 export default function AppRoutes({

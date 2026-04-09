@@ -15,6 +15,7 @@ import {
   SyncOutlined, RocketOutlined
 } from "@ant-design/icons";
 import RadarChart from "../components/RadarChart";
+import HotAssetsCard from "./assets/HotAssetsCard";
 import api from "../utils/api";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
@@ -297,6 +298,13 @@ export default function Dashboard() {
               </Empty>
             )}
           </Card>
+        </Col>
+      </Row>
+
+      {/* 热门资产 TOP5 #267 */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+        <Col xs={24} lg={12}>
+          <HotAssetsCard />
         </Col>
       </Row>
 

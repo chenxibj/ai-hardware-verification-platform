@@ -16,6 +16,7 @@ import {
   ProfileOutlined, SwapOutlined, PlusCircleOutlined,
   AuditOutlined, DollarOutlined, StarOutlined,
   SafetyCertificateOutlined, ApiOutlined, RocketOutlined, BellOutlined as BellFilledOutlined,
+  RestOutlined, CloudUploadOutlined, PieChartOutlined, CheckCircleOutlined,
 } from "@ant-design/icons";
 import useAuthStore from "../stores/useAuthStore";
 import useNotificationStore from "../stores/useNotificationStore";
@@ -36,6 +37,10 @@ const PAGE_TITLES = {
   "resource-pools": "资源池管理",
   "resource-monitor": "资源监控",
   assets: "数字资产",
+  "asset-validation": "资产校验",
+  "asset-recycle-bin": "回收站",
+  "asset-backup": "备份管理",
+  "storage-monitor": "存储监控",
   leaderboard: "评测榜单",
   "community-resources": "资源下载",
   users: "用户管理",
@@ -71,6 +76,10 @@ const BREADCRUMB_MAP = {
   "resource-pools": [{ title: "资源管理" }, { title: "资源池" }],
   "resource-monitor": [{ title: "资源管理" }, { title: "资源监控" }],
   assets: [{ title: "数字资产" }],
+  "asset-validation": [{ title: "数字资产" }, { title: "资产校验" }],
+  "asset-recycle-bin": [{ title: "数字资产" }, { title: "回收站" }],
+  "asset-backup": [{ title: "数字资产" }, { title: "备份管理" }],
+  "storage-monitor": [{ title: "数字资产" }, { title: "存储监控" }],
   alerts: [{ title: "资源管理" }, { title: "告警管理" }],
   "alert-config": [{ title: "资源管理" }, { title: "告警配置" }],
   "self-healing": [{ title: "资源管理" }, { title: "自愈策略" }],
@@ -88,7 +97,9 @@ const PARENT_MAP = {
   "template-list": "eval-center", plans: "eval-center",
   "plans-create": "eval-center", "report-list": "eval-center",
   nodes: "resource-mgmt", "resource-pools": "resource-mgmt",
-  "resource-monitor": "resource-mgmt", assets: null,
+  "resource-monitor": "resource-mgmt", assets: "asset-mgmt",
+  "asset-validation": "asset-mgmt", "asset-recycle-bin": "asset-mgmt",
+  "asset-backup": "asset-mgmt", "storage-monitor": "asset-mgmt",
   alerts: "resource-mgmt",
   "alert-config": "resource-mgmt",
   "self-healing": "resource-mgmt",
@@ -120,9 +131,16 @@ const menuItems = [
     ],
   },
   {
-    key: "assets",
+    key: "asset-mgmt",
     icon: <DatabaseOutlined />,
     label: "数字资产",
+    children: [
+      { key: "assets", icon: <DatabaseOutlined />, label: "资产列表" },
+      { key: "asset-validation", icon: <CheckCircleOutlined />, label: "资产校验" },
+      { key: "asset-recycle-bin", icon: <RestOutlined />, label: "回收站" },
+      { key: "asset-backup", icon: <CloudUploadOutlined />, label: "备份管理" },
+      { key: "storage-monitor", icon: <PieChartOutlined />, label: "存储监控" },
+    ],
   },
   {
     key: "resource-mgmt",

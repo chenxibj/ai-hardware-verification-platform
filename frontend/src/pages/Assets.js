@@ -1,14 +1,14 @@
 /**
  * @file Assets.js
- * @description 数字资产管理主页面 — 统计卡片 + 分类导航 + 列表 + 详情/上传子页面路由
- * @feat #259 #260 #261 #263 #264
+ * @description 数字资产管理主页面 — 统计卡片 + 搜索 + 分类导航 + 列表
+ * @feat #259 #260 #261 #263 #264 #265 #267
  */
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  Card, Space, Button, Input, Select, Row, Col, Spin, Badge, Modal, message,
+  Card, Space, Button, Row, Col, Spin, Badge, Modal, message,
 } from "antd";
 import {
-  SearchOutlined, CloudUploadOutlined, PlusOutlined,
+  CloudUploadOutlined, PlusOutlined,
   ReloadOutlined, UnorderedListOutlined,
 } from "@ant-design/icons";
 import api from "../utils/api";
@@ -16,9 +16,12 @@ import { ASSET_TYPES } from "./assets/constants";
 import AssetStatsBar from "./assets/AssetStatsBar";
 import AssetCategoryNav from "./assets/AssetCategoryNav";
 import AssetTable from "./assets/AssetTable";
+import AssetSearchBar from "./assets/AssetSearchBar";
 import QuickUploadModal from "./assets/QuickUploadModal";
 import AssetDetail from "./AssetDetail";
 import AssetUpload from "./AssetUpload";
+import { filterAssets } from "./assets/searchFilter";
+import { getAssetReuseCounts, initDemoReuseData } from "./assets/reuseStore";
 
 const SUB_PAGE = { LIST: "list", DETAIL: "detail", UPLOAD: "upload" };
 
@@ -26,9 +29,9 @@ export default function Assets() {
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState({});
-  const [searchText, setSearchText] = useState("");
-  const [typeFilter, setTypeFilter] = useState(null);
+  const [searchFilters, setSearchFilters] = useState({});
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [reuseCounts, setReuseCounts] = useState({});
 
   const [subPage, setSubPage] = useState(SUB_PAGE.LIST);
   const [selectedAssetId, setSelectedAssetId] = useState(null);
@@ -38,44 +41,69 @@ export default function Assets() {
     setLoading(true);
     try {
       const params = { size: 100 };
-      if (searchText) params.keyword = searchText;
-      // 分类导航和下拉筛选都影响 assetType 参数
-      const effectiveType = typeFilter || (selectedCategory !== "all" ? selectedCategory.split(":")[0] : null);
+      const effectiveType = selectedCategory !== "all"
+        ? selectedCategory.split(":")[0] : null;
       if (effectiveType) params.assetType = effectiveType;
       const res = await api.get("/assets", { params });
-      if (res.data.code === 0) setAssets(res.data.data || []);
-    } catch (e) {
+      if (res.data.code === 0) {
+        const data = res.data.data || [];
+        setAssets(data);
+        initDemoReuseData(data);
+        setReuseCounts(getAssetReuseCounts());
+      }
+    } catch {
       message.error("获取资产列表失败");
     } finally {
       setLoading(false);
     }
-  }, [searchText, typeFilter, selectedCategory]);
+  }, [selectedCategory]);
 
   const fetchStats = useCallback(async () => {
     try {
       const res = await api.get("/assets/stats");
       if (res.data.code === 0) setStats(res.data.data || {});
-    } catch (e) {
+    } catch {
       /* stats 失败不阻塞页面 */
     }
   }, []);
 
   useEffect(() => { fetchAssets(); fetchStats(); }, [fetchAssets, fetchStats]);
 
+  /** 前端多条件 AND 过滤 */
+  const filteredAssets = useMemo(
+    () => filterAssets(assets, searchFilters),
+    [assets, searchFilters]
+  );
+
+  const handleSearch = (values) => {
+    setSearchFilters(values || {});
+  };
+
+  const handleSearchReset = () => {
+    setSearchFilters({});
+  };
+
+  /** 下载资产：优先服务端文件，无文件时跳转源地址 */
   const handleDownload = async (record) => {
-    if (!record.filePath) { message.warning("该资产没有关联文件"); return; }
-    try {
-      const res = await api.get(`/assets/${record.id}/download`, { responseType: "blob" });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", record.name || "download");
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (e) {
-      message.error("下载失败");
+    if (record.filePath) {
+      try {
+        const res = await api.get(`/assets/${record.id}/download`, { responseType: "blob" });
+        const url = window.URL.createObjectURL(new Blob([res.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", record.name || "download");
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+      } catch {
+        message.error("下载失败");
+      }
+    } else if (record.sourceUrl) {
+      window.open(record.sourceUrl, "_blank");
+      message.info("已跳转到资源源地址");
+    } else {
+      message.warning("该资产暂无可下载文件");
     }
   };
 
@@ -99,13 +127,13 @@ export default function Assets() {
 
   const handleCategoryClick = (category) => {
     setSelectedCategory(category);
-    setTypeFilter(null);
   };
 
   const refreshAll = () => {
-    setSearchText("");
-    setTypeFilter(null);
+    setSearchFilters({});
     setSelectedCategory("all");
+    fetchAssets();
+    fetchStats();
   };
 
   const backToList = () => {
@@ -115,7 +143,6 @@ export default function Assets() {
     fetchStats();
   };
 
-  // --- 子页面路由 ---
   if (subPage === SUB_PAGE.DETAIL && selectedAssetId) {
     return <AssetDetail assetId={selectedAssetId} onBack={backToList} />;
   }
@@ -123,13 +150,12 @@ export default function Assets() {
     return <AssetUpload onBack={backToList} onSuccess={backToList} />;
   }
 
-  const typeOptions = Object.entries(ASSET_TYPES)
-    .filter(([k]) => ["MODEL", "DATASET", "OPERATOR", "SCRIPT", "TEMPLATE"].includes(k))
-    .map(([k, v]) => ({ value: k, label: v.label }));
-
   return (
     <Spin spinning={loading && assets.length === 0}>
       <AssetStatsBar stats={stats} onCategoryClick={handleCategoryClick} />
+
+      {/* 多条件搜索栏 #265 */}
+      <AssetSearchBar onSearch={handleSearch} onReset={handleSearchReset} />
 
       <Row gutter={16}>
         <Col xs={24} md={5} lg={4}>
@@ -149,18 +175,12 @@ export default function Assets() {
                   {selectedCategory === "all" ? "全部资产" :
                     (ASSET_TYPES[selectedCategory.split(":")[0]]?.label || selectedCategory)}
                 </span>
-                <Badge count={assets.length} style={{ backgroundColor: "#1890ff" }} size="small" />
+                <Badge count={filteredAssets.length} style={{ backgroundColor: "#1890ff" }} size="small" />
               </Space>
             }
             extra={
               <Space wrap>
-                <Input placeholder="搜索资产..." prefix={<SearchOutlined />}
-                  value={searchText} onChange={(e) => setSearchText(e.target.value)}
-                  onPressEnter={fetchAssets} style={{ width: 180 }} allowClear />
-                <Select placeholder="类型" allowClear style={{ width: 110 }}
-                  value={typeFilter} onChange={setTypeFilter} options={typeOptions} />
-                <Button icon={<SearchOutlined />} onClick={fetchAssets}>查询</Button>
-                <Button icon={<ReloadOutlined />} onClick={refreshAll} />
+                <Button icon={<ReloadOutlined />} onClick={refreshAll}>刷新</Button>
                 <Button type="primary" icon={<CloudUploadOutlined />}
                   onClick={() => setSubPage(SUB_PAGE.UPLOAD)}>上传资产</Button>
                 <Button icon={<PlusOutlined />}
@@ -169,8 +189,9 @@ export default function Assets() {
             }
           >
             <AssetTable
-              assets={assets}
+              assets={filteredAssets}
               loading={loading}
+              reuseCounts={reuseCounts}
               onView={(id) => { setSelectedAssetId(id); setSubPage(SUB_PAGE.DETAIL); }}
               onDownload={handleDownload}
               onDelete={handleDelete}

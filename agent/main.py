@@ -12,6 +12,7 @@ import yaml
 import threading
 import time
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 
 # 加载配置
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
@@ -43,6 +44,11 @@ from collector import get_system_metrics
 
 # Flask 应用
 app = Flask(__name__)
+CORS(app, resources={r"/api/k8s/*": {"origins": "*"}})
+
+# 注册 K8s API 路由
+from k8s_routes import k8s_bp
+app.register_blueprint(k8s_bp)
 
 # 全局状态
 node_info = None
