@@ -154,7 +154,7 @@ export default function TemplateList() {
         const hasBuiltinModels = values.models && values.models.length > 0;
         const hasHfModels = values.huggingfaceModels && values.huggingfaceModels.length > 0;
         if (!hasBuiltinModels && !hasHfModels) {
-          message.warning("\u8bf7\u81f3\u5c11\u9009\u62e9\u4e00\u4e2a\u8bc4\u6d4b\u6a21\u578b\uff08\u5185\u7f6e\u6216 HuggingFace\uff09");
+          message.warning("请至少选择一个评测模型（内置或 HuggingFace）");
           return;
         }
       }
@@ -306,8 +306,8 @@ export default function TemplateList() {
                       <Space size={4} wrap>
                         {layer && <Tag color={LAYER_COLORS[layer]} style={{ fontSize: 11 }}>{LAYER_LABELS[layer]}</Tag>}
                         <Tag color="blue" style={{ fontSize: 11 }}>{EVAL_TYPES[t.evalType] || t.evalType}</Tag>
-                        {itemCount > 0 && <Tag color="cyan" style={{ fontSize: 11 }}>{itemCount} \u8bc4\u6d4b\u9879</Tag>}
-                        {hfModels.length > 0 && <Tag color="blue" style={{ fontSize: 11 }}>🤗 {hfModels.length} HF\u6a21\u578b</Tag>}
+                        {itemCount > 0 && <Tag color="cyan" style={{ fontSize: 11 }}>{itemCount} 评测项</Tag>}
+                        {hfModels.length > 0 && <Tag color="blue" style={{ fontSize: 11 }}>🤗 {hfModels.length} HF模型</Tag>}
                       </Space>
                     </Space>
                   </Card>
@@ -458,16 +458,16 @@ export default function TemplateList() {
           </Form.Item>
           )}
           {(!editLayer || editLayer === 'MODEL' || editLayer === 'CHIP' || editLayer === 'COMPARISON') && (
-          <Form.Item name="models" label="\u5185\u7f6e\u6a21\u578b\uff08\u591a\u9009\uff09">
+          <Form.Item name="models" label="内置模型（多选）">
             <Select mode="multiple" placeholder="选择要评测的模型" allowClear
               options={AVAILABLE_MODELS.map(m => ({ value: m, label: m }))}
               maxTagCount={5} />
           </Form.Item>
           )}
           {(!editLayer || editLayer === 'MODEL' || editLayer === 'CHIP' || editLayer === 'COMPARISON') && (
-          <Form.Item name="huggingfaceModels" label="🤗 HuggingFace \u6a21\u578b"
-            extra="\u8f93\u5165 HuggingFace \u6a21\u578b ID \u540e\u56de\u8f66\u6dfb\u52a0\uff0c\u4e5f\u53ef\u4ece\u5efa\u8bae\u5217\u8868\u9009\u62e9">
-            <Select mode="tags" placeholder="\u8f93\u5165\u6a21\u578b ID\uff0c\u5982 bert-base-uncased\u3001meta-llama/Llama-2-7b-hf"
+          <Form.Item name="huggingfaceModels" label="🤗 HuggingFace 模型"
+            extra="输入 HuggingFace 模型 ID 后回车添加，也可从建议列表选择">
+            <Select mode="tags" placeholder="输入模型 ID，如 bert-base-uncased、meta-llama/Llama-2-7b-hf"
               allowClear tokenSeparators={[","]}
               maxTagCount={10}
               options={SUGGESTED_HF_MODELS.map(m => ({ value: m, label: "🤗 " + m }))}

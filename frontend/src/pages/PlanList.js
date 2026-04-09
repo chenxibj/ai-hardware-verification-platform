@@ -83,11 +83,11 @@ export default function PlanList({ onOpenMonitor, onCreatePlan, onViewReport }) 
   const handleClone = async (planId) => {
     try {
       await api.post("/plans/" + planId + "/copy");
-      message.success("\u514B\u9686\u6210\u529F");
+      message.success("克隆成功");
       fetchPlans();
       fetchStats();
     } catch (e) {
-      message.error("\u514B\u9686\u5931\u8D25: " + (e.response?.data?.message || e.message));
+      message.error("克隆失败: " + (e.response?.data?.message || e.message));
     }
   };
 
@@ -268,7 +268,7 @@ export default function PlanList({ onOpenMonitor, onCreatePlan, onViewReport }) 
       render: (v) => v ? new Date(v).toLocaleString("zh-CN") : "-",
     },
     {
-      title: "\u64CD\u4F5C", key: "actions", width: 280, fixed: "right",
+      title: "操作", key: "actions", width: 280, fixed: "right",
       render: (_, record) => {
         const st = record.status;
         return (

@@ -4,6 +4,7 @@
  * @feat #134, #136, #137, #161, #162, #164, #166, #167
  * @feat #172, #174, #175, #176
  * @feat #177, #178, #181 评测榜单+社区资源+导航重组
+ * @fix 报告对比: 接线 reportCompareIds → ReportCompare / Comparisons
  */
 import React from "react";
 import Dashboard from "../pages/Dashboard";
@@ -31,7 +32,8 @@ import ClusterList from "../pages/ClusterList";
 import K8sAgent from "../pages/K8sAgent";
 import Leaderboard from "../pages/Leaderboard";
 import CommunityResources from "../pages/CommunityResources";
-// 保留旧页面路由
+import ReportCompare from "../pages/ReportCompare";
+/* 保留旧页面路由 */
 import Tasks from "../pages/Tasks";
 import Templates from "../pages/Templates";
 import Workflows from "../pages/Workflows";
@@ -49,7 +51,6 @@ import UserPreferences from "../pages/UserPreferences";
 import SchedulerConfig from "../pages/SchedulerConfig";
 import Billing from "../pages/Billing";
 import ReportList from "../pages/ReportList";
-
 
 const PAGE_COMPONENTS = {
   dashboard: Dashboard,
@@ -77,7 +78,7 @@ const PAGE_COMPONENTS = {
   "resource-monitor": ResourceMonitor,
   "alert-config": AlertConfig,
   "self-healing": SelfHealing,
-  "clusters": ClusterList,
+  clusters: ClusterList,
   "k8s-agent": K8sAgent,
   settings: Settings,
   forum: Forum,
@@ -91,11 +92,27 @@ const PAGE_COMPONENTS = {
 
 export default function AppRoutes({
   currentPage, planMonitorId, chipReportId, chipProfileId, compareChipIds,
-  taskResultId, nodeDetailId,
+  taskResultId, nodeDetailId, reportCompareIds,
   setCurrentPage, setPlanMonitorId, setChipReportId, setChipProfileId,
-  setCompareChipIds, setTaskResultId, setNodeDetailId,
+  setCompareChipIds, setTaskResultId, setNodeDetailId, setReportCompareIds,
 }) {
-  // 对比页
+  /**
+   * 从 ReportList / Comparisons 发起的报告对比
+   * 当 reportCompareIds 有 ≥2 个 ID 时，直接展示 ReportCompare 结果页
+   */
+  if (reportCompareIds && reportCompareIds.length >= 2) {
+    return (
+      <ReportCompare
+        reportIds={reportCompareIds}
+        onBack={() => {
+          setReportCompareIds([]);
+          setCurrentPage("report-list");
+        }}
+      />
+    );
+  }
+
+  /* 芯片对比页 */
   if (currentPage === "chip-compare") {
     return (
       <ChipCompare
@@ -105,7 +122,7 @@ export default function AppRoutes({
     );
   }
 
-  // 芯片档案页
+  /* 芯片档案页 */
   if (chipProfileId) {
     return (
       <ChipProfile
@@ -113,12 +130,12 @@ export default function AppRoutes({
         onBack={() => { setChipProfileId(null); setCurrentPage("chips"); }}
         onOpenMonitor={(planId) => { setChipProfileId(null); setPlanMonitorId(planId); }}
         onOpenReport={(planId) => { setChipProfileId(null); setChipReportId(planId); }}
-        onCreatePlan={(chipId) => { setChipProfileId(null); setCurrentPage("plans-create"); }}
+        onCreatePlan={() => { setChipProfileId(null); setCurrentPage("plans-create"); }}
       />
     );
   }
 
-  // 任务结果页 (#164)
+  /* 任务结果页 (#164) */
   if (taskResultId) {
     return (
       <TaskResult
@@ -128,7 +145,7 @@ export default function AppRoutes({
     );
   }
 
-  // 芯片报告页
+  /* 芯片报告页 */
   if (chipReportId) {
     return (
       <ChipReport
@@ -138,7 +155,7 @@ export default function AppRoutes({
     );
   }
 
-  // 计划监控页
+  /* 计划监控页 */
   if (planMonitorId) {
     return (
       <PlanMonitor
@@ -148,7 +165,7 @@ export default function AppRoutes({
     );
   }
 
-  // 节点详情页 (#167, #176)
+  /* 节点详情页 (#167, #176) */
   if (nodeDetailId) {
     return (
       <NodeDetail
@@ -158,29 +175,39 @@ export default function AppRoutes({
     );
   }
 
-  // alerts page (standalone, not in node detail)
+  /* alerts page */
   if (currentPage === "alerts") {
     return <AlertPanel />;
   }
 
-  // 评测榜单 (#177) — pass onViewReport to open report detail
+  /* 评测榜单 (#177) */
   if (currentPage === "leaderboard") {
     return <Leaderboard onViewReport={(reportId) => setChipReportId(reportId)} />;
   }
 
-  // 评测报告列表 (#169)
+  /**
+   * 评测报告列表 (#169)
+   * onCompareReports: 用户勾选多报告后点击"对比分析"，设置 reportCompareIds 触发对比页
+   */
   if (currentPage === "report-list") {
     return (
       <ReportList
+        onViewReport={(reportId) => setChipReportId(reportId)}
+        onCompareReports={(ids) => setReportCompareIds(ids)}
+      />
+    );
+  }
+
+  if (currentPage === "plans") {
+    return (
+      <PlanList
+        onOpenMonitor={(id) => setPlanMonitorId(id)}
+        onCreatePlan={() => setCurrentPage("plans-create")}
         onViewReport={(reportId) => setChipReportId(reportId)}
       />
     );
   }
 
-  const PageComponent = PAGE_COMPONENTS[currentPage] || Dashboard;
-  if (currentPage === "plans") {
-    return <PlanList onOpenMonitor={(id) => setPlanMonitorId(id)} onCreatePlan={() => setCurrentPage("plans-create")} onViewReport={(reportId) => setChipReportId(reportId)} />;
-  }
   if (currentPage === "chips") {
     return (
       <ChipList
@@ -189,6 +216,7 @@ export default function AppRoutes({
       />
     );
   }
+
   if (currentPage === "nodes") {
     return (
       <NodeList
@@ -196,6 +224,7 @@ export default function AppRoutes({
       />
     );
   }
+
   if (currentPage === "plans-create") {
     return (
       <PlanCreate
@@ -204,5 +233,7 @@ export default function AppRoutes({
       />
     );
   }
+
+  const PageComponent = PAGE_COMPONENTS[currentPage] || Dashboard;
   return <PageComponent />;
 }

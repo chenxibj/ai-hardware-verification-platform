@@ -29,7 +29,7 @@ export default function DebugPanel({ taskId, visible, onClose }) {
       const { data: resp } = await api.get("/tasks/" + taskId + "/debug-info");
       if (resp.code === 0) setDebugInfo(resp.data);
     } catch (e) {
-      message.error("\u83B7\u53D6\u8C03\u8BD5\u4FE1\u606F\u5931\u8D25");
+      message.error("获取调试信息失败");
     } finally {
       setLoading(false);
     }
@@ -40,9 +40,9 @@ export default function DebugPanel({ taskId, visible, onClose }) {
     setLogLoading(true);
     try {
       const { data: resp } = await api.get("/tasks/" + taskId + "/debug-log");
-      if (resp.code === 0) setDebugLog(resp.data?.content || "\u6682\u65E0\u65E5\u5FD7");
+      if (resp.code === 0) setDebugLog(resp.data?.content || "暂无日志");
     } catch (e) {
-      setDebugLog("\u83B7\u53D6\u65E5\u5FD7\u5931\u8D25");
+      setDebugLog("获取日志失败");
     } finally {
       setLogLoading(false);
     }
@@ -61,7 +61,7 @@ export default function DebugPanel({ taskId, visible, onClose }) {
 
   const handleCopyLog = () => {
     navigator.clipboard.writeText(debugLog).then(() => {
-      message.success("\u65E5\u5FD7\u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F");
+      message.success("日志已复制到剪贴板");
     });
   };
 
@@ -73,7 +73,7 @@ export default function DebugPanel({ taskId, visible, onClose }) {
     <Modal
       title={
         <Space>
-          <span>{"\u4EFB\u52A1\u8C03\u8BD5"}</span>
+          <span>{"任务调试"}</span>
           {debugInfo?.taskNo && <Tag>{debugInfo.taskNo}</Tag>}
         </Space>
       }
@@ -86,12 +86,12 @@ export default function DebugPanel({ taskId, visible, onClose }) {
       <Spin spinning={loading}>
         {debugInfo ? (
           <Descriptions bordered size="small" column={2} style={{ marginBottom: 16 }}>
-            <Descriptions.Item label={"\u4EFB\u52A1\u72B6\u6001"}>
+            <Descriptions.Item label={"任务状态"}>
               <Tag color={debugInfo.taskStatus === "FAILED" ? "error" : "default"}>
                 {debugInfo.taskStatus}
               </Tag>
             </Descriptions.Item>
-            <Descriptions.Item label={"\u6267\u884C\u8282\u70B9"}>
+            <Descriptions.Item label={"执行节点"}>
               {debugInfo.nodeName ? (
                 <Space>
                   <NodeIndexOutlined />
@@ -104,10 +104,10 @@ export default function DebugPanel({ taskId, visible, onClose }) {
                   )}
                 </Space>
               ) : (
-                <Text type="secondary">{"\u672A\u5206\u914D\u8282\u70B9"}</Text>
+                <Text type="secondary">{"未分配节点"}</Text>
               )}
             </Descriptions.Item>
-            <Descriptions.Item label={"\u5F00\u59CB\u65F6\u95F4"}>
+            <Descriptions.Item label={"开始时间"}>
               {debugInfo.startedAt ? (
                 <Space>
                   <ClockCircleOutlined />
@@ -115,29 +115,29 @@ export default function DebugPanel({ taskId, visible, onClose }) {
                 </Space>
               ) : "-"}
             </Descriptions.Item>
-            <Descriptions.Item label={"\u7ED3\u675F\u65F6\u95F4"}>
+            <Descriptions.Item label={"结束时间"}>
               {debugInfo.completedAt ? dayjs(debugInfo.completedAt).format("YYYY-MM-DD HH:mm:ss") : "-"}
             </Descriptions.Item>
-            <Descriptions.Item label={"\u65E5\u5FD7\u8DEF\u5F84"} span={2}>
+            <Descriptions.Item label={"日志路径"} span={2}>
               <Paragraph copyable style={{ margin: 0 }}>{debugInfo.logPath}</Paragraph>
             </Descriptions.Item>
           </Descriptions>
         ) : !loading && (
-          <Empty description={"\u65E0\u8C03\u8BD5\u4FE1\u606F"} />
+          <Empty description={"无调试信息"} />
         )}
       </Spin>
 
       <div style={{ marginTop: 8 }}>
         <Space style={{ marginBottom: 8 }}>
-          <Text strong>{"\u6267\u884C\u65E5\u5FD7"}</Text>
+          <Text strong>{"执行日志"}</Text>
           <Button size="small" icon={<ReloadOutlined />} onClick={fetchDebugLog}>
-            {"\u5237\u65B0"}
+            {"刷新"}
           </Button>
           <Button size="small" icon={<CopyOutlined />} onClick={handleCopyLog}>
-            {"\u590D\u5236"}
+            {"复制"}
           </Button>
           <Button size="small" icon={<DownloadOutlined />} onClick={handleDownload}>
-            {"\u4E0B\u8F7D"}
+            {"下载"}
           </Button>
         </Space>
         <Spin spinning={logLoading}>
@@ -154,7 +154,7 @@ export default function DebugPanel({ taskId, visible, onClose }) {
             whiteSpace: "pre-wrap",
             wordBreak: "break-all",
           }}>
-            {debugLog || "\u6682\u65E0\u65E5\u5FD7\u8BB0\u5F55"}
+            {debugLog || "暂无日志记录"}
           </pre>
         </Spin>
       </div>
