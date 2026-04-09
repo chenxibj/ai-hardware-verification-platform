@@ -48,6 +48,7 @@ export default function Assets() {
       if (res.data.code === 0) {
         const data = res.data.data || [];
         setAssets(data);
+        computeStats(data);
         initDemoReuseData(data);
         setReuseCounts(getAssetReuseCounts());
       }
@@ -58,16 +59,18 @@ export default function Assets() {
     }
   }, [selectedCategory]);
 
-  const fetchStats = useCallback(async () => {
-    try {
-      const res = await api.get("/assets/stats");
-      if (res.data.code === 0) setStats(res.data.data || {});
-    } catch {
-      /* stats 失败不阻塞页面 */
-    }
+  /** #281 #282: 从资产列表本地计算统计（后端无 /assets/stats 端点） */
+  const computeStats = useCallback((assetList) => {
+    const counts = { total: assetList.length };
+    const typeKeys = { MODEL: "models", DATASET: "datasets", SCRIPT: "scripts",
+      CONFIG: "configs", LOG: "logs", BENCHMARK: "benchmarks" };
+    Object.entries(typeKeys).forEach(([type, key]) => {
+      counts[key] = assetList.filter(a => a.assetType === type).length;
+    });
+    setStats(counts);
   }, []);
 
-  useEffect(() => { fetchAssets(); fetchStats(); }, [fetchAssets, fetchStats]);
+  useEffect(() => { fetchAssets(); }, [fetchAssets]);
 
   /** 前端多条件 AND 过滤 */
   const filteredAssets = useMemo(
@@ -117,7 +120,6 @@ export default function Assets() {
           await api.delete(`/assets/${id}`);
           message.success("已删除");
           fetchAssets();
-          fetchStats();
         } catch (e) {
           message.error(e.response?.data?.message || "删除失败");
         }
@@ -133,14 +135,12 @@ export default function Assets() {
     setSearchFilters({});
     setSelectedCategory("all");
     fetchAssets();
-    fetchStats();
   };
 
   const backToList = () => {
     setSubPage(SUB_PAGE.LIST);
     setSelectedAssetId(null);
     fetchAssets();
-    fetchStats();
   };
 
   if (subPage === SUB_PAGE.DETAIL && selectedAssetId) {
@@ -203,7 +203,7 @@ export default function Assets() {
       <QuickUploadModal
         visible={quickUploadVisible}
         onClose={() => setQuickUploadVisible(false)}
-        onSuccess={() => { setQuickUploadVisible(false); fetchAssets(); fetchStats(); }}
+        onSuccess={() => { setQuickUploadVisible(false); fetchAssets(); }}
       />
     </Spin>
   );

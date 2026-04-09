@@ -111,18 +111,27 @@ export default function AssetList() {
     });
   };
 
+  /** #284: 优先服务端文件，无文件时跳转源地址 */
   const handleDownload = async (record) => {
-    if (!record.filePath) { message.warning("该资产没有关联文件"); return; }
-    try {
-      const res = await api.get(`/assets/${record.id}/download`, { responseType: "blob" });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", record.name || "download");
-      document.body.appendChild(link); link.click(); link.remove();
-      window.URL.revokeObjectURL(url);
-      message.success("下载成功");
-    } catch (e) { message.error("下载失败"); }
+    if (record.filePath) {
+      try {
+        const res = await api.get(`/assets/${record.id}/download`, { responseType: "blob" });
+        const url = window.URL.createObjectURL(new Blob([res.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", record.name || "download");
+        document.body.appendChild(link); link.click(); link.remove();
+        window.URL.revokeObjectURL(url);
+        message.success("下载成功");
+      } catch (e) {
+        message.error(e.displayMessage || "下载失败");
+      }
+    } else if (record.sourceUrl) {
+      window.open(record.sourceUrl, "_blank");
+      message.info("已跳转到资源源地址");
+    } else {
+      message.warning("该资产暂无可下载文件");
+    }
   };
 
   const columns = [

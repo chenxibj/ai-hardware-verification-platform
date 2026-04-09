@@ -47,42 +47,81 @@ export default function Dashboard() {
   const fetchData = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
     try {
-      const [statsRes, activitiesRes, plansRes] = await Promise.allSettled([
-        api.get("/dashboard/stats"),
-        api.get("/dashboard/recent-activities"),
-        api.get("/dashboard/recent-plans"),
+      /* #286: 从已有 API 聚合 Dashboard 数据 */
+      const [tasksRes, nodesRes, reportsRes, assetsRes, plansRes, chipsRes] = await Promise.allSettled([
+        api.get("/tasks", { params: { size: 5, page: 0 } }),
+        api.get("/nodes", { params: { size: 100 } }),
+        api.get("/chip-reports", { params: { size: 5, page: 0 } }),
+        api.get("/assets", { params: { size: 100 } }),
+        api.get("/plans", { params: { size: 5, page: 0, sortBy: "createdAt", sortDir: "desc" } }),
+        api.get("/chips", { params: { size: 100 } }),
       ]);
 
-      if (statsRes.status === "fulfilled" && statsRes.value.data.code === 0) {
-        setStats(statsRes.value.data.data);
-      }
-      if (activitiesRes.status === "fulfilled" && activitiesRes.value.data.code === 0) {
-        setActivities(activitiesRes.value.data.data || []);
-      }
-      if (plansRes.status === "fulfilled" && plansRes.value.data.code === 0) {
-        setRecentPlans(plansRes.value.data.data || []);
-      }
+      // Build stats from aggregated data
+      const chips = chipsRes.status === "fulfilled" && chipsRes.value.data?.code === 0
+        ? (chipsRes.value.data.data || []) : [];
+      const plans = plansRes.status === "fulfilled" && plansRes.value.data?.code === 0
+        ? (plansRes.value.data.data || []) : [];
+      const nodes = nodesRes.status === "fulfilled" && nodesRes.value.data?.code === 0
+        ? (nodesRes.value.data.data || []) : [];
+      const assets = assetsRes.status === "fulfilled" && assetsRes.value.data?.code === 0
+        ? (assetsRes.value.data.data || []) : [];
+      const tasks = tasksRes.status === "fulfilled" && tasksRes.value.data?.code === 0
+        ? (tasksRes.value.data.data || []) : [];
+      const reports = reportsRes.status === "fulfilled" && reportsRes.value.data?.code === 0
+        ? (reportsRes.value.data.data || []) : [];
 
-      // Try to fetch radar data from chips with capability profiles
-      try {
-        const chipsRes = await api.get("/chips", { params: { size: 4, sortBy: "updatedAt", sortDir: "desc" } });
-        if (chipsRes.data.code === 0) {
-          const chips = (chipsRes.data.data || []).filter(c => c.capabilityProfile);
-          const datasets = chips.map((chip, idx) => {
-            let profile = chip.capabilityProfile;
-            if (typeof profile === "string") {
-              try { profile = JSON.parse(profile); } catch { profile = null; }
-            }
-            if (!profile || !Array.isArray(profile)) return null;
-            return {
-              name: chip.name,
-              data: profile,
-              color: ["#1890ff", "#52c41a", "#fa8c16", "#f5222d"][idx % 4],
-            };
-          }).filter(Boolean);
-          setRadarChips(datasets);
-        }
-      } catch { /* radar is optional */ }
+      setStats({
+        chipCount: chips.length,
+        runningPlans: plans.filter(p => p.status === "RUNNING").length,
+        completedPlans: plans.filter(p => p.status === "COMPLETED").length,
+        unevaluatedChips: chips.filter(c => !c.capabilityProfile).length,
+        nodeCount: nodes.length,
+        onlineNodes: nodes.filter(n => n.status === "ONLINE" || n.status === "ACTIVE").length,
+        assetCount: assets.length,
+        reportCount: reports.length,
+      });
+
+      // Build activity feed from tasks + reports
+      const activityItems = [];
+      tasks.forEach(t => {
+        activityItems.push({
+          user: t.createdBy ? "用户#" + t.createdBy : "系统",
+          action: t.status === "COMPLETED" ? "完成了任务" : t.status === "FAILED" ? "任务失败" : "创建了任务",
+          target: t.name || t.taskNo || "",
+          time: t.updatedAt || t.createdAt,
+        });
+      });
+      reports.forEach(r => {
+        activityItems.push({
+          user: "系统",
+          action: "生成了报告",
+          target: r.reportNo || "",
+          time: r.createdAt,
+        });
+      });
+      activityItems.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
+      setActivities(activityItems.slice(0, 8));
+
+      setRecentPlans(plans.slice(0, 5));
+
+      // Radar data from chips
+      const radarSets = chips
+        .filter(c => c.capabilityProfile)
+        .slice(0, 4)
+        .map((chip, idx) => {
+          let profile = chip.capabilityProfile;
+          if (typeof profile === "string") {
+            try { profile = JSON.parse(profile); } catch { profile = null; }
+          }
+          if (!profile || !Array.isArray(profile)) return null;
+          return {
+            name: chip.name,
+            data: profile,
+            color: ["#1890ff", "#52c41a", "#fa8c16", "#f5222d"][idx % 4],
+          };
+        }).filter(Boolean);
+      setRadarChips(radarSets);
     } catch { /* handled by individual requests */ }
     if (showLoading) setLoading(false);
   }, []);
@@ -93,7 +132,7 @@ export default function Dashboard() {
     return () => clearInterval(timer);
   }, [fetchData]);
 
-  // Stat cards config
+  // Stat cards config — #286 聚合已有 API 数据
   const statCards = stats ? [
     {
       title: "芯片总数",
@@ -117,11 +156,25 @@ export default function Dashboard() {
       bg: "linear-gradient(135deg, #f6ffed 0%, #d9f7be 100%)",
     },
     {
-      title: "待评测",
-      value: stats.unevaluatedChips,
+      title: "节点在线",
+      value: stats.onlineNodes != null ? stats.onlineNodes + " / " + (stats.nodeCount || 0) : 0,
       icon: <ClockCircleOutlined />,
+      color: "#13c2c2",
+      bg: "linear-gradient(135deg, #e6fffb 0%, #b5f5ec 100%)",
+    },
+    {
+      title: "数字资产",
+      value: stats.assetCount,
+      icon: <AppstoreOutlined />,
       color: "#fa8c16",
       bg: "linear-gradient(135deg, #fff7e6 0%, #ffe7ba 100%)",
+    },
+    {
+      title: "评测报告",
+      value: stats.reportCount,
+      icon: <BarChartOutlined />,
+      color: "#eb2f96",
+      bg: "linear-gradient(135deg, #fff0f6 0%, #ffd6e7 100%)",
     },
   ] : [];
 
@@ -137,8 +190,8 @@ export default function Dashboard() {
     return (
       <div>
         <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-          {[1, 2, 3, 4].map(i => (
-            <Col xs={24} sm={12} md={6} key={i}>
+          {[1, 2, 3, 4, 5, 6].map(i => (
+            <Col xs={24} sm={12} md={4} key={i}>
               <Card><Skeleton active paragraph={{ rows: 1 }} /></Card>
             </Col>
           ))}
@@ -156,7 +209,7 @@ export default function Dashboard() {
       {/* 统计卡片 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         {statCards.map((card, idx) => (
-          <Col xs={24} sm={12} md={6} key={idx}>
+          <Col xs={24} sm={12} md={4} key={idx}>
             <Card
               hoverable
               style={{ background: card.bg, borderColor: "transparent" }}

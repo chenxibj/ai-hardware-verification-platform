@@ -14,12 +14,22 @@ api.interceptors.response.use(
     if (err.response) {
       const status = err.response.status;
       const url = err.config?.url || "";
+      const data = err.response.data;
+      // Attach readable error message for consumers
+      const backendMsg = data?.message || data?.error || "";
+      err.displayMessage = backendMsg
+        ? `[${status}] ${backendMsg}`
+        : `请求失败 (HTTP ${status})`;
       // Don't auto-logout for auth endpoints (login/register failures return 401/400)
       const isAuthEndpoint = url.includes("/auth/login") || url.includes("/auth/register");
       if (!isAuthEndpoint && (status === 401 || (status === 403 && localStorage.getItem("token")))) {
         const { default: useAuthStore } = await import("../stores/useAuthStore");
         useAuthStore.getState().logout();
       }
+    } else if (err.request) {
+      err.displayMessage = "网络异常，请检查连接";
+    } else {
+      err.displayMessage = err.message || "未知错误";
     }
     return Promise.reject(err);
   }

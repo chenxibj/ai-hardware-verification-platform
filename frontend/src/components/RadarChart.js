@@ -52,17 +52,32 @@ export default function RadarChart({
     const isMulti = datasets && datasets.length > 0;
 
     // 辅助函数：将 data 数组转换为按 DIMENSIONS 顺序排列的 values
+    // #288: 构建 dataStatus map 以区分 0 分 vs 未评测
     const toValues = (items) => {
       const scoreMap = {};
+      const statusMap = {};
       (items || []).forEach((item) => {
         if (item && item.dimension != null) {
           scoreMap[item.dimension] = item.score || 0;
+          statusMap[item.dimension] = item.dataStatus || "VALID";
         }
       });
       return DIMENSIONS.map((dim) => {
         const score = scoreMap[dim];
+        const status = statusMap[dim];
+        // #288: 当 score=0 且 dataStatus=NO_DATA 时，用 null 标记未评测
+        if ((score == null || score === 0) && status === "NO_DATA") return null;
         return score != null ? Math.round(score * 10) / 10 : 0;
       });
+    };
+
+    // #288: 构建 dataStatus 快速查表
+    const buildStatusMap = (items) => {
+      const m = {};
+      (items || []).forEach((item) => {
+        if (item && item.dimension != null) m[item.dimension] = item.dataStatus || "VALID";
+      });
+      return m;
     };
 
     let seriesData;
@@ -84,7 +99,7 @@ export default function RadarChart({
           label: showLabel
             ? {
                 show: true,
-                formatter: (params) => (params.value > 0 ? params.value : ""),
+                formatter: (params) => (params.value == null ? "未评测" : params.value > 0 ? params.value : ""),
                 fontSize: 11,
                 color: "#666",
               }
@@ -107,7 +122,7 @@ export default function RadarChart({
           label: showLabel
             ? {
                 show: true,
-                formatter: (params) => (params.value > 0 ? params.value : ""),
+                formatter: (params) => (params.value == null ? "未评测" : params.value > 0 ? params.value : ""),
                 fontSize: 11,
                 color: "#666",
               }
@@ -123,13 +138,19 @@ export default function RadarChart({
           if (!params.value) return "";
           let html = `<div style="font-weight:bold;margin-bottom:4px">${params.name || "能力画像"}</div>`;
           DIMENSIONS.forEach((dim, i) => {
-            const v = params.value[i] || 0;
-            const barColor =
-              v >= 80 ? "#52c41a" : v >= 60 ? "#faad14" : "#ff4d4f";
-            html += `<div style="display:flex;justify-content:space-between;min-width:180px">
-              <span>${dim}</span>
-              <span style="color:${barColor};font-weight:bold;margin-left:12px">${v}</span>
-            </div>`;
+            const v = params.value[i];
+            if (v == null) {
+              html += `<div style="display:flex;justify-content:space-between;min-width:180px">
+                <span>${dim}</span>
+                <span style="color:#999;font-style:italic;margin-left:12px">未评测</span>
+              </div>`;
+            } else {
+              const barColor = v >= 80 ? "#52c41a" : v >= 60 ? "#faad14" : "#ff4d4f";
+              html += `<div style="display:flex;justify-content:space-between;min-width:180px">
+                <span>${dim}</span>
+                <span style="color:${barColor};font-weight:bold;margin-left:12px">${v}</span>
+              </div>`;
+            }
           });
           return html;
         },

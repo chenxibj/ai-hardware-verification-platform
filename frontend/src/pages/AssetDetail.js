@@ -58,21 +58,28 @@ export default function AssetDetail({ assetId, onBack }) {
 
   useEffect(() => { fetchAsset(); }, [fetchAsset]);
 
+  /** #284: 下载资产 — 优先服务端文件，无文件时跳转 sourceUrl */
   const handleDownload = async () => {
-    if (!asset?.filePath) { message.warning("该资产没有关联文件"); return; }
-    try {
-      const res = await api.get(`/assets/${assetId}/download`, { responseType: "blob" });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", asset.name || "download");
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-      message.success("下载成功");
-    } catch {
-      message.error("下载失败");
+    if (asset?.filePath) {
+      try {
+        const res = await api.get(`/assets/${assetId}/download`, { responseType: "blob" });
+        const url = window.URL.createObjectURL(new Blob([res.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", asset.name || "download");
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+        message.success("下载成功");
+      } catch (e) {
+        message.error(e.displayMessage || "下载失败");
+      }
+    } else if (asset?.sourceUrl) {
+      window.open(asset.sourceUrl, "_blank");
+      message.info("已跳转到资源源地址");
+    } else {
+      message.warning("该资产暂无可下载文件");
     }
   };
 

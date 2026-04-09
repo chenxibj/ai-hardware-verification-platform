@@ -207,6 +207,9 @@ export default function ChipReport({ reportId, onBack }) {
   const grade = scoreGrade(overallScore);
   const summary = generateSummary(dimScores, overallScore);
 
+  // #287: 检测所有维度评分是否都 = 100（可能是后端评分异常）
+  const allScores100 = radarData.length > 0 && radarData.every(d => d.score === 100);
+
   const totalOps = operators.length;
   const validOps = operators.filter(o => o.dataStatus === "VALID");
   const noDataOps = operators.filter(o => o.dataStatus === "NO_DATA");
@@ -517,6 +520,13 @@ export default function ChipReport({ reportId, onBack }) {
             {summary && (
               <Alert type="info" showIcon icon={<SafetyCertificateOutlined />}
                 message="能力摘要" description={summary} style={{ marginBottom: 16 }} />
+            )}
+            {allScores100 && (
+              <Alert type="warning" showIcon icon={<WarningOutlined />}
+                message="评分异常提示"
+                description="该报告所有维度评分均为 100 分，可能存在评分计算异常。请结合实际评测数据核实，或使用真实硬件重新评测。"
+                style={{ marginBottom: 16 }}
+              />
             )}
             {coverageData && coverageData.coverage && (
               <Alert
