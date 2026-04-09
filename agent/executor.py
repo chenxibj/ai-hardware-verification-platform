@@ -384,10 +384,31 @@ class TaskExecutor:
             if returncode != 0:
                 raise RuntimeError("脚本执行失败 (code={}): {}".format(returncode, stderr_text))
 
+            # Parse eval result: try full stdout first, then extract last JSON object
+            eval_result = None
             try:
                 eval_result = json.loads(stdout_text.strip())
-            except json.JSONDecodeError:
-                eval_result = {"raw_output": stdout_text}
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+            if eval_result is None:
+                # Eval scripts may print [EVAL] log lines before the JSON output.
+                # Find the last JSON object in stdout (the benchmark result).
+                last_json = None
+                for line in reversed(stdout_text.strip().splitlines()):
+                    line = line.strip()
+                    if line.startswith("{"):
+                        try:
+                            last_json = json.loads(line)
+                            break
+                        except (json.JSONDecodeError, ValueError):
+                            continue
+                if last_json and isinstance(last_json, dict):
+                    eval_result = last_json
+                    logger.info("Extracted JSON from last line of stdout for task %s", task_id)
+                else:
+                    eval_result = {"raw_output": stdout_text}
+                    logger.warning("Could not parse structured JSON from stdout for task %s, using raw_output fallback", task_id)
 
             # #229: 上报 SYSTEM 任务完成摘要日志
             summary_entry = [{
