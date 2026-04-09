@@ -5,7 +5,7 @@
  * @feat #257
  *
  * 后端已有 API:
- * - GET /api/nodes/{id}/diagnose — 诊断节点
+ * - POST /api/nodes/{id}/diagnose — 诊断节点
  * - POST /api/nodes/{id}/repair — 修复节点
  * 自愈策略配置存 localStorage，执行历史存 localStorage
  * TODO: 后端实现 /api/self-heal/policies 和 /api/self-heal/history 后迁移
@@ -183,7 +183,7 @@ export default function SelfHealing() {
   const handleDiagnose = async (nodeId, nodeName) => {
     setActionLoading(prev => ({ ...prev, [`diag_${nodeId}`]: true }));
     try {
-      const res = await api.get(`/nodes/${nodeId}/diagnose`);
+      const res = await api.post(`/nodes/${nodeId}/diagnose`);
       const entry = {
         id: Date.now(),
         time: new Date().toISOString(),
