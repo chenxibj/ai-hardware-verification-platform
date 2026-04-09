@@ -20,6 +20,7 @@ import {
   RocketOutlined,
 } from "@ant-design/icons";
 import api from "../../utils/api";
+import axios from "axios";
 import dayjs from "dayjs";
 import { PRESET_TEMPLATES } from "./taskConstants";
 import ModeSelectStep from "./steps/ModeSelectStep";
@@ -28,6 +29,8 @@ import NodeSelectStep from "./steps/NodeSelectStep";
 import ConfirmStep from "./steps/ConfirmStep";
 import BasicInfoStep from "./steps/BasicInfoStep";
 import EvalConfigStep from "./steps/EvalConfigStep";
+
+const agentApi = axios.create({ baseURL: "/agent-api" });
 
 /**
  * 创建评测任务弹窗
@@ -102,7 +105,15 @@ export default function TaskCreateModal({
       if (selectedNodeId) payload.targetNodeId = selectedNodeId;
       try {
         const r = await api.post("/tasks", payload);
-        if (r.data.code === 0) { message.success("任务创建成功，已自动调度执行"); resetCreate(); onSuccess(); }
+        if (r.data.code === 0) {
+          /* #317: Fix createdBy (backend always sets 1) */
+          const taskData = r.data.data;
+          const user = JSON.parse(localStorage.getItem("user") || "{}");
+          if (taskData?.id && user?.id) {
+            agentApi.post("/api/tasks/fix-created-by", { taskId: taskData.id, userId: user.id }).catch(() => {});
+          }
+          message.success("任务创建成功，已自动调度执行"); resetCreate(); onSuccess();
+        }
         else message.error(r.data.message || "创建失败");
       } catch (e) { message.error("创建失败"); }
     } else {
@@ -116,7 +127,15 @@ export default function TaskCreateModal({
         if (selectedTemplate) { payload.templateId = selectedTemplate.id; payload.evalType = selectedTemplate.evalType; }
         if (selectedNodeId) payload.targetNodeId = selectedNodeId;
         const r = await api.post("/tasks", payload);
-        if (r.data.code === 0) { message.success("任务创建成功，已自动调度执行"); resetCreate(); onSuccess(); }
+        if (r.data.code === 0) {
+          /* #317: Fix createdBy (backend always sets 1) */
+          const taskData = r.data.data;
+          const user = JSON.parse(localStorage.getItem("user") || "{}");
+          if (taskData?.id && user?.id) {
+            agentApi.post("/api/tasks/fix-created-by", { taskId: taskData.id, userId: user.id }).catch(() => {});
+          }
+          message.success("任务创建成功，已自动调度执行"); resetCreate(); onSuccess();
+        }
         else message.error(r.data.message || "创建失败");
       } catch (e) { message.error("请检查必填字段是否填写完整"); }
     }

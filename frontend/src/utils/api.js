@@ -62,14 +62,14 @@ export const taskApi = {
 };
 
 export const reportApi = {
-  list: (params) => api.get("/reports", { params }),
-  get: (id) => api.get("/reports/" + id),
-  create: (data) => api.post("/reports", data),
-  update: (id, data) => api.put("/reports/" + id, data),
-  publish: (id) => api.post("/reports/" + id + "/publish"),
-  review: (id) => api.post("/reports/" + id + "/review"),
-  delete: (id) => api.delete("/reports/" + id),
-  stats: () => api.get("/reports/stats"),
+  list: (params) => api.get("/chip-reports", { params }),
+  get: (id) => api.get("/chip-reports/" + id),
+  create: (data) => api.post("/chip-reports", data),
+  update: (id, data) => api.put("/chip-reports/" + id, data),
+  publish: (id) => api.post("/chip-reports/" + id + "/publish"),
+  review: (id) => api.post("/chip-reports/" + id + "/review"),
+  delete: (id) => api.delete("/chip-reports/" + id),
+  stats: () => api.get("/chip-reports/stats"),
 };
 
 export const chipReportApi = {

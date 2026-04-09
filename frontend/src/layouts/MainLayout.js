@@ -185,6 +185,10 @@ export default function MainLayout({ currentPage, setCurrentPage, children }) {
   const logout = useAuthStore(s => s.logout);
   const notifCount = useNotificationStore(s => s.unreadCount);
 
+  /* #312: Hide admin-only menu items for non-admin users */
+  const isAdmin = ["ADMIN","SUPER_ADMIN","admin","super_admin"].includes(user?.role);
+  const filteredMenuItems = isAdmin ? menuItems : menuItems.filter(m => m.key !== "sys-settings");
+
   const userMenu = {
     items: [
       {
@@ -249,7 +253,7 @@ export default function MainLayout({ currentPage, setCurrentPage, children }) {
           mode="inline"
           selectedKeys={[currentPage]}
           defaultOpenKeys={getDefaultOpenKeys()}
-          items={menuItems}
+          items={filteredMenuItems}
           onClick={({ key }) => setCurrentPage(key)}
           style={{ borderRight: 0, marginTop: 4 }}
         />

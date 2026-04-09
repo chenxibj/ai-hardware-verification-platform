@@ -6,6 +6,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { message, Modal } from "antd";
 import api from "../utils/api";
+import axios from "axios";
+
+const agentApi = axios.create({ baseURL: "/agent-api" });
 
 export default function useTaskData() {
   const [tasks, setTasks] = useState([]);
@@ -74,7 +77,7 @@ export default function useTaskData() {
   const fetchTaskReport = useCallback(async (taskId) => {
     setReportLoading(true);
     try {
-      const r = await api.get("/reports", { params: { taskId, page: 0, size: 1 } });
+      const r = await api.get("/chip-reports", { params: { taskId, page: 0, size: 1 } });
       if (r.data.code === 0 && r.data.data && r.data.data.length > 0) {
         setTaskReport(r.data.data[0]);
       } else {
@@ -111,17 +114,28 @@ export default function useTaskData() {
   const handleDelete = useCallback((id) => {
     Modal.confirm({
       title: "确定删除？", content: "删除后不可恢复", okText: "删除", okType: "danger",
-      onOk: () => api.delete("/tasks/" + id).then(() => {
-        message.success("已删除"); fetchTasks(); fetchStats();
-      }).catch((err) => {
-        /* #306: 后端可能因外键约束返回 500，显示友好提示 */
-        const status = err.response?.status;
-        if (status === 500) {
-          message.error("该任务无法删除（可能有关联数据），请先清理子任务和日志");
-        } else {
-          message.error("删除失败: " + (err.displayMessage || err.message));
+      onOk: async () => {
+        try {
+          await api.delete("/tasks/" + id);
+          message.success("已删除"); fetchTasks(); fetchStats();
+        } catch (err) {
+          /* #313: Backend 500 due to FK constraints -> fallback to agent safe-delete */
+          if (err.response?.status === 500) {
+            try {
+              const agentRes = await agentApi.delete("/api/tasks/safe-delete/" + id);
+              if (agentRes.data?.code === 0) {
+                message.success("已安全删除"); fetchTasks(); fetchStats();
+              } else {
+                message.error("删除失败: " + (agentRes.data?.message || "未知错误"));
+              }
+            } catch (agentErr) {
+              message.error("删除失败: " + (agentErr.response?.data?.message || agentErr.message));
+            }
+          } else {
+            message.error("删除失败: " + (err.displayMessage || err.message));
+          }
         }
-      }),
+      },
     });
   }, [fetchTasks, fetchStats]);
 

@@ -17,7 +17,13 @@ export default function Users() {
     try {
       const res = await userApi.list({ size: 100 });
       if (res.data.code === 0) setUsers(res.data.data || []);
-    } catch(e) { message.error("获取用户列表失败"); }
+    } catch(e) {
+      if (e.response?.status === 403) {
+        message.warning("权限不足，无法查看用户列表");
+      } else {
+        message.error("获取用户列表失败");
+      }
+    }
     finally { setLoading(false); }
   };
 

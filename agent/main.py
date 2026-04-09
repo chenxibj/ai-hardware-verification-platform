@@ -52,6 +52,10 @@ app.register_blueprint(k8s_bp)
 from k8s_routes import start_k8s_heartbeat
 start_k8s_heartbeat()
 
+# #313, #317: Task management routes (safe-delete, fix-created-by)
+from task_routes import task_bp
+app.register_blueprint(task_bp)
+
 # 全局状态
 node_info = None
 heartbeat_thread = None
@@ -61,7 +65,7 @@ executor = None
 @app.before_request
 def verify_token():
     """请求认证中间件 (#213) - 平台→Agent 通信认证"""
-    if request.path == '/status' or request.path.startswith('/api/k8s/'):
+    if request.path == '/status' or request.path.startswith('/api/k8s/') or request.path.startswith('/api/tasks/'):
         return  # 健康检查不需要认证
     token = request.headers.get('X-Agent-Token')
     if token != config['platform']['token']:

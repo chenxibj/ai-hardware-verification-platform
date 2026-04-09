@@ -71,6 +71,11 @@ services:
     container_name: ahvp-backend
     environment:
       SPRING_PROFILES_ACTIVE: dev
+      # #318: Reduce Hibernate SQL noise, surface useful exceptions
+      LOGGING_LEVEL_ORG_HIBERNATE_SQL: WARN
+      LOGGING_LEVEL_ORG_HIBERNATE_TYPE_DESCRIPTOR_SQL_BASICBINDER: WARN
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_WEB: INFO
+      LOGGING_LEVEL_COM_AHVP: DEBUG
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: ${DB_NAME}
