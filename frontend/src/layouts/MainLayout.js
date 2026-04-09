@@ -70,7 +70,7 @@ const BREADCRUMB_MAP = {
   nodes: [{ title: "资源管理" }, { title: "节点管理" }],
   "resource-pools": [{ title: "资源管理" }, { title: "资源池" }],
   "resource-monitor": [{ title: "资源管理" }, { title: "资源监控" }],
-  assets: [{ title: "资源管理" }, { title: "数字资产" }],
+  assets: [{ title: "数字资产" }],
   alerts: [{ title: "资源管理" }, { title: "告警管理" }],
   "alert-config": [{ title: "资源管理" }, { title: "告警配置" }],
   "self-healing": [{ title: "资源管理" }, { title: "自愈策略" }],
@@ -88,7 +88,7 @@ const PARENT_MAP = {
   "template-list": "eval-center", plans: "eval-center",
   "plans-create": "eval-center", "report-list": "eval-center",
   nodes: "resource-mgmt", "resource-pools": "resource-mgmt",
-  "resource-monitor": "resource-mgmt", assets: "resource-mgmt",
+  "resource-monitor": "resource-mgmt", assets: null,
   alerts: "resource-mgmt",
   "alert-config": "resource-mgmt",
   "self-healing": "resource-mgmt",
@@ -120,6 +120,11 @@ const menuItems = [
     ],
   },
   {
+    key: "assets",
+    icon: <DatabaseOutlined />,
+    label: "数字资产",
+  },
+  {
     key: "resource-mgmt",
     icon: <ClusterOutlined />,
     label: "资源管理",
@@ -127,7 +132,7 @@ const menuItems = [
       { key: "nodes", icon: <ClusterOutlined />, label: "节点管理" },
       { key: "resource-pools", icon: <CloudServerOutlined />, label: "资源池" },
       { key: "resource-monitor", icon: <FundProjectionScreenOutlined />, label: "资源监控" },
-      { key: "assets", icon: <DatabaseOutlined />, label: "数字资产" },
+
       { key: "clusters", icon: <ApiOutlined />, label: "K8s 集群" },
       { key: "k8s-agent", icon: <RocketOutlined />, label: "Agent 接入" },
       { key: "alert-config", icon: <BellFilledOutlined />, label: "告警配置" },
