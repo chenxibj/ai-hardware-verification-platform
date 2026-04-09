@@ -325,3 +325,111 @@ def register_k8s_nodes():
     except Exception as e:
         logger.error("注册 K8s 节点失败: %s", e)
         return jsonify({"code": -1, "message": str(e)}), 500
+
+
+# === K8s 节点心跳代理 ===
+import threading
+import time
+import requests as http_requests
+
+PLATFORM_URL = "http://localhost:8080/api"
+AGENT_TOKEN = "ahvp-agent-secret-2026"
+K8S_NODE_ID = None  # 注册后填入
+
+def _register_k8s_node():
+    """注册 K8s 节点到平台，返回 node_id"""
+    global K8S_NODE_ID
+    try:
+        v1, ver_api, _ = _load_k8s_clients()
+        nodes = v1.list_node()
+        if not nodes.items:
+            return None
+        n = nodes.items[0]
+        ip = next((a.address for a in n.status.addresses if a.type == "InternalIP"), "")
+        data = {
+            "name": "k8s-node-01",
+            "ip": ip,
+            "port": 8090,
+            "description": f"ACK K8s node - {n.status.node_info.os_image}",
+            "tags": "k8s,ack,cn-beijing",
+            "capabilities": {
+                "cpu": n.status.capacity.get("cpu", "0"),
+                "memory": n.status.capacity.get("memory", "0"),
+                "k8s": True,
+                "kubelet": n.status.node_info.kubelet_version,
+            }
+        }
+        resp = http_requests.post(
+            f"{PLATFORM_URL}/nodes/register",
+            json=data,
+            headers={"Content-Type": "application/json", "X-Agent-Token": AGENT_TOKEN},
+            timeout=10
+        )
+        if resp.status_code == 200:
+            result = resp.json()
+            node_data = result.get("data", result)
+            K8S_NODE_ID = node_data.get("id")
+            logger.info(f"K8s node registered: id={K8S_NODE_ID}")
+            return K8S_NODE_ID
+    except Exception as e:
+        logger.error(f"K8s node registration failed: {e}")
+    return None
+
+def _k8s_heartbeat_loop():
+    """定期为 K8s 节点代理发送心跳"""
+    global K8S_NODE_ID
+    # 先注册
+    for _ in range(5):
+        if _register_k8s_node():
+            break
+        time.sleep(10)
+    
+    while True:
+        try:
+            if not K8S_NODE_ID:
+                _register_k8s_node()
+                time.sleep(30)
+                continue
+            
+            v1, _, _ = _load_k8s_clients()
+            nodes = v1.list_node()
+            if nodes.items:
+                n = nodes.items[0]
+                cpu_cap = n.status.capacity.get("cpu", "0")
+                mem_cap = n.status.capacity.get("memory", "0")
+                ready = any(c.type == "Ready" and c.status == "True" for c in n.status.conditions)
+                
+                metrics = {
+                    "cpuUsage": 10.0,  # K8s 节点基础开销
+                    "memoryUsage": 30.0,
+                    "diskUsage": 20.0,
+                    "gpuUsage": 0.0,
+                    "status": "ONLINE" if ready else "OFFLINE",
+                    "k8sInfo": {
+                        "cpu": cpu_cap,
+                        "memory": mem_cap,
+                        "ready": ready,
+                        "kubelet": n.status.node_info.kubelet_version,
+                    }
+                }
+                resp = http_requests.post(
+                    f"{PLATFORM_URL}/nodes/{K8S_NODE_ID}/heartbeat",
+                    json=metrics,
+                    headers={"Content-Type": "application/json", "X-Agent-Token": AGENT_TOKEN},
+                    timeout=10
+                )
+                if resp.status_code == 404:
+                    logger.warning("K8s node heartbeat 404, re-registering...")
+                    K8S_NODE_ID = None
+                    _register_k8s_node()
+                else:
+                    logger.info(f"K8s heartbeat sent: node_id={K8S_NODE_ID}, status={resp.status_code}")
+        except Exception as e:
+            logger.error(f"K8s heartbeat error: {e}")
+        time.sleep(30)
+
+def start_k8s_heartbeat():
+    """启动 K8s 心跳代理线程"""
+    t = threading.Thread(target=_k8s_heartbeat_loop, daemon=True)
+    t.start()
+    logger.info("K8s heartbeat proxy started (30s interval)")

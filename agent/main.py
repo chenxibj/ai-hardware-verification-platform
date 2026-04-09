@@ -49,6 +49,8 @@ CORS(app, resources={r"/api/k8s/*": {"origins": "*"}})
 # 注册 K8s API 路由
 from k8s_routes import k8s_bp
 app.register_blueprint(k8s_bp)
+from k8s_routes import start_k8s_heartbeat
+start_k8s_heartbeat()
 
 # 全局状态
 node_info = None
