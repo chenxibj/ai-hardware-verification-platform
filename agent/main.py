@@ -9,6 +9,8 @@ import os
 import sys
 import signal
 import yaml
+import threading
+import time
 from flask import Flask, jsonify, request
 
 # 加载配置
@@ -143,10 +145,10 @@ def main():
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
 
-    # 1. 注册节点
-    node_info = register_node(config)
+    # 1. 注册节点（带重试）
+    node_info = register_node(config, max_retries=5, retry_interval=10)
     if not node_info:
-        logger.error("节点注册失败! 将以离线模式启动（可接受本地执行）")
+        logger.warning("初始注册失败，以离线模式启动，后台继续重试注册...")
         node_info = {"id": 0, "name": config["node"]["name"]}
 
     node_id = node_info.get("id", 0)
@@ -154,12 +156,35 @@ def main():
     # 2. 初始化任务执行器
     executor = TaskExecutor(config, node_id)
 
-    # 3. 启动心跳线程
+    # 3. 启动心跳线程（或后台重试注册线程）
     if node_id > 0:
         heartbeat_thread = HeartbeatThread(node_id, config)
         heartbeat_thread.start()
     else:
-        logger.warning("节点未注册成功，跳过心跳")
+        # 后台持续重试注册，成功后自动启动心跳
+        def background_register():
+            global node_info, heartbeat_thread, executor
+            retry_count = 0
+            while True:
+                retry_count += 1
+                wait_time = min(30 * retry_count, 300)  # 30s, 60s, 90s, ... 最大 5 分钟
+                logger.info("后台注册重试将在 %d 秒后执行 (第 %d 次)", wait_time, retry_count)
+                time.sleep(wait_time)
+                result = register_node(config, max_retries=1, retry_interval=0)
+                if result:
+                    node_info = result
+                    new_node_id = result.get("id", 0)
+                    if new_node_id > 0:
+                        executor.node_id = new_node_id
+                        heartbeat_thread = HeartbeatThread(new_node_id, config)
+                        heartbeat_thread.start()
+                        logger.info("后台注册成功! 节点 ID=%s，心跳已启动", new_node_id)
+                        return
+                logger.warning("后台注册重试失败 (第 %d 次)，继续重试...", retry_count)
+
+        bg_thread = threading.Thread(target=background_register, daemon=True, name="bg-register")
+        bg_thread.start()
+        logger.info("后台注册重试线程已启动")
 
     # 4. 启动 Flask HTTP 服务
     logger.info("启动 HTTP 服务 %s:%s", config["agent"]["host"], config["agent"]["port"])
