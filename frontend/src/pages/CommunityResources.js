@@ -1,16 +1,18 @@
 /**
  * @file CommunityResources.js
- * @description 免费资源下载页面 — 卡片网格展示 (#178 US-3.2)
+ * @description 免费资源下载页面 — 卡片网格展示 (#178 US-3.2, #289 fix)
+ * @fix #289 对无 filePath 的资源禁用下载，有 sourceUrl 改为跳转源地址
  */
 import React, { useState, useEffect } from "react";
 import {
   Card, Row, Col, Tag, Space, Typography, Spin, message, Input,
-  Select, Button, Empty, Statistic, Badge,
+  Select, Button, Empty, Statistic, Tooltip,
 } from "antd";
 import {
-  CloudDownloadOutlined, SearchOutlined, FileImageOutlined,
+  SearchOutlined, FileImageOutlined,
   CodeOutlined, DatabaseOutlined, BookOutlined, FileTextOutlined,
-  DownloadOutlined, EyeOutlined, FilterOutlined, AppstoreOutlined,
+  DownloadOutlined, FilterOutlined, AppstoreOutlined,
+  LinkOutlined, StopOutlined,
 } from "@ant-design/icons";
 import api from "../utils/api";
 
@@ -33,6 +35,13 @@ function formatFileSize(bytes) {
   let size = bytes;
   while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
   return `${size.toFixed(1)} ${units[i]}`;
+}
+
+/** #289: Determine action button for a resource */
+function getResourceAction(resource) {
+  if (resource.filePath) return "download";
+  if (resource.sourceUrl) return "link";
+  return "disabled";
 }
 
 export default function CommunityResources() {
@@ -72,7 +81,6 @@ export default function CommunityResources() {
       link.remove();
       window.URL.revokeObjectURL(url);
       message.success("下载成功");
-      // refresh to update download count
       fetchResources();
     } catch (e) {
       message.error("下载失败");
@@ -81,7 +89,45 @@ export default function CommunityResources() {
     }
   };
 
-  const filtered = resources;
+  /** #289: Open source URL in new tab */
+  const handleOpenSource = (resource) => {
+    window.open(resource.sourceUrl, "_blank", "noopener,noreferrer");
+  };
+
+  /** #289: Render the action button based on resource availability */
+  const renderActionButton = (resource) => {
+    const action = getResourceAction(resource);
+    if (action === "download") {
+      return (
+        <Button
+          type="link"
+          icon={<DownloadOutlined />}
+          loading={downloading === resource.id}
+          onClick={() => handleDownload(resource)}
+        >
+          下载
+        </Button>
+      );
+    }
+    if (action === "link") {
+      return (
+        <Button
+          type="link"
+          icon={<LinkOutlined />}
+          onClick={() => handleOpenSource(resource)}
+        >
+          跳转源地址
+        </Button>
+      );
+    }
+    return (
+      <Tooltip title="该资源暂无可下载文件">
+        <Button type="link" icon={<StopOutlined />} disabled>
+          暂无文件
+        </Button>
+      </Tooltip>
+    );
+  };
 
   return (
     <div>
@@ -91,8 +137,12 @@ export default function CommunityResources() {
           const count = resources.filter(r => r.category === cat.key).length;
           return (
             <Col xs={12} sm={8} md={4} lg={4} key={cat.key}>
-              <Card size="small" hoverable onClick={() => setCategoryFilter(cat.key === categoryFilter ? null : cat.key)}
-                style={{ borderColor: categoryFilter === cat.key ? cat.color : undefined, cursor: "pointer" }}>
+              <Card size="small" hoverable
+                onClick={() => setCategoryFilter(cat.key === categoryFilter ? null : cat.key)}
+                style={{
+                  borderColor: categoryFilter === cat.key ? cat.color : undefined,
+                  cursor: "pointer",
+                }}>
                 <Statistic
                   title={<span style={{ fontSize: 12 }}>{cat.label}</span>}
                   value={count}
@@ -131,27 +181,20 @@ export default function CommunityResources() {
 
       {/* Resource Cards Grid */}
       <Spin spinning={loading}>
-        {filtered.length === 0 && !loading ? (
+        {resources.length === 0 && !loading ? (
           <Empty description="暂无资源" image={Empty.PRESENTED_IMAGE_SIMPLE} />
         ) : (
           <Row gutter={[16, 16]}>
-            {filtered.map(resource => {
-              const cat = CATEGORY_MAP[resource.category] || { label: resource.category, icon: <AppstoreOutlined />, color: "#999" };
+            {resources.map(resource => {
+              const cat = CATEGORY_MAP[resource.category] || {
+                label: resource.category, icon: <AppstoreOutlined />, color: "#999",
+              };
               return (
                 <Col xs={24} sm={12} md={8} lg={6} key={resource.id}>
                   <Card
                     hoverable
                     style={{ height: "100%" }}
-                    actions={[
-                      <Button
-                        type="link"
-                        icon={<DownloadOutlined />}
-                        loading={downloading === resource.id}
-                        onClick={() => handleDownload(resource)}
-                      >
-                        下载
-                      </Button>,
-                    ]}
+                    actions={[renderActionButton(resource)]}
                   >
                     <div style={{ textAlign: "center", marginBottom: 12 }}>
                       <div style={{
@@ -165,12 +208,15 @@ export default function CommunityResources() {
                     <Title level={5} ellipsis={{ rows: 1 }} style={{ textAlign: "center", marginBottom: 8 }}>
                       {resource.name}
                     </Title>
-                    <Paragraph type="secondary" ellipsis={{ rows: 2 }} style={{ textAlign: "center", fontSize: 12, minHeight: 36 }}>
+                    <Paragraph type="secondary" ellipsis={{ rows: 2 }}
+                      style={{ textAlign: "center", fontSize: 12, minHeight: 36 }}>
                       {resource.description || "暂无描述"}
                     </Paragraph>
                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}>
                       <Tag color={cat.color} style={{ fontSize: 11 }}>{cat.label}</Tag>
-                      <Text type="secondary" style={{ fontSize: 11 }}>{formatFileSize(resource.fileSize)}</Text>
+                      <Text type="secondary" style={{ fontSize: 11 }}>
+                        {formatFileSize(resource.fileSize)}
+                      </Text>
                     </div>
                     <div style={{ display: "flex", justifyContent: "center", marginTop: 8 }}>
                       <Space>

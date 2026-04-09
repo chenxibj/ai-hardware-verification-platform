@@ -1,7 +1,7 @@
 /**
  * @file PlanList.js
  * @description 评测任务列表 — 统计卡片 + 筛选表格 + 详情抽屉 + 操作
- * Issue: #132
+ * Issue: #132, #292 统计卡片优化
  */
 import React, { useState, useEffect, useCallback } from "react";
 import {
@@ -156,8 +156,18 @@ export default function PlanList({ onOpenMonitor, onCreatePlan, onViewReport }) 
           failed:    resp.data.failed    || 0,
         });
       }
-    } catch (_) { /* 统计失败不阻塞 */ }
-  }, []);
+    } catch (_) {
+      /* #292: 统计API失败时，从列表数据计算 */
+      if (plans.length > 0) {
+        setStats({
+          total: plans.length,
+          running: plans.filter(p => p.status === 'RUNNING').length,
+          completed: plans.filter(p => p.status === 'COMPLETED').length,
+          failed: plans.filter(p => p.status === 'FAILED').length,
+        });
+      }
+    }
+  }, [plans]);
 
   /* ── API: 芯片列表 ── */
   const fetchChips = useCallback(async () => {
@@ -349,7 +359,7 @@ export default function PlanList({ onOpenMonitor, onCreatePlan, onViewReport }) 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col xs={12} sm={6}>
           <Card hoverable>
-            <Statistic title={"任务总数"} value={stats.total} prefix={<FileTextOutlined />} />
+            <Statistic title={"任务总数"} value={stats.total} prefix={<FileTextOutlined style={{ color: "#1890ff" }} />} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>

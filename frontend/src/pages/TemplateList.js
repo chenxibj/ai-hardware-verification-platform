@@ -1,7 +1,7 @@
 /**
  * @file TemplateList.js
  * @description 评测模板浏览与管理 — 卡片网格 + 筛选 + CRUD
- * Issue: #161 - 评测模板浏览与管理
+ * Issue: #161, #293 评测模板分类 + 使用说明展开
  */
 import React, { useState, useEffect, useCallback } from "react";
 import {
@@ -9,7 +9,7 @@ import {
   Typography, Modal, Form, Select, Tooltip, Badge, Divider,
 } from "antd";
 import {
-  AppstoreOutlined, ThunderboltOutlined, RocketOutlined,
+  AppstoreOutlined, ThunderboltOutlined, RocketOutlined, InfoCircleOutlined,
   BarChartOutlined, LockOutlined, PlusOutlined, SearchOutlined,
   EyeOutlined, EditOutlined, DeleteOutlined, CopyOutlined,
   ExperimentOutlined, ReloadOutlined,
@@ -91,6 +91,7 @@ export default function TemplateList() {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("ALL");
   const [search, setSearch] = useState("");
+  const [evalTypeFilter, setEvalTypeFilter] = useState("ALL");
   const [detailVisible, setDetailVisible] = useState(false);
   const [editVisible, setEditVisible] = useState(false);
   const [selected, setSelected] = useState(null);
@@ -111,7 +112,9 @@ export default function TemplateList() {
   useEffect(() => { fetchTemplates(); }, [fetchTemplates]);
 
   /* ── 筛选 ── */
+  /* #293: 按 evalType 和搜索筛选 */
   const filteredTemplates = templates.filter(t => {
+    if (evalTypeFilter !== "ALL" && t.evalType !== evalTypeFilter) return false;
     if (search && !t.name.toLowerCase().includes(search.toLowerCase()) &&
         !(t.description || "").toLowerCase().includes(search.toLowerCase())) return false;
     return true;
@@ -239,7 +242,7 @@ export default function TemplateList() {
       </Row>
 
       {/* 层级筛选 Tabs */}
-      <div style={{ marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div style={{ marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
         {LAYER_TABS.map(tab => (
           <Button key={tab.key}
             type={activeTab === tab.key ? "primary" : "default"}
@@ -248,6 +251,24 @@ export default function TemplateList() {
             onClick={() => setActiveTab(tab.key)}>
             {tab.label}
           </Button>
+        ))}
+      </div>
+
+      {/* #293: 评测类型分类导航 */}
+      <div style={{ marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <Text type="secondary" style={{ fontSize: 13 }}>评测类型:</Text>
+        {[{ key: "ALL", label: "全部" }, ...Object.entries(EVAL_TYPES).map(([k, v]) => ({ key: k, label: v }))].map(tab => (
+          <Tag key={tab.key}
+            color={evalTypeFilter === tab.key ? "blue" : undefined}
+            style={{ cursor: "pointer", padding: "2px 10px" }}
+            onClick={() => setEvalTypeFilter(tab.key)}>
+            {tab.label}
+            {tab.key !== "ALL" && (
+              <span style={{ marginLeft: 4, fontSize: 11 }}>
+                ({templates.filter(t => t.evalType === tab.key).length})
+              </span>
+            )}
+          </Tag>
         ))}
       </div>
 
@@ -299,7 +320,7 @@ export default function TemplateList() {
                           </Tooltip>
                         )}
                       </Space>
-                      <Paragraph type="secondary" ellipsis={{ rows: 2 }}
+                      <Paragraph type="secondary" ellipsis={{ rows: 2, expandable: true, symbol: <span><InfoCircleOutlined /> 展开</span> }}
                         style={{ margin: 0, fontSize: 12, minHeight: 36 }}>
                         {t.description || "暂无描述"}
                       </Paragraph>
