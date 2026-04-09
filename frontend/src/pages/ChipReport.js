@@ -573,6 +573,15 @@ export default function ChipReport({ reportId, onBack }) {
             message={<Text style={{ fontSize: 12 }}>📐 <strong>评分公式：</strong>score = 100 - 20×log₁₀(avg_latency_ms) &nbsp;|&nbsp; <strong>等级标准：</strong><span style={{ color: "#52c41a" }}>≥80 优秀</span> · <span style={{ color: "#1890ff" }}>60-79 良好</span> · <span style={{ color: "#faad14" }}>40-59 一般</span> · <span style={{ color: "#ff4d4f" }}>&lt;40 较差</span> &nbsp;|&nbsp; <strong>综合评分</strong> = 六维等权平均</Text>}
             style={{ marginBottom: 16 }}
           />
+          {/* #298: scoring ceiling warning */}
+          {overallScore >= 99 && (
+            <Alert
+              type="warning"
+              showIcon
+              message={<Text style={{ fontSize: 12 }}><strong>⚠️ 评分触及上限</strong>：当前芯片所有算子延迟极低（&lt;0.1ms），评分公式结果超过 100 后被截断至满分。高端 GPU 在标准负载下差异无法体现，建议增加大 batch / 大模型等压力测试以获得更有区分度的评分。</Text>}
+              style={{ marginBottom: 16 }}
+            />
+          )}
           <Row gutter={24} align="middle">
             <Col xs={24} md={12}>
               <RadarChart data={radarData} height={350} />

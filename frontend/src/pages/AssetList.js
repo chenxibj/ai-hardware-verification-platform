@@ -53,13 +53,19 @@ export default function AssetList() {
       if (searchText) params.keyword = searchText;
       if (type && type !== "ALL") params.assetType = type;
       const res = await api.get("/assets", { params });
-      if (res.data.code === 0) setAssets(res.data.data || []);
+      if (res.data.code === 0) { const list = res.data.data || []; setAssets(list); computeStats(list); }
     } catch (e) { message.error("获取资产列表失败"); }
     finally { setLoading(false); }
   };
-  const fetchStats = async () => { try { const r = await api.get("/assets/stats"); if (r.data.code === 0) setStats(r.data.data); } catch (e) {} };
+  /** #297: 从资产列表本地计算统计（后端无 /assets/stats 端点） */
+  const computeStats = (assetList) => {
+    const counts = { total: assetList.length };
+    const typeKeys = { MODEL: "models", DATASET: "datasets", SCRIPT: "scripts", CONFIG: "configs", LOG: "logs", BENCHMARK: "benchmarks" };
+    Object.entries(typeKeys).forEach(([type, key]) => { counts[key] = assetList.filter(a => a.assetType === type).length; });
+    setStats(counts);
+  };
 
-  useEffect(() => { fetchAssets(activeTab); fetchStats(); }, []);
+  useEffect(() => { fetchAssets(activeTab); }, []);
 
   const handleTabChange = (key) => {
     setActiveTab(key);
@@ -83,7 +89,6 @@ export default function AssetList() {
         setUploadVisible(false);
         uploadForm.resetFields();
         fetchAssets(activeTab);
-        fetchStats();
       }
     } catch (e) { message.error("上传失败: " + (e.response?.data?.message || e.message)); }
   };
@@ -96,7 +101,6 @@ export default function AssetList() {
         setCreateVisible(false);
         form.resetFields();
         fetchAssets(activeTab);
-        fetchStats();
       }
     } catch (e) { message.error("创建失败"); }
   };
@@ -105,7 +109,7 @@ export default function AssetList() {
     Modal.confirm({
       title: "确定删除该资产？", okText: "删除", okType: "danger", cancelText: "取消",
       onOk: async () => {
-        try { await api.delete("/assets/" + id); message.success("已删除"); fetchAssets(activeTab); fetchStats(); }
+        try { await api.delete("/assets/" + id); message.success("已删除"); fetchAssets(activeTab);  }
         catch (e) { message.error("删除失败"); }
       },
     });
