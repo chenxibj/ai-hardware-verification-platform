@@ -20,7 +20,7 @@ const { Title, Text } = Typography;
 
 const STATUS_COLORS = { ACTIVE: "green", INACTIVE: "default", MAINTENANCE: "orange" };
 const STATUS_LABELS = { ACTIVE: "运行中", INACTIVE: "已停用", MAINTENANCE: "维护中" };
-const TYPE_COLORS = { GPU: "blue", CPU: "orange", NPU: "green", MIXED: "purple", GENERAL: "cyan", COMPUTE: "geekblue" };
+const TYPE_COLORS = { GPU: "blue", CPU: "orange", NPU: "green", MIXED: "purple", GENERAL: "cyan", COMPUTE: "geekblue", K8S_POOL: "volcano" };
 
 const NODE_STATUS_BADGE = {
   ONLINE: "success", OFFLINE: "default", BUSY: "processing", ERROR: "error", MAINTENANCE: "warning"
@@ -400,6 +400,7 @@ export default function ResourcePoolList() {
               { value: "CPU", label: "CPU" },
               { value: "NPU", label: "NPU" },
               { value: "MIXED", label: "混合" },
+              { value: "K8S_POOL", label: "K8s 集群池" },
             ]} />
           </Form.Item>
           <Form.Item name="description" label="描述">

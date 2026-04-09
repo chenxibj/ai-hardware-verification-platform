@@ -25,6 +25,10 @@ import Assets from "../pages/Assets";
 import Users from "../pages/Users";
 import Audit from "../pages/Audit";
 import ResourceMonitor from "../pages/ResourceMonitor";
+import AlertConfig from "../pages/AlertConfig";
+import SelfHealing from "../pages/SelfHealing";
+import ClusterList from "../pages/ClusterList";
+import K8sAgent from "../pages/K8sAgent";
 import Leaderboard from "../pages/Leaderboard";
 import CommunityResources from "../pages/CommunityResources";
 // 保留旧页面路由
@@ -71,6 +75,10 @@ const PAGE_COMPONENTS = {
   community: Community,
   "audit-logs": AuditLogs,
   "resource-monitor": ResourceMonitor,
+  "alert-config": AlertConfig,
+  "self-healing": SelfHealing,
+  "clusters": ClusterList,
+  "k8s-agent": K8sAgent,
   settings: Settings,
   forum: Forum,
   "demand-board": DemandBoard,
