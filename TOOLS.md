@@ -40,6 +40,19 @@
 - **配置:** 4C 14GB / 40GB / CentOS Stream 9
 - **命令:** `ssh -i ~/.ssh/dev-ecs.pem root@39.97.251.94`
 
+## SSH - GPU 测试机（L40S x8）
+
+- **Host:** 180.184.249.205
+- **Port:** 12345
+- **User:** root
+- **Key:** ~/.ssh/sshkey-chenxi.pem（不存 workspace）
+- **密钥名称:** sshkey-chenxi
+- **指纹:** SHA256:rNUC1ty2VyvUE2ALcPkVWRNNjk48oR6I+ymHX+xoXE0
+- **主机名:** ecs-testchenxi-l40s
+- **配置:** 128C / 503GB RAM / 865GB SSD / Ubuntu 24.04.1 LTS
+- **GPU:** NVIDIA L40S × 8
+- **命令:** `ssh -i ~/.ssh/sshkey-chenxi.pem -p 12345 root@180.184.249.205`
+
 ## Docker
 
 - **版本:** Docker 26.1.3 + Compose v2.27.0
