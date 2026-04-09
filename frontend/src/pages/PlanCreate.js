@@ -2,6 +2,7 @@
  * @file PlanCreate.js
  * @description 创建评测任务 — 6步向导
  * Issue: #162 - 评测任务创建6步向导
+ * @feat #251 - 资源池选择 + least_loaded 调度
  * Steps: 选芯片 → 选模板 → 选评测项 → 配参数 → 选节点 → 确认提交
  */
 import React, { useState, useEffect, useCallback, useMemo } from "react";
@@ -181,12 +182,16 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
     warmupIterations: 10, benchmarkIterations: 100,
   });
 
-  /* Step 5: 节点 */
+  /* Step 5: 节点 + 资源池 (#251) */
   const [nodes, setNodes] = useState([]);
   const [nodesLoading, setNodesLoading] = useState(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState([]);
-  const [resourceMode, setResourceMode] = useState("shared");
+  const [resourceMode, setResourceMode] = useState("auto");
   const [nodeTypeFilter, setNodeTypeFilter] = useState("ALL");
+  const [resourcePools, setResourcePools] = useState([]);
+  const [poolsLoading, setPoolsLoading] = useState(false);
+  const [selectedPoolId, setSelectedPoolId] = useState(null);
+  const [selectionMode, setSelectionMode] = useState("pool"); // "pool" or "manual"
 
   /* Step 6: 提交 */
   const [submitting, setSubmitting] = useState(false);
@@ -226,13 +231,24 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
     finally { setNodesLoading(false); }
   }, []);
 
+  /* ── #251: 获取资源池列表 ── */
+  const fetchPools = useCallback(async () => {
+    setPoolsLoading(true);
+    try {
+      const { data: resp } = await api.get("/resource-pools");
+      if (resp.code === 0) setResourcePools(resp.data || []);
+    } catch (e) { message.error("获取资源池列表失败"); }
+    finally { setPoolsLoading(false); }
+  }, []);
+
   useEffect(() => { fetchChips(); fetchTemplates(); }, [fetchChips, fetchTemplates]);
-  useEffect(() => { if (current === 4) fetchNodes(); }, [current, fetchNodes]);
+  useEffect(() => { if (current === 4) { fetchNodes(); fetchPools(); } }, [current, fetchNodes, fetchPools]);
 
   /* ── 导出选中对象 ── */
   const selectedChip = chips.find(c => c.id === selectedChipId);
   const selectedTemplate = templates.find(t => t.id === selectedTemplateId);
   const selectedPresetObj = PRESETS.find(p => p.key === selectedPreset);
+  const selectedPool = resourcePools.find(p => p.id === selectedPoolId);
 
   /* ── 当模板变化时自动填充评测项 ── */
   useEffect(() => {
@@ -311,11 +327,14 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
         chipId: selectedChipId,
         templateId: selectedTemplateId,
         preset: selectedPreset,
+        resourcePoolId: selectedPoolId || null,
         evalConfig: JSON.stringify({
           preset: selectedPreset,
           templateId: selectedTemplateId,
           templateName: selectedTemplate?.name,
           nodeIds: selectedNodeIds,
+          resourcePoolId: selectedPoolId || null,
+          schedulingStrategy: selectedPoolId ? "least_loaded" : "manual",
           resourceMode,
           timeout: advancedConfig.timeout,
           retryCount: advancedConfig.retryCount,
@@ -359,7 +378,7 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
     if (current === 1) return selectedTemplateId !== null;
     if (current === 2) return true; // 评测项自动填充
     if (current === 3) return selectedPreset !== null;
-    if (current === 4) return true; // 节点可选
+    if (current === 4) return true; // 资源池或节点可选
     return true;
   };
 
@@ -819,6 +838,65 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
       );
     };
 
+    /* #251: 资源池卡片 */
+    const renderPoolSelection = () => (
+      <Spin spinning={poolsLoading}>
+        <div style={{ marginBottom: 16 }}>
+          <Text type="secondary">选择资源池，系统将自动分配池内负载最低的节点执行任务 (least_loaded 调度)</Text>
+        </div>
+        {resourcePools.length === 0 ? (
+          <Empty description="暂无资源池" />
+        ) : (
+          <Row gutter={[16, 16]}>
+            {resourcePools.filter(p => p.status === "ACTIVE").map(pool => {
+              const isSelected = selectedPoolId === pool.id;
+              return (
+                <Col xs={24} sm={12} md={8} key={pool.id}>
+                  <Card
+                    hoverable
+                    onClick={() => { setSelectedPoolId(isSelected ? null : pool.id); setSelectedNodeIds([]); }}
+                    style={{
+                      border: isSelected ? "2px solid #1890ff" : "1px solid #f0f0f0",
+                      background: isSelected ? "#e6f7ff" : "#fff",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                      <Space style={{ width: "100%", justifyContent: "space-between" }}>
+                        <Space>
+                          <CloudServerOutlined style={{ color: "#1890ff" }} />
+                          <Text strong>{pool.name}</Text>
+                          {isSelected && <CheckCircleOutlined style={{ color: "#1890ff" }} />}
+                        </Space>
+                        <Tag color="green">{pool.type}</Tag>
+                      </Space>
+                      <Text type="secondary" style={{ fontSize: 12 }}>{pool.description || "无描述"}</Text>
+                      <Space size={8} style={{ marginTop: 4 }}>
+                        <Tag color={pool.onlineNodeCount > 0 ? "green" : "default"}>
+                          {pool.onlineNodeCount || 0}/{pool.nodeCount || 0} 在线
+                        </Tag>
+                        <Tag>CPU {pool.totalCpu || 0}核</Tag>
+                        <Tag>内存 {Number(pool.totalMemoryGb || 0).toFixed(0)}GB</Tag>
+                        {pool.totalGpu > 0 && <Tag color="blue">GPU ×{pool.totalGpu}</Tag>}
+                      </Space>
+                      {/* least_loaded 提示 */}
+                      {isSelected && (
+                        <div style={{ marginTop: 8, padding: "6px 8px", background: "#f6ffed", borderRadius: 4 }}>
+                          <Text style={{ fontSize: 12, color: "#52c41a" }}>
+                            ⚡ 系统将自动选择池内负载最低的在线节点
+                          </Text>
+                        </div>
+                      )}
+                    </Space>
+                  </Card>
+                </Col>
+              );
+            })}
+          </Row>
+        )}
+      </Spin>
+    );
+
     // Filter nodes by type
     const filteredNodes = nodeTypeFilter === "ALL" ? nodes : nodes.filter(n => {
       const tags = (n.tags || "").toUpperCase();
@@ -833,6 +911,22 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
     const onlineNodes = nodes.filter(n => n.status === "ONLINE" || n.status === "BUSY");
 
     return (
+      <div>
+        {/* #251: 选择模式切换 */}
+        <div style={{ marginBottom: 16, display: "flex", gap: 8 }}>
+          <Button type={selectionMode === "pool" ? "primary" : "default"} size="small"
+            icon={<CloudServerOutlined />}
+            onClick={() => { setSelectionMode("pool"); setSelectedNodeIds([]); }}>
+            按资源池选择（推荐）
+          </Button>
+          <Button type={selectionMode === "manual" ? "primary" : "default"} size="small"
+            icon={<ClusterOutlined />}
+            onClick={() => { setSelectionMode("manual"); setSelectedPoolId(null); }}>
+            手动选择节点
+          </Button>
+        </div>
+
+        {selectionMode === "pool" ? renderPoolSelection() : (
       <Spin spinning={nodesLoading}>
         <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
           <Text type="secondary">选择执行评测的计算节点（可多选）</Text>
@@ -964,6 +1058,8 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
           </Card>
         )}
       </Spin>
+        )}
+      </div>
     );
   };
   /* ══════════════════════════════════════════════════════════
@@ -1005,14 +1101,30 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
             <Text strong style={{ color: selectedPresetObj?.color }}>{selectedPresetObj?.title}</Text>
           </Descriptions.Item>
           <Descriptions.Item label="方案说明">{selectedPresetObj?.desc}</Descriptions.Item>
-          <Descriptions.Item label="⑤ 执行节点" span={2}>
-            {selectedNodes.length > 0
-              ? selectedNodes.map(n => <Tag key={n.id} color="blue">{n.name}</Tag>)
-              : <Text type="secondary">未指定（将自动分配）</Text>
-            }
+          <Descriptions.Item label="⑤ 资源分配" span={2}>
+            {selectedPool ? (
+              <Space direction="vertical" size={2}>
+                <Space>
+                  <CloudServerOutlined style={{ color: "#1890ff" }} />
+                  <Text strong>资源池: {selectedPool.name}</Text>
+                  <Tag color="green">{selectedPool.type}</Tag>
+                </Space>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  调度策略: least_loaded（自动分配负载最低节点）· 在线节点 {selectedPool.onlineNodeCount || 0}/{selectedPool.nodeCount || 0}
+                </Text>
+              </Space>
+            ) : selectedNodes.length > 0 ? (
+              <Space wrap>
+                {selectedNodes.map(n => <Tag key={n.id} color="blue">{n.name}</Tag>)}
+              </Space>
+            ) : (
+              <Text type="secondary">未指定（将自动分配）</Text>
+            )}
           </Descriptions.Item>
-          <Descriptions.Item label="资源模式">
-            <Tag>{resourceMode === "exclusive" ? "独占" : "共享"}</Tag>
+          <Descriptions.Item label="调度方式">
+            <Tag color={selectedPool ? "green" : "blue"}>
+              {selectedPool ? "⚡ least_loaded" : resourceMode === "exclusive" ? "🔒 独占" : "🔄 共享"}
+            </Tag>
           </Descriptions.Item>
           <Descriptions.Item label="超时/重试">
             {advancedConfig.timeout}s / 重试{advancedConfig.retryCount}次
