@@ -332,8 +332,8 @@ import threading
 import time
 import requests as http_requests
 
-PLATFORM_URL = "http://localhost:8080/api"
-AGENT_TOKEN = "ahvp-agent-secret-2026"
+PLATFORM_URL = os.environ.get("AHVP_PLATFORM_URL", "http://39.97.251.94/api")
+AGENT_TOKEN = os.environ.get("AHVP_AGENT_TOKEN", "ahvp-agent-secret-2026")
 K8S_NODE_ID = None  # 注册后填入
 
 def _register_k8s_node():

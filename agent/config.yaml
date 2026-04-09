@@ -1,21 +1,15 @@
-# 节点 Agent 配置
-platform:
-  url: "http://localhost:8080/api"
-  # Agent 认证 Token（与后端约定）
-  token: "ahvp-agent-secret-2026"
-
-node:
-  name: "dev-node-01"
-  description: "开发测试节点 - CentOS Stream 9, 4C 14GB"
-  tags: "cpu,dev,centos"
-
 agent:
+  host: 0.0.0.0
   port: 8090
-  host: "0.0.0.0"
-
+eval_scripts_dir: ../eval-scripts
 heartbeat:
-  interval: 30  # 秒
-
-# 评测脚本根目录（绝对路径或相对于 agent 目录的相对路径）
-eval_scripts_dir: "../eval-scripts"
-project_root: ".."
+  interval: 30
+node:
+  description: 开发测试节点 - CentOS Stream 9, 4C 14GB
+  name: dev-node-01
+  tags: cpu,dev,centos
+platform:
+  public_url: http://39.97.251.94/api
+  token: ahvp-agent-secret-2026
+  url: http://localhost:8080/api
+project_root: ..

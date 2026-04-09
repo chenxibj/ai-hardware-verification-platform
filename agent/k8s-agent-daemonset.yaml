@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ahvp-agent
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: ahvp-agent
+  template:
+    metadata:
+      labels:
+        app: ahvp-agent
+    spec:
+      containers:
+      - command:
+        - /bin/sh
+        - -c
+        - "PLATFORM=\"$PLATFORM_URL\"\nTOKEN=\"$AGENT_TOKEN\"\nNODE_IP=$(ip route\
+          \ get 8.8.8.8 | head -1 | sed \"s/.*src //\" | sed \"s/ .*//\")\necho \"\
+          [agent] node=$NODE_NAME ip=$NODE_IP platform=$PLATFORM\"\nBODY=\"{\\\"name\\\
+          \":\\\"k8s-$NODE_NAME\\\",\\\"ip\\\":\\\"$NODE_IP\\\",\\\"port\\\":8090,\\\
+          \"tags\\\":\\\"k8s,ack,auto-deployed\\\"}\"\nRESP=$(wget -q -O - --header=\"\
+          Content-Type: application/json\" --header=\"X-Agent-Token: $TOKEN\" --post-data=\"\
+          $BODY\" \"$PLATFORM/nodes/register\" 2>&1)\nNODE_ID=$(echo \"$RESP\" | sed\
+          \ \"s/.*\\\"id\\\"://\" | sed \"s/,.*//\" | head -1)\necho \"[agent] registered:\
+          \ id=$NODE_ID\"\nwhile true; do\n  wget -q -O /dev/null --header=\"Content-Type:\
+          \ application/json\" --header=\"X-Agent-Token: $TOKEN\" --post-data=\"{\\\
+          \"cpuUsage\\\":5,\\\"memoryUsage\\\":30,\\\"diskUsage\\\":20}\" \"$PLATFORM/nodes/$NODE_ID/heartbeat\"\
+          \ 2>/dev/null\n  echo \"[agent] heartbeat $NODE_ID\"\n  sleep 30\ndone"
+        env:
+        - name: PLATFORM_URL
+          value: http://39.97.251.94/api
+        - name: AGENT_TOKEN
+          value: ahvp-agent-secret-2026
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        image: registry-vpc.cn-beijing.aliyuncs.com/acs/busybox:v1.29.2
+        name: agent
+        resources:
+          limits:
+            cpu: 100m
+            memory: 64Mi
+          requests:
+            cpu: 10m
+            memory: 16Mi
+      hostNetwork: true
