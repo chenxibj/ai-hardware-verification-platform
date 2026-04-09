@@ -170,7 +170,7 @@ test.describe('Feature: 评测报告对比分析', () => {
 
     // Then 应该展示对比结果
     // 包含"对比分析"标题或维度评分表
-    const compareResult = page.locator('text=报告对比分析, text=综合评分对比, text=各维度评分对比').first();
+    const compareResult = page.getByText('报告对比分析');
     await expect(compareResult).toBeVisible({ timeout: 15_000 });
   });
 
