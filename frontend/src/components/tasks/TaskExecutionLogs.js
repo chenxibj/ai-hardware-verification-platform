@@ -276,10 +276,19 @@ export default function TaskExecutionLogs({ taskId, taskStatus }) {
             );
           })
         ) : (
-          <div style={{ padding: 16, color: "#666" }}>
-            {isRunning
-              ? "[INFO] 等待日志输出...\n[INFO] 日志将在 Agent 执行任务时实时显示"
-              : "[INFO] 暂无执行日志数据"}
+          <div style={{ padding: 24, textAlign: "center" }}>
+            {isRunning ? (
+              <div style={{ color: "#1890ff" }}>
+                <div style={{ fontSize: 14, marginBottom: 4 }}>[INFO] 等待日志输出...</div>
+                <div style={{ fontSize: 12, color: "#999" }}>日志将在 Agent 执行任务时实时显示</div>
+              </div>
+            ) : (
+              <div style={{ color: "#999" }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
+                <div style={{ fontSize: 14 }}>该任务暂无执行日志</div>
+                <div style={{ fontSize: 12, marginTop: 4 }}>任务执行后日志将在此处展示</div>
+              </div>
+            )}
           </div>
         )}
       </div>

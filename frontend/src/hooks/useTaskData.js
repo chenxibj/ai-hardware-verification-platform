@@ -113,6 +113,14 @@ export default function useTaskData() {
       title: "确定删除？", content: "删除后不可恢复", okText: "删除", okType: "danger",
       onOk: () => api.delete("/tasks/" + id).then(() => {
         message.success("已删除"); fetchTasks(); fetchStats();
+      }).catch((err) => {
+        /* #306: 后端可能因外键约束返回 500，显示友好提示 */
+        const status = err.response?.status;
+        if (status === 500) {
+          message.error("该任务无法删除（可能有关联数据），请先清理子任务和日志");
+        } else {
+          message.error("删除失败: " + (err.displayMessage || err.message));
+        }
       }),
     });
   }, [fetchTasks, fetchStats]);

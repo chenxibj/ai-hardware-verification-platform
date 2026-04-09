@@ -41,6 +41,10 @@ const FRAMEWORK_COLORS = {
 
 /* ── 主组件 ── */
 export default function ChipList({ onOpenProfile, onCompare }) {
+  /* #305: 权限控制 — 仅 admin/super_admin 可删除芯片 */
+  const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
+  const isAdmin = ["admin","super_admin","ADMIN","SUPER_ADMIN"].includes(currentUser.role);
+
   /* state */
   const [chips, setChips] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -237,11 +241,13 @@ export default function ChipList({ onOpenProfile, onCompare }) {
           <Tooltip title="编辑">
             <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)} />
           </Tooltip>
-          <Popconfirm title="确定删除该芯片?" onConfirm={() => handleDelete(record.id)} okText="删除" cancelText="取消">
-            <Tooltip title="删除">
-              <Button type="link" size="small" danger icon={<DeleteOutlined />} />
-            </Tooltip>
-          </Popconfirm>
+          {isAdmin && (
+            <Popconfirm title="确定删除该芯片?" onConfirm={() => handleDelete(record.id)} okText="删除" cancelText="取消">
+              <Tooltip title="删除">
+                <Button type="link" size="small" danger icon={<DeleteOutlined />} />
+              </Tooltip>
+            </Popconfirm>
+          )}
         </Space>
       ),
     },

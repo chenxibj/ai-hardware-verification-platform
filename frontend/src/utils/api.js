@@ -5,6 +5,10 @@ const api = axios.create({ baseURL: "/api" });
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
   if (token) config.headers.Authorization = "Bearer " + token;
+  /* #310: 确保分页参数 page >= 0，防止后端 500 */
+  if (config.params && config.params.page != null) {
+    config.params.page = Math.max(0, parseInt(config.params.page, 10) || 0);
+  }
   return config;
 });
 
@@ -17,9 +21,14 @@ api.interceptors.response.use(
       const data = err.response.data;
       // Attach readable error message for consumers
       const backendMsg = data?.message || data?.error || "";
-      err.displayMessage = backendMsg
-        ? `[${status}] ${backendMsg}`
-        : `请求失败 (HTTP ${status})`;
+      /* #309: 检测 JSON 解析错误，显示友好提示 */
+      const isJsonParseError = status === 500 && backendMsg &&
+        (/parse|json|malformed|deserializ/i.test(backendMsg));
+      err.displayMessage = isJsonParseError
+        ? "请求格式错误，请检查输入数据"
+        : backendMsg
+          ? `[${status}] ${backendMsg}`
+          : `请求失败 (HTTP ${status})`;
       // Don't auto-logout for auth endpoints (login/register failures return 401/400)
       const isAuthEndpoint = url.includes("/auth/login") || url.includes("/auth/register");
       if (!isAuthEndpoint && (status === 401 || (status === 403 && localStorage.getItem("token")))) {
