@@ -30,6 +30,7 @@ import AlertConfig from "../pages/AlertConfig";
 import SelfHealing from "../pages/SelfHealing";
 import ClusterList from "../pages/ClusterList";
 import K8sAgent from "../pages/K8sAgent";
+import ResourceOnboard from "../pages/ResourceOnboard";
 import Leaderboard from "../pages/Leaderboard";
 import CommunityResources from "../pages/CommunityResources";
 import ReportCompare from "../pages/ReportCompare";
@@ -84,6 +85,7 @@ const PAGE_COMPONENTS = {
   "self-healing": SelfHealing,
   clusters: ClusterList,
   "k8s-agent": K8sAgent,
+  "resource-onboard": ResourceOnboard,
   settings: Settings,
   forum: Forum,
   "demand-board": DemandBoard,
@@ -229,6 +231,7 @@ export default function AppRoutes({
     return (
       <NodeList
         onOpenDetail={(id) => { if (setNodeDetailId) setNodeDetailId(id); }}
+        onOpenOnboard={() => setCurrentPage("resource-onboard")}
       />
     );
   }
@@ -238,6 +241,14 @@ export default function AppRoutes({
       <PlanCreate
         onOpenMonitor={(id) => setPlanMonitorId(id)}
         onBack={() => setCurrentPage("plans")}
+      />
+    );
+  }
+
+  if (currentPage === "resource-onboard") {
+    return (
+      <ResourceOnboard
+        onBack={() => setCurrentPage("nodes")}
       />
     );
   }

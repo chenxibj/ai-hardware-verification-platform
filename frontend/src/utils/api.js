@@ -77,3 +77,23 @@ export const healthApi = {
 };
 
 export default api;
+
+/* Agent 直连 API — K8s 集群管理（通过 agent:8090） */
+const agentApi = axios.create({ baseURL: "/agent-api" });
+
+export const k8sApi = {
+  clusterInfo: () => agentApi.get("/k8s/cluster-info"),
+  nodes: () => agentApi.get("/k8s/nodes"),
+  validate: (kubeconfig) =>
+    agentApi.post("/k8s/validate", { kubeconfig }),
+  deployAgent: (data) => agentApi.post("/k8s/deploy-agent", data),
+  registerNodes: (data) => agentApi.post("/k8s/register-nodes", data),
+};
+
+export const nodeApi = {
+  list: (params) => api.get("/nodes", { params }),
+  get: (id) => api.get("/nodes/" + id),
+  register: (data) => api.post("/nodes/register", data),
+  delete: (id) => api.delete("/nodes/" + id),
+  update: (id, data) => api.put("/nodes/" + id, data),
+};

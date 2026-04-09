@@ -59,7 +59,7 @@ executor = None
 @app.before_request
 def verify_token():
     """请求认证中间件 (#213) - 平台→Agent 通信认证"""
-    if request.path == '/status':
+    if request.path == '/status' or request.path.startswith('/api/k8s/'):
         return  # 健康检查不需要认证
     token = request.headers.get('X-Agent-Token')
     if token != config['platform']['token']:

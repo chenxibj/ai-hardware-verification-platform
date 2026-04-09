@@ -110,7 +110,21 @@ const collectAllTagKeys = (nodes) => {
   return Array.from(keys).sort();
 };
 
-export default function NodeList({ onOpenDetail }) {
+
+/** 从标签中提取来源信息 */
+const extractSource = (tags) => {
+  if (!tags) return { type: "manual", label: "手动" };
+  const parsed = parseTags(tags);
+  const sourceTag = parsed.find(t => t.key === "source");
+  if (sourceTag && sourceTag.value === "k8s") {
+    const clusterTag = parsed.find(t => t.key === "cluster");
+    const clusterName = clusterTag ? clusterTag.value : "unknown";
+    return { type: "k8s", label: "K8s-" + clusterName };
+  }
+  return { type: "manual", label: "手动" };
+};
+
+export default function NodeList({ onOpenDetail, onOpenOnboard }) {
   const [nodes, setNodes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -596,6 +610,22 @@ export default function NodeList({ onOpenDetail }) {
       },
     },
     {
+      title: "来源",
+      width: 110,
+      render: (_, record) => {
+        const src = extractSource(record.tags);
+        if (src.type === "k8s") {
+          return (
+            <Tooltip title={"K8s 集群节点"}>
+              <Tag color="purple" icon={<ClusterOutlined />}>{src.label}</Tag>
+            </Tooltip>
+          );
+        }
+        return <Tag color="default">{src.label}</Tag>;
+      },
+    },
+
+    {
       title: "状态",
       dataIndex: "status",
       width: 100,
@@ -758,6 +788,7 @@ export default function NodeList({ onOpenDetail }) {
             </Select>
             <Button icon={<ReloadOutlined />} onClick={fetchNodes}>刷新</Button>
             <Button type="primary" icon={<PlusOutlined />} onClick={handleRegister}>注册节点</Button>
+            <Button type="primary" icon={<ClusterOutlined />} onClick={() => onOpenOnboard && onOpenOnboard()} style={{ background: "#722ed1", borderColor: "#722ed1" }}>纳管资源</Button>
           </Space>
         }
       >
