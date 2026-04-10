@@ -156,6 +156,23 @@ public class DigitalAssetService {
         return stats;
     }
 
+
+    /**
+     * 批量删除资产 (#329)
+     */
+    public int batchDelete(List<Long> ids) {
+        int count = 0;
+        for (Long id : ids) {
+            try {
+                delete(id);
+                count++;
+            } catch (Exception e) {
+                log.warn("Failed to delete asset {}: {}", id, e.getMessage());
+            }
+        }
+        return count;
+    }
+
     public Path getFilePath(Long id) {
         DigitalAsset asset = getById(id);
         if (asset.getFilePath() == null) {

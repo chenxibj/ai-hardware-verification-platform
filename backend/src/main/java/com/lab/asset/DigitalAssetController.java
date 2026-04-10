@@ -130,6 +130,21 @@ public class DigitalAssetController {
                 .body(resource);
     }
 
+
+    /**
+     * 批量删除资产 (#329)
+     */
+    @DeleteMapping("/batch")
+    @RequireRole(Role.ENGINEER)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> batchDelete(
+            @RequestParam List<Long> ids) {
+        int deleted = assetService.batchDelete(ids);
+        Map<String, Object> result = new java.util.HashMap<>();
+        result.put("deleted", deleted);
+        result.put("requested", ids.size());
+        return ResponseEntity.ok(ApiResponse.ok(result));
+    }
+
     /**
      * 删除资产
      */
