@@ -32,14 +32,16 @@ public class ComputeNodeController {
     @GetMapping
     public ApiResponse<List<ComputeNode>> list(
             @RequestParam(required = false) String status,
-            @RequestParam(required = false) String type) {
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) String source,
+            @RequestParam(required = false) Long clusterId) {
         ComputeNode.Status statusEnum = null;
         if (status != null && !status.isBlank()) {
             try {
                 statusEnum = ComputeNode.Status.valueOf(status.toUpperCase());
             } catch (IllegalArgumentException ignored) {}
         }
-        return ApiResponse.ok(service.list(statusEnum, type));
+        return ApiResponse.ok(service.list(statusEnum, type, source, clusterId));
     }
 
     /**
@@ -108,10 +110,40 @@ public class ComputeNodeController {
 
     /**
      * POST /nodes/register — Agent 注册端点（permitAll in SecurityConfig）
+     * 支持 cluster_name / cluster_id 关联 K8s 集群
      */
     @PostMapping("/register")
-    public ApiResponse<ComputeNode> agentRegister(@RequestBody ComputeNode node) {
-        return ApiResponse.ok(service.register(node));
+    public ApiResponse<ComputeNode> agentRegister(@RequestBody Map<String, Object> body) {
+        ComputeNode node = new ComputeNode();
+        if (body.containsKey("name")) node.setName(String.valueOf(body.get("name")));
+        if (body.containsKey("ipAddress")) node.setIpAddress(String.valueOf(body.get("ipAddress")));
+        if (body.containsKey("ip_address")) node.setIpAddress(String.valueOf(body.get("ip_address")));
+        if (body.containsKey("agentPort")) node.setAgentPort(((Number) body.get("agentPort")).intValue());
+        if (body.containsKey("agent_port")) node.setAgentPort(((Number) body.get("agent_port")).intValue());
+        if (body.containsKey("description")) node.setDescription(String.valueOf(body.get("description")));
+        if (body.containsKey("tags")) node.setTags(String.valueOf(body.get("tags")));
+        if (body.containsKey("hardwareInfo")) node.setHardwareInfo(String.valueOf(body.get("hardwareInfo")));
+        if (body.containsKey("hardware_info")) node.setHardwareInfo(String.valueOf(body.get("hardware_info")));
+
+        // K8s cluster association
+        Long clusterId = null;
+        String clusterName = null;
+        if (body.containsKey("clusterId")) clusterId = ((Number) body.get("clusterId")).longValue();
+        if (body.containsKey("cluster_id")) clusterId = ((Number) body.get("cluster_id")).longValue();
+        if (body.containsKey("clusterName")) clusterName = String.valueOf(body.get("clusterName"));
+        if (body.containsKey("cluster_name")) clusterName = String.valueOf(body.get("cluster_name"));
+
+        if (clusterId != null || clusterName != null) {
+            node.setSource("k8s-daemonset");
+            node.setClusterId(clusterId);
+        }
+
+        // If clusterName provided but no clusterId, try to resolve
+        if (clusterId == null && clusterName != null) {
+            node.setDescription("K8s cluster: " + clusterName);
+        }
+
+        return ApiResponse.ok(service.registerWithCluster(node, clusterId, clusterName));
     }
 
     @PutMapping("/{id}")
@@ -132,11 +164,22 @@ public class ComputeNodeController {
             @PathVariable Long id,
             @RequestBody(required = false) Map<String, Object> body) {
         String hardwareInfo = null;
-        if (body != null && body.containsKey("hardwareInfo")) {
-            Object hw = body.get("hardwareInfo");
-            hardwareInfo = hw != null ? hw.toString() : null;
+        Long clusterId = null;
+        String clusterName = null;
+
+        if (body != null) {
+            if (body.containsKey("hardwareInfo")) {
+                Object hw = body.get("hardwareInfo");
+                hardwareInfo = hw != null ? hw.toString() : null;
+            }
+            // Support cluster association in heartbeat
+            if (body.containsKey("clusterId")) clusterId = ((Number) body.get("clusterId")).longValue();
+            if (body.containsKey("cluster_id")) clusterId = ((Number) body.get("cluster_id")).longValue();
+            if (body.containsKey("clusterName")) clusterName = String.valueOf(body.get("clusterName"));
+            if (body.containsKey("cluster_name")) clusterName = String.valueOf(body.get("cluster_name"));
         }
-        ComputeNode node = service.heartbeat(id, hardwareInfo);
+
+        ComputeNode node = service.heartbeatWithCluster(id, hardwareInfo, clusterId, clusterName);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", node.getId());
         result.put("status", node.getStatus().name());
@@ -146,7 +189,6 @@ public class ComputeNodeController {
 
     /**
      * POST /api/nodes/{id}/diagnose — 节点诊断
-     * 检查节点连通性、agent进程、心跳状态
      */
     @PostMapping("/{id}/diagnose")
     public ApiResponse<Map<String, Object>> diagnose(@PathVariable Long id) {
@@ -182,7 +224,7 @@ public class ComputeNodeController {
             suggestions.add("请在节点管理中配置正确的 IP 地址");
         }
 
-        // 2. Check SSH connectivity (if IP and SSH config available)
+        // 2. Check SSH connectivity
         boolean sshOk = false;
         if (pingOk && node.getIpAddress() != null) {
             String sshUser = node.getSshUser() != null ? node.getSshUser() : "root";
@@ -214,7 +256,7 @@ public class ComputeNodeController {
             result.put("sshConnectable", "N/A");
         }
 
-        // 3. Check agent process (via SSH if available)
+        // 3. Check agent process
         boolean agentRunning = false;
         if (sshOk && node.getIpAddress() != null) {
             String sshUser = node.getSshUser() != null ? node.getSshUser() : "root";
@@ -251,7 +293,6 @@ public class ComputeNodeController {
             long minutes = sinceLast.toMinutes();
             result.put("lastHeartbeat", node.getLastHeartbeat().toString());
             result.put("minutesSinceHeartbeat", minutes);
-
             if (minutes > 5) {
                 issues.add("最后心跳在 " + minutes + " 分钟前（超过5分钟阈值）");
                 if (minutes > 60) {
@@ -285,7 +326,6 @@ public class ComputeNodeController {
 
     /**
      * POST /api/nodes/{id}/repair — 节点修复
-     * 尝试重启 agent 进程，更新节点状态
      */
     @PostMapping("/{id}/repair")
     @RequireRole(Role.ENGINEER)
@@ -307,7 +347,6 @@ public class ComputeNodeController {
         String sshUser = node.getSshUser() != null ? node.getSshUser() : "root";
         int sshPort = node.getSshPort() != null ? node.getSshPort() : 22;
 
-        // Step 1: Try to kill existing agent process
         try {
             ProcessBuilder pb = new ProcessBuilder(
                 "ssh", "-o", "StrictHostKeyChecking=no",
@@ -319,14 +358,13 @@ public class ComputeNodeController {
             pb.redirectErrorStream(true);
             Process process = pb.start();
             BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-            String line = reader.readLine();
+            reader.readLine();
             process.waitFor();
             actions.add("停止旧 agent 进程");
         } catch (Exception e) {
             actions.add("停止旧进程失败: " + e.getMessage());
         }
 
-        // Step 2: Try to restart agent
         try {
             ProcessBuilder pb = new ProcessBuilder(
                 "ssh", "-o", "StrictHostKeyChecking=no",
@@ -343,7 +381,7 @@ public class ComputeNodeController {
             while ((line = reader.readLine()) != null) {
                 output.append(line).append("\n");
             }
-            int exitCode = process.waitFor();
+            process.waitFor();
             String outputStr = output.toString().trim();
             if (outputStr.contains("STARTED")) {
                 actions.add("Agent 进程已重启");
@@ -355,7 +393,6 @@ public class ComputeNodeController {
             actions.add("重启 agent 失败: " + e.getMessage());
         }
 
-        // Step 3: Update node status
         if (success) {
             node.setStatus(ComputeNode.Status.ONLINE);
             node.setErrorMessage(null);

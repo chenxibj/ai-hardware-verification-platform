@@ -2,6 +2,10 @@ package com.lab.node;
 
 import com.lab.common.BusinessException;
 import com.lab.common.ErrorCode;
+import com.lab.k8s.K8sCluster;
+import com.lab.k8s.K8sClusterRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Sort;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -16,25 +20,52 @@ import java.util.UUID;
 @Service
 public class ComputeNodeService {
 
-    private final ComputeNodeRepository repo;
+    private static final Logger log = LoggerFactory.getLogger(ComputeNodeService.class);
 
-    public ComputeNodeService(ComputeNodeRepository repo) {
+    private final ComputeNodeRepository repo;
+    private final K8sClusterRepository clusterRepo;
+
+    public ComputeNodeService(ComputeNodeRepository repo, K8sClusterRepository clusterRepo) {
         this.repo = repo;
+        this.clusterRepo = clusterRepo;
     }
 
-    public List<ComputeNode> list(ComputeNode.Status status, String type) {
+    /**
+     * 节点列表 — 支持 source 和 clusterId 过滤
+     */
+    public List<ComputeNode> list(ComputeNode.Status status, String type, String source, Long clusterId) {
         List<ComputeNode> nodes;
         if (status != null) {
             nodes = repo.findByStatus(status);
         } else {
             nodes = repo.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
         }
+        // Filter by type (tags)
         if (type != null && !type.isBlank()) {
             nodes = nodes.stream()
                     .filter(n -> n.getTags() != null && n.getTags().toUpperCase().contains(type.toUpperCase()))
                     .toList();
         }
+        // Filter by source
+        if (source != null && !source.isBlank()) {
+            nodes = nodes.stream()
+                    .filter(n -> source.equalsIgnoreCase(n.getSource()))
+                    .toList();
+        }
+        // Filter by clusterId
+        if (clusterId != null) {
+            nodes = nodes.stream()
+                    .filter(n -> clusterId.equals(n.getClusterId()))
+                    .toList();
+        }
         return nodes;
+    }
+
+    /**
+     * Backward compatible list method
+     */
+    public List<ComputeNode> list(ComputeNode.Status status, String type) {
+        return list(status, type, null, null);
     }
 
     public ComputeNode getById(Long id) {
@@ -44,13 +75,11 @@ public class ComputeNodeService {
 
     /**
      * 注册节点 - 支持重复注册（幂等）
-     * 如果同名节点已存在，更新硬件信息并返回
      */
     @Transactional
     public ComputeNode register(ComputeNode node) {
         Optional<ComputeNode> existing = repo.findByName(node.getName());
         if (existing.isPresent()) {
-            // Re-registration: update hardware info and bring online
             ComputeNode ex = existing.get();
             if (node.getHardwareInfo() != null) ex.setHardwareInfo(node.getHardwareInfo());
             if (node.getDescription() != null) ex.setDescription(node.getDescription());
@@ -61,13 +90,45 @@ public class ComputeNodeService {
             ex.setErrorMessage(null);
             return repo.save(ex);
         }
-        // New registration
         String token = UUID.randomUUID().toString().replace("-", "");
         node.setSshKey(token);
         if (node.getStatus() == null) {
             node.setStatus(ComputeNode.Status.OFFLINE);
         }
+        if (node.getSource() == null) {
+            node.setSource("manual");
+        }
         return repo.save(node);
+    }
+
+    /**
+     * 注册节点 — 支持 K8s 集群关联
+     */
+    @Transactional
+    public ComputeNode registerWithCluster(ComputeNode node, Long clusterId, String clusterName) {
+        // Resolve cluster
+        if (clusterId == null && clusterName != null) {
+            clusterRepo.findByName(clusterName).ifPresent(c -> {
+                node.setClusterId(c.getId());
+            });
+        } else if (clusterId != null) {
+            node.setClusterId(clusterId);
+        }
+
+        if (node.getSource() == null && node.getClusterId() != null) {
+            node.setSource("k8s-daemonset");
+        }
+
+        ComputeNode saved = register(node);
+
+        // If registered with cluster, also update existing node's cluster fields
+        if (node.getClusterId() != null) {
+            saved.setClusterId(node.getClusterId());
+            saved.setSource(node.getSource() != null ? node.getSource() : "k8s-daemonset");
+            saved = repo.save(saved);
+        }
+
+        return saved;
     }
 
     @Transactional
@@ -115,7 +176,30 @@ public class ComputeNodeService {
     }
 
     /**
-     * Scheduled task: mark nodes offline if no heartbeat in 2 minutes (PRD v2.0)
+     * 心跳 — 支持集群关联
+     */
+    @Transactional
+    public ComputeNode heartbeatWithCluster(Long id, String hardwareInfo, Long clusterId, String clusterName) {
+        ComputeNode node = heartbeat(id, hardwareInfo);
+
+        // Associate with cluster if provided
+        if (clusterId != null) {
+            node.setClusterId(clusterId);
+            node.setSource("k8s-daemonset");
+            node = repo.save(node);
+        } else if (clusterName != null && node.getClusterId() == null) {
+            clusterRepo.findByName(clusterName).ifPresent(c -> {
+                node.setClusterId(c.getId());
+                node.setSource("k8s-daemonset");
+                repo.save(node);
+            });
+        }
+
+        return node;
+    }
+
+    /**
+     * Scheduled: mark offline nodes + update cluster counts for k8s-daemonset nodes
      */
     @Scheduled(fixedRate = 30000)
     @Transactional
@@ -126,6 +210,7 @@ public class ComputeNodeService {
             if (node.getLastHeartbeat() == null || node.getLastHeartbeat().isBefore(threshold)) {
                 node.setStatus(ComputeNode.Status.OFFLINE);
                 repo.save(node);
+                log.debug("节点 {} 心跳超时，标记为 OFFLINE", node.getName());
             }
         }
         List<ComputeNode> busyNodes = repo.findByStatus(ComputeNode.Status.BUSY);
@@ -133,6 +218,7 @@ public class ComputeNodeService {
             if (node.getLastHeartbeat() == null || node.getLastHeartbeat().isBefore(threshold)) {
                 node.setStatus(ComputeNode.Status.OFFLINE);
                 repo.save(node);
+                log.debug("节点 {} 心跳超时，标记为 OFFLINE", node.getName());
             }
         }
     }

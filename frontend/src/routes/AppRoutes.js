@@ -28,8 +28,6 @@ import Audit from "../pages/Audit";
 import ResourceMonitor from "../pages/ResourceMonitor";
 import AlertConfig from "../pages/AlertConfig";
 import SelfHealing from "../pages/SelfHealing";
-import ClusterList from "../pages/ClusterList";
-import K8sAgent from "../pages/K8sAgent";
 import ResourceOnboard from "../pages/ResourceOnboard";
 import Leaderboard from "../pages/Leaderboard";
 import CommunityResources from "../pages/CommunityResources";
@@ -83,8 +81,6 @@ const PAGE_COMPONENTS = {
   "resource-monitor": ResourceMonitor,
   "alert-config": AlertConfig,
   "self-healing": SelfHealing,
-  clusters: ClusterList,
-  "k8s-agent": K8sAgent,
   "resource-onboard": ResourceOnboard,
   settings: Settings,
   forum: Forum,

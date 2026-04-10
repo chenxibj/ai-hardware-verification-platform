@@ -80,6 +80,18 @@ public class ComputeNode {
     @Column(name = "resource_pool_id")
     private Long resourcePoolId;
 
+    /**
+     * 关联的 K8s 集群 ID（null 表示非 K8s 节点）
+     */
+    @Column(name = "cluster_id")
+    private Long clusterId;
+
+    /**
+     * 节点来源: manual（手动注册）, k8s-daemonset（K8s Agent 自动注册）, k8s-discovery（K8s 节点发现）
+     */
+    @Column(name = "source", length = 50)
+    private String source = "manual";
+
     public enum Status {
         ONLINE, OFFLINE, BUSY, ERROR, MAINTENANCE
     }
