@@ -40,19 +40,16 @@ public class ComputeNodeService {
         } else {
             nodes = repo.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
         }
-        // Filter by type (tags)
         if (type != null && !type.isBlank()) {
             nodes = nodes.stream()
                     .filter(n -> n.getTags() != null && n.getTags().toUpperCase().contains(type.toUpperCase()))
                     .toList();
         }
-        // Filter by source
         if (source != null && !source.isBlank()) {
             nodes = nodes.stream()
                     .filter(n -> source.equalsIgnoreCase(n.getSource()))
                     .toList();
         }
-        // Filter by clusterId
         if (clusterId != null) {
             nodes = nodes.stream()
                     .filter(n -> clusterId.equals(n.getClusterId()))
@@ -61,9 +58,6 @@ public class ComputeNodeService {
         return nodes;
     }
 
-    /**
-     * Backward compatible list method
-     */
     public List<ComputeNode> list(ComputeNode.Status status, String type) {
         return list(status, type, null, null);
     }
@@ -73,9 +67,6 @@ public class ComputeNodeService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "节点不存在: " + id));
     }
 
-    /**
-     * 注册节点 - 支持重复注册（幂等）
-     */
     @Transactional
     public ComputeNode register(ComputeNode node) {
         Optional<ComputeNode> existing = repo.findByName(node.getName());
@@ -108,9 +99,10 @@ public class ComputeNodeService {
     public ComputeNode registerWithCluster(ComputeNode node, Long clusterId, String clusterName) {
         // Resolve cluster
         if (clusterId == null && clusterName != null) {
-            clusterRepo.findByName(clusterName).ifPresent(c -> {
-                node.setClusterId(c.getId());
-            });
+            Optional<K8sCluster> clusterOpt = clusterRepo.findByName(clusterName);
+            if (clusterOpt.isPresent()) {
+                node.setClusterId(clusterOpt.get().getId());
+            }
         } else if (clusterId != null) {
             node.setClusterId(clusterId);
         }
@@ -121,7 +113,7 @@ public class ComputeNodeService {
 
         ComputeNode saved = register(node);
 
-        // If registered with cluster, also update existing node's cluster fields
+        // Ensure cluster fields are set on re-registered nodes too
         if (node.getClusterId() != null) {
             saved.setClusterId(node.getClusterId());
             saved.setSource(node.getSource() != null ? node.getSource() : "k8s-daemonset");
@@ -182,25 +174,22 @@ public class ComputeNodeService {
     public ComputeNode heartbeatWithCluster(Long id, String hardwareInfo, Long clusterId, String clusterName) {
         ComputeNode node = heartbeat(id, hardwareInfo);
 
-        // Associate with cluster if provided
         if (clusterId != null) {
             node.setClusterId(clusterId);
             node.setSource("k8s-daemonset");
-            node = repo.save(node);
+            return repo.save(node);
         } else if (clusterName != null && node.getClusterId() == null) {
-            clusterRepo.findByName(clusterName).ifPresent(c -> {
-                node.setClusterId(c.getId());
+            Optional<K8sCluster> clusterOpt = clusterRepo.findByName(clusterName);
+            if (clusterOpt.isPresent()) {
+                node.setClusterId(clusterOpt.get().getId());
                 node.setSource("k8s-daemonset");
-                repo.save(node);
-            });
+                return repo.save(node);
+            }
         }
 
         return node;
     }
 
-    /**
-     * Scheduled: mark offline nodes + update cluster counts for k8s-daemonset nodes
-     */
     @Scheduled(fixedRate = 30000)
     @Transactional
     public void checkOfflineNodes() {
