@@ -65,7 +65,7 @@ public class TaskLogStreamController {
             }
         }, 0, 2, TimeUnit.SECONDS);
 
-        emitter.onCompletion(future::cancel);
+        emitter.onCompletion(() -> future.cancel(true));
         emitter.onTimeout(() -> {
             future.cancel(true);
             emitter.complete();
