@@ -93,6 +93,28 @@ public class DigitalAssetController {
     }
 
     /**
+     * 全量更新资产 (#322)
+     */
+    @PutMapping("/{id}")
+    @RequireRole(Role.ENGINEER)
+    public ResponseEntity<ApiResponse<DigitalAsset>> update(
+            @PathVariable Long id,
+            @RequestBody DigitalAsset updates) {
+        return ResponseEntity.ok(ApiResponse.ok(assetService.update(id, updates)));
+    }
+
+    /**
+     * 部分更新资产 (#322)
+     */
+    @PatchMapping("/{id}")
+    @RequireRole(Role.ENGINEER)
+    public ResponseEntity<ApiResponse<DigitalAsset>> partialUpdate(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> fields) {
+        return ResponseEntity.ok(ApiResponse.ok(assetService.partialUpdate(id, fields)));
+    }
+
+    /**
      * 下载资产文件
      */
     @GetMapping("/{id}/download")

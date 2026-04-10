@@ -90,6 +90,47 @@ public class DigitalAssetService {
         return repository.save(asset);
     }
 
+    /**
+     * 全量更新资产 (#322)
+     */
+    public DigitalAsset update(Long id, DigitalAsset updates) {
+        DigitalAsset asset = getById(id);
+        if (updates.getName() != null) asset.setName(updates.getName());
+        if (updates.getAssetType() != null) asset.setAssetType(updates.getAssetType());
+        if (updates.getDescription() != null) asset.setDescription(updates.getDescription());
+        if (updates.getVersion() != null) asset.setVersion(updates.getVersion());
+        if (updates.getSourceUrl() != null) asset.setSourceUrl(updates.getSourceUrl());
+        if (updates.getStatus() != null) asset.setStatus(updates.getStatus());
+        if (updates.getTags() != null) asset.setTags(updates.getTags());
+        if (updates.getMetadata() != null) asset.setMetadata(updates.getMetadata());
+        return repository.save(asset);
+    }
+
+    /**
+     * 部分更新资产 (#322)
+     */
+    public DigitalAsset partialUpdate(Long id, java.util.Map<String, Object> fields) {
+        DigitalAsset asset = getById(id);
+        fields.forEach((key, value) -> {
+            switch (key) {
+                case "name" -> asset.setName((String) value);
+                case "assetType" -> asset.setAssetType((String) value);
+                case "description" -> asset.setDescription((String) value);
+                case "version" -> asset.setVersion((String) value);
+                case "sourceUrl" -> asset.setSourceUrl((String) value);
+                case "tags" -> asset.setTags(value instanceof String ? (String) value : value.toString());
+                case "metadata" -> asset.setMetadata(value instanceof String ? (String) value : value.toString());
+                case "status" -> {
+                    if (value instanceof String s) {
+                        asset.setStatus(DigitalAsset.Status.valueOf(s));
+                    }
+                }
+                default -> { /* ignore unknown fields */ }
+            }
+        });
+        return repository.save(asset);
+    }
+
     public void delete(Long id) {
         DigitalAsset asset = getById(id);
         // 删除物理文件
