@@ -55,7 +55,11 @@ public class EvaluationTaskService {
      * 查询任务列表
      */
     @Transactional(readOnly = true)
-    public Page<EvaluationTask> listTasks(Long userId, Long planId, EvaluationTask.TaskStatus status, Pageable pageable) {
+    public Page<EvaluationTask> listTasks(Long userId, Long planId, Long chipId, EvaluationTask.TaskStatus status, Pageable pageable) {
+        // #321: chipId filter takes priority
+        if (chipId != null) {
+            return taskRepository.findByChipId(chipId, pageable);
+        }
         if (planId != null) {
             return taskRepository.findByPlanId(planId, pageable);
         }

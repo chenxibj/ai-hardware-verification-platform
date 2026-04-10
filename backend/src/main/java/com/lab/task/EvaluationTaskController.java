@@ -50,13 +50,14 @@ public class EvaluationTaskController {
     public ResponseEntity<Map<String, Object>> listTasks(
             @RequestParam(required = false) Long userId,
             @RequestParam(required = false) Long planId,
+            @RequestParam(required = false) Long chipId,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         Pageable pageable = PageRequest.of(page, size);
         EvaluationTask.TaskStatus taskStatus = status != null ?
                 EvaluationTask.TaskStatus.valueOf(status) : null;
-        Page<EvaluationTask> tasks = taskService.listTasks(userId, planId, taskStatus, pageable);
+        Page<EvaluationTask> tasks = taskService.listTasks(userId, planId, chipId, taskStatus, pageable);
         Map<String, Object> response = new HashMap<>();
         response.put("code", 0);
         response.put("message", "success");
