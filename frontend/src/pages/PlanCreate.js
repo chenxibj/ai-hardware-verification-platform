@@ -210,7 +210,8 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
       const { data: resp } = await api.get("/chips", { params: { page: 0, size: 100 } });
       if (resp.code === 0) {
         const all = resp.data || [];
-        setChips(all.filter(c => c.status === "UNEVALUATED" || c.status === "EVALUATED"));
+        // Show all chips except DISABLED/DELETED (Problem 7: include EVALUATING)
+        setChips(all.filter(c => !["DISABLED", "DELETED"].includes(c.status)));
       }
     } catch (e) { message.error("获取芯片列表失败"); }
     finally { setChipsLoading(false); }
@@ -431,7 +432,7 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
   const renderStep1 = () => (
     <Spin spinning={chipsLoading}>
       <div style={{ marginBottom: 12 }}>
-        <Text type="secondary">选择要评测的目标芯片（仅显示待评测和已评测状态）</Text>
+        <Text type="secondary">选择要评测的目标芯片</Text>
       </div>
       {chips.length === 0 && !chipsLoading ? (
         <Empty description="暂无可评测芯片">

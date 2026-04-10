@@ -29,21 +29,34 @@ export default function K8sNodesTab({ onDiagnose }) {
   const fetchK8sNodes = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get("/nodes", { params: { source: "k8s-daemonset" } });
-      if (res.data.code === 0) {
-        setNodes(res.data.data || []);
+      // Fetch all clusters first, then get nodes by clusterId for each
+      const clusterRes = await api.get("/k8s/clusters");
+      if (clusterRes.data.code === 0) {
+        const clusters = clusterRes.data.data || [];
+        const allK8sNodes = [];
+        for (const cluster of clusters) {
+          try {
+            const nodeRes = await api.get("/nodes", { params: { clusterId: cluster.id } });
+            if (nodeRes.data.code === 0) {
+              const clusterNodes = (nodeRes.data.data || []).map(n => ({
+                ...n,
+                _clusterName: cluster.name,
+              }));
+              allK8sNodes.push(...clusterNodes);
+            }
+          } catch { /* skip cluster */ }
+        }
+        setNodes(allK8sNodes);
       }
     } catch {
-      // 降级：获取全部节点然后过滤
+      // Fallback: get all nodes with K8s sources
       try {
         const res = await api.get("/nodes");
         if (res.data.code === 0) {
           const all = res.data.data || [];
-          const k8sNodes = all.filter(n => {
-            const tags = parseTags(n.tags);
-            return tags.some(t => t.key === "source" && t.value === "k8s");
-          });
-          setNodes(k8sNodes);
+          setNodes(all.filter(n =>
+            n.source === "k8s-daemonset" || n.source === "k8s-discovery" || n.clusterId != null
+          ));
         }
       } catch {
         setNodes([]);
@@ -57,9 +70,13 @@ export default function K8sNodesTab({ onDiagnose }) {
 
   /* 按集群分组 */
   const groupedByCluster = nodes.reduce((acc, node) => {
-    const tags = parseTags(node.tags);
-    const clusterTag = tags.find(t => t.key === "cluster");
-    const clusterName = clusterTag ? clusterTag.value : "未知集群";
+    // Use _clusterName from enriched data, or fall back to tags/clusterId
+    let clusterName = node._clusterName;
+    if (!clusterName) {
+      const tags = parseTags(node.tags);
+      const clusterTag = tags.find(t => t.key === "cluster");
+      clusterName = clusterTag ? clusterTag.value : (node.clusterId ? `集群 #${node.clusterId}` : "未知集群");
+    }
     if (!acc[clusterName]) acc[clusterName] = [];
     acc[clusterName].push(node);
     return acc;

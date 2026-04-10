@@ -153,12 +153,20 @@ public class K8sClusterService {
                 String nodeIp = k8sNode.get("ip");
                 String fullName = cluster.getName() + "/" + nodeName;
 
+                // Problem 5+6 fix: find by name OR by IP+clusterId to avoid duplicates
                 Optional<ComputeNode> existing = nodeRepo.findByName(fullName);
+                if (existing.isEmpty() && nodeIp != null) {
+                    existing = nodeRepo.findByIpAddressAndClusterId(nodeIp, cluster.getId());
+                }
                 if (existing.isPresent()) {
                     ComputeNode node = existing.get();
                     if (nodeIp != null) node.setIpAddress(nodeIp);
                     node.setStatus(ComputeNode.Status.ONLINE);
                     node.setLastHeartbeat(Instant.now());
+                    node.setClusterId(cluster.getId());
+                    if (!"k8s-daemonset".equals(node.getSource())) {
+                        node.setSource("k8s-discovery");
+                    }
                     nodeRepo.save(node);
                     updated++;
                 } else {

@@ -11,4 +11,5 @@ public interface ComputeNodeRepository extends JpaRepository<ComputeNode, Long> 
     List<ComputeNode> findByResourcePoolIdIsNull();
     List<ComputeNode> findByClusterId(Long clusterId);
     List<ComputeNode> findBySource(String source);
+    Optional<ComputeNode> findByIpAddressAndClusterId(String ipAddress, Long clusterId);
 }

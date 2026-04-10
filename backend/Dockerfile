@@ -12,6 +12,10 @@ FROM eclipse-temurin:17-jre-alpine
 
 WORKDIR /app
 
+# Install kubectl for K8s cluster management (pre-copied binary)
+COPY kubectl /usr/local/bin/kubectl
+RUN chmod +x /usr/local/bin/kubectl
+
 COPY --from=builder /app/target/*.jar app.jar
 
 EXPOSE 8080

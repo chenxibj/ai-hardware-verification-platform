@@ -70,12 +70,18 @@ public class ComputeNodeService {
     @Transactional
     public ComputeNode register(ComputeNode node) {
         Optional<ComputeNode> existing = repo.findByName(node.getName());
+        // Problem 6 fix: also check by IP+clusterId to avoid duplicate nodes
+        if (existing.isEmpty() && node.getIpAddress() != null && node.getClusterId() != null) {
+            existing = repo.findByIpAddressAndClusterId(node.getIpAddress(), node.getClusterId());
+        }
         if (existing.isPresent()) {
             ComputeNode ex = existing.get();
             if (node.getHardwareInfo() != null) ex.setHardwareInfo(node.getHardwareInfo());
             if (node.getDescription() != null) ex.setDescription(node.getDescription());
             if (node.getTags() != null) ex.setTags(node.getTags());
             if (node.getAgentPort() != null) ex.setAgentPort(node.getAgentPort());
+            if (node.getClusterId() != null) ex.setClusterId(node.getClusterId());
+            if (node.getSource() != null) ex.setSource(node.getSource());
             ex.setStatus(ComputeNode.Status.ONLINE);
             ex.setLastHeartbeat(Instant.now());
             ex.setErrorMessage(null);

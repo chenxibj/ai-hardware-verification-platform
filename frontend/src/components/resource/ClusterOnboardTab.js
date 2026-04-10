@@ -17,8 +17,12 @@ import ClusterRegisterSteps from "./ClusterRegisterSteps";
 const { Title, Text } = Typography;
 
 const STATUS_MAP = {
-  CONNECTED: { color: "green", text: "已连接" },
+  REGISTERING: { color: "processing", text: "注册中" },
   DEPLOYING: { color: "processing", text: "部署中" },
+  DISCOVERING: { color: "processing", text: "发现中" },
+  READY: { color: "success", text: "就绪" },
+  ERROR: { color: "error", text: "错误" },
+  CONNECTED: { color: "green", text: "已连接" },
   DISCONNECTED: { color: "red", text: "已断开" },
   PENDING: { color: "orange", text: "连接中" },
   UNKNOWN: { color: "default", text: "未知" },
