@@ -179,7 +179,7 @@ const menuItems = [
   },
 ];
 
-export default function MainLayout({ currentPage, setCurrentPage, children }) {
+export default function MainLayout({ currentPage, setCurrentPage, children, chipProfileId, planMonitorId, taskResultId, nodeDetailId, reportCompareIds }) {
   const [collapsed, setCollapsed] = useState(false);
   const user = useAuthStore(s => s.user);
   const logout = useAuthStore(s => s.logout);
@@ -223,7 +223,26 @@ export default function MainLayout({ currentPage, setCurrentPage, children }) {
     return parent ? [parent] : [];
   };
 
-  const breadcrumbItems = BREADCRUMB_MAP[currentPage] || [{ title: PAGE_TITLES[currentPage] || "工作台" }];
+  /* #331: Dynamic breadcrumb for third-level pages */
+  const getBreadcrumbItems = () => {
+    if (chipProfileId) {
+      return [{ title: "评测中心" }, { title: "芯片管理" }, { title: "芯片详情" }];
+    }
+    if (planMonitorId) {
+      return [{ title: "评测中心" }, { title: "评测任务" }, { title: "任务监控" }];
+    }
+    if (taskResultId) {
+      return [{ title: "评测中心" }, { title: "评测任务" }, { title: "任务结果" }];
+    }
+    if (nodeDetailId) {
+      return [{ title: "资源管理" }, { title: "节点管理" }, { title: "节点详情" }];
+    }
+    if (reportCompareIds && reportCompareIds.length >= 2) {
+      return [{ title: "评测中心" }, { title: "评测报告" }, { title: "报告对比" }];
+    }
+    return BREADCRUMB_MAP[currentPage] || [{ title: PAGE_TITLES[currentPage] || "工作台" }];
+  };
+  const breadcrumbItems = getBreadcrumbItems();
 
   return (
     <Layout style={{ minHeight: "100vh" }}>

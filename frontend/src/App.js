@@ -86,7 +86,15 @@ function App() {
   };
 
   return (
-    <MainLayout currentPage={getActiveNav()} setCurrentPage={handleSetCurrentPage}>
+    <MainLayout
+        currentPage={getActiveNav()}
+        setCurrentPage={handleSetCurrentPage}
+        chipProfileId={chipProfileId}
+        planMonitorId={planMonitorId}
+        taskResultId={taskResultId}
+        nodeDetailId={nodeDetailId}
+        reportCompareIds={reportCompareIds}
+      >
       <AppRoutes
         currentPage={currentPage}
         planMonitorId={planMonitorId}
