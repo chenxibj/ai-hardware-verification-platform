@@ -454,10 +454,9 @@ public class EvaluationTaskController {
         }
         if (taskIds.isEmpty()) {
             Map<String, Object> response = new HashMap<>();
-            response.put("code", 0);
-            response.put("message", "success");
-            response.put("data", Map.of("cancelled", 0));
-            return ResponseEntity.ok(response);
+            response.put("code", 1001);
+            response.put("message", "taskIds不能为空数组");
+            return ResponseEntity.badRequest().body(response);
         }
         try {
             int cancelled = taskService.batchCancelTasks(taskIds, userId);
