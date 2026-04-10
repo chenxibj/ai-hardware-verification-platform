@@ -7,6 +7,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -67,15 +68,35 @@ public class ChipController {
 
     /**
      * 创建芯片
+     * #342: 增加必填字段校验，空 body 返回 400 而非 500
      */
     @PostMapping
     @PreAuthorize("hasAnyRole('super_admin', 'tenant_admin', 'engineer')")
     public ResponseEntity<Map<String, Object>> createChip(
             @RequestBody Chip chip,
             @AuthenticationPrincipal User user) {
-        Long userId = user != null ? user.getId() : 1L;
-        Chip created = chipService.createChip(chip, userId);
-        return ResponseEntity.ok(success(created));
+        try {
+            // #342: Controller 层必填校验
+            List<String> missing = new ArrayList<>();
+            if (chip.getName() == null || chip.getName().isBlank()) {
+                missing.add("name(芯片名称)");
+            }
+            if (chip.getManufacturer() == null || chip.getManufacturer().isBlank()) {
+                missing.add("manufacturer(厂商)");
+            }
+            if (chip.getChipType() == null) {
+                missing.add("chipType(芯片类型)");
+            }
+            if (!missing.isEmpty()) {
+                return ResponseEntity.badRequest().body(error("缺少必填字段: " + String.join(", ", missing)));
+            }
+
+            Long userId = user != null ? user.getId() : 1L;
+            Chip created = chipService.createChip(chip, userId);
+            return ResponseEntity.ok(success(created));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(error(e.getMessage()));
+        }
     }
 
     /**
@@ -162,6 +183,7 @@ public class ChipController {
 
     /**
      * 查询芯片详情
+     * #343: 芯片不存在时返回 404
      */
     @GetMapping("/{id}")
     public ResponseEntity<Map<String, Object>> getChip(@PathVariable Long id) {
@@ -169,12 +191,13 @@ public class ChipController {
             Chip chip = chipService.getChip(id);
             return ResponseEntity.ok(success(chip));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(error(e.getMessage()));
+            return handleChipException(e);
         }
     }
 
     /**
      * 更新芯片
+     * #343: 芯片不存在时返回 404
      */
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('super_admin', 'tenant_admin', 'engineer')")
@@ -185,29 +208,35 @@ public class ChipController {
             Chip updated = chipService.updateChip(id, chip);
             return ResponseEntity.ok(success(updated));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(error(e.getMessage()));
+            return handleChipException(e);
         }
     }
 
 
     /**
      * 部分更新芯片 (#328 PATCH)
+     * #341: 使用 Map 接收部分字段，避免空 body 反序列化失败
+     * #343: 芯片不存在时返回 404
      */
     @PatchMapping("/{id}")
     @PreAuthorize("hasAnyRole('super_admin', 'tenant_admin', 'engineer')")
     public ResponseEntity<Map<String, Object>> patchChip(
             @PathVariable Long id,
-            @RequestBody Chip chip) {
+            @RequestBody(required = false) Map<String, Object> fields) {
         try {
-            Chip updated = chipService.updateChip(id, chip);
+            if (fields == null || fields.isEmpty()) {
+                return ResponseEntity.badRequest().body(error("请求体不能为空"));
+            }
+            Chip updated = chipService.patchChip(id, fields);
             return ResponseEntity.ok(success(updated));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(error(e.getMessage()));
+            return handleChipException(e);
         }
     }
 
     /**
      * 删除芯片（软删除→ARCHIVED）
+     * #343: 芯片不存在时返回 404
      */
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyRole('super_admin', 'tenant_admin', 'engineer')")
@@ -216,7 +245,7 @@ public class ChipController {
             chipService.softDeleteChip(id);
             return ResponseEntity.ok(success("deleted"));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(error(e.getMessage()));
+            return handleChipException(e);
         }
     }
 
@@ -269,6 +298,17 @@ public class ChipController {
         Map<String, Object> resp = success(timeline);
         resp.put("total", timeline.size());
         return ResponseEntity.ok(resp);
+    }
+
+    /**
+     * #343: 统一异常处理 — 资源不存在返回 404，其他返回 400
+     */
+    private ResponseEntity<Map<String, Object>> handleChipException(Exception e) {
+        String msg = e.getMessage();
+        if (msg != null && (msg.contains("不存在") || msg.contains("not found"))) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("芯片不存在"));
+        }
+        return ResponseEntity.badRequest().body(error(msg));
     }
 
     private Map<String, Object> success(Object data) {

@@ -12,6 +12,8 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import com.lab.common.XssUtils;
 
 /**
@@ -157,5 +159,83 @@ public class ChipService {
         long count = chipRepository.countByChipNoStartingWith(prefix);
         String seq = String.format("%03d", count + 1);
         return prefix + seq;
+    }
+
+    /**
+     * 部分更新芯片 (PATCH)
+     * #341: 使用 Map 接收部分字段，仅更新传入的非 null 字段
+     */
+    @Transactional
+    public Chip patchChip(Long id, Map<String, Object> fields) {
+        Chip chip = getChip(id);
+
+        if (fields.containsKey("name")) {
+            Object v = fields.get("name");
+            if (v != null) chip.setName(v.toString());
+        }
+        if (fields.containsKey("manufacturer") || fields.containsKey("vendor")) {
+            Object v = fields.containsKey("manufacturer") ? fields.get("manufacturer") : fields.get("vendor");
+            if (v != null) chip.setManufacturer(v.toString());
+        }
+        if (fields.containsKey("chipType")) {
+            Object v = fields.get("chipType");
+            if (v != null) chip.setChipType(Chip.ChipType.valueOf(v.toString()));
+        }
+        if (fields.containsKey("architecture")) {
+            Object v = fields.get("architecture");
+            chip.setArchitecture(v != null ? v.toString() : null);
+        }
+        if (fields.containsKey("generation")) {
+            Object v = fields.get("generation");
+            chip.setGeneration(v != null ? v.toString() : null);
+        }
+        if (fields.containsKey("modelName")) {
+            Object v = fields.get("modelName");
+            chip.setModelName(v != null ? v.toString() : null);
+        }
+        if (fields.containsKey("techSpec") || fields.containsKey("specs")) {
+            Object v = fields.containsKey("techSpec") ? fields.get("techSpec") : fields.get("specs");
+            chip.setTechSpec(v != null ? v.toString() : null);
+        }
+        if (fields.containsKey("softwareStack") || fields.containsKey("softwareEnv")) {
+            Object v = fields.containsKey("softwareStack") ? fields.get("softwareStack") : fields.get("softwareEnv");
+            chip.setSoftwareStack(v != null ? v.toString() : null);
+        }
+        if (fields.containsKey("status")) {
+            Object v = fields.get("status");
+            if (v != null) chip.setStatus(Chip.ChipStatus.valueOf(v.toString()));
+        }
+        if (fields.containsKey("capabilityProfile")) {
+            Object v = fields.get("capabilityProfile");
+            chip.setCapabilityProfile(v != null ? v.toString() : null);
+        }
+        if (fields.containsKey("profileData")) {
+            Object v = fields.get("profileData");
+            chip.setProfileData(v != null ? v.toString() : null);
+        }
+        if (fields.containsKey("tags")) {
+            Object v = fields.get("tags");
+            chip.setTags(v != null ? v.toString() : null);
+        }
+        if (fields.containsKey("remark")) {
+            Object v = fields.get("remark");
+            chip.setRemark(v != null ? v.toString() : null);
+        }
+        if (fields.containsKey("peakGflopsFp32")) {
+            Object v = fields.get("peakGflopsFp32");
+            chip.setPeakGflopsFp32(v != null ? Double.parseDouble(v.toString()) : null);
+        }
+        if (fields.containsKey("peakGflopsFp16")) {
+            Object v = fields.get("peakGflopsFp16");
+            chip.setPeakGflopsFp16(v != null ? Double.parseDouble(v.toString()) : null);
+        }
+        if (fields.containsKey("peakBandwidthGbps")) {
+            Object v = fields.get("peakBandwidthGbps");
+            chip.setPeakBandwidthGbps(v != null ? Double.parseDouble(v.toString()) : null);
+        }
+
+        Chip saved = chipRepository.save(chip);
+        log.info("Patched chip: {} fields={}", saved.getChipNo(), fields.keySet());
+        return saved;
     }
 }

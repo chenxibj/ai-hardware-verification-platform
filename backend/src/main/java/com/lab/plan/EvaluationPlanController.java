@@ -8,6 +8,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -72,6 +73,9 @@ public class EvaluationPlanController {
         return ResponseEntity.ok(resp);
     }
 
+    /**
+     * #343: 评测计划不存在时返回 404
+     */
     @GetMapping("/plans/{id}")
     @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getPlan(@PathVariable Long id) {
@@ -79,10 +83,13 @@ public class EvaluationPlanController {
             EvaluationPlan plan = planService.getPlan(id);
             return ResponseEntity.ok(success(plan));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(error(e.getMessage()));
+            return handlePlanException(e);
         }
     }
 
+    /**
+     * #343: 评测计划不存在时返回 404
+     */
     @PutMapping("/plans/{id}")
     @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> updatePlan(
@@ -92,7 +99,7 @@ public class EvaluationPlanController {
             EvaluationPlan updated = planService.updatePlan(id, plan);
             return ResponseEntity.ok(success(updated));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(error(e.getMessage()));
+            return handlePlanException(e);
         }
     }
 
@@ -102,7 +109,7 @@ public class EvaluationPlanController {
         try {
             return ResponseEntity.ok(success(planService.startPlan(id)));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(error(e.getMessage()));
+            return handlePlanException(e);
         }
     }
 
@@ -112,7 +119,7 @@ public class EvaluationPlanController {
         try {
             return ResponseEntity.ok(success(planService.pausePlan(id)));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(error(e.getMessage()));
+            return handlePlanException(e);
         }
     }
 
@@ -122,7 +129,7 @@ public class EvaluationPlanController {
         try {
             return ResponseEntity.ok(success(planService.resumePlan(id)));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(error(e.getMessage()));
+            return handlePlanException(e);
         }
     }
 
@@ -132,7 +139,7 @@ public class EvaluationPlanController {
         try {
             return ResponseEntity.ok(success(planService.cancelPlan(id)));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(error(e.getMessage()));
+            return handlePlanException(e);
         }
     }
 
@@ -148,7 +155,7 @@ public class EvaluationPlanController {
             if (userId == null) userId = 1L;
             return ResponseEntity.ok(success(planService.copyPlan(id, userId)));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(error(e.getMessage()));
+            return handlePlanException(e);
         }
     }
 
@@ -188,6 +195,17 @@ public class EvaluationPlanController {
     public ResponseEntity<Map<String, Object>> getPlansByChip(@PathVariable Long chipId) {
         List<EvaluationPlan> plans = planService.getPlansByChipId(chipId);
         return ResponseEntity.ok(success(plans));
+    }
+
+    /**
+     * #343: 统一异常处理 — 资源不存在返回 404，其他返回 400
+     */
+    private ResponseEntity<Map<String, Object>> handlePlanException(Exception e) {
+        String msg = e.getMessage();
+        if (msg != null && (msg.contains("not found") || msg.contains("不存在"))) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("评测计划不存在"));
+        }
+        return ResponseEntity.badRequest().body(error(msg));
     }
 
     private Map<String, Object> success(Object data) {
