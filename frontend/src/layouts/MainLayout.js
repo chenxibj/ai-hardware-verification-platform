@@ -153,6 +153,8 @@ const menuItems = [
       { key: "nodes", icon: <ClusterOutlined />, label: "节点管理" },
       { key: "resource-pools", icon: <CloudServerOutlined />, label: "资源池" },
       { key: "resource-monitor", icon: <FundProjectionScreenOutlined />, label: "资源监控" },
+      { key: "clusters", icon: <ApiOutlined />, label: "K8s 集群" },
+      { key: "k8s-agent", icon: <RocketOutlined />, label: "Agent 接入" },
 
       { key: "resource-onboard", icon: <RocketOutlined />, label: "纳管资源" },
       { key: "alert-config", icon: <BellFilledOutlined />, label: "告警配置" },
