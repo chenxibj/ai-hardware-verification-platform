@@ -79,6 +79,12 @@ public class EvaluationPlan {
     @Transient
     private String preset;
 
+    @Transient
+    private String chipName;
+
+    @Transient
+    private String templateName;
+
     public enum PlanStatus {
         DRAFT, RUNNING, PAUSED, COMPLETED, FAILED, CANCELLED
     }

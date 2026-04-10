@@ -1,5 +1,7 @@
 package com.lab.plan;
 
+import com.lab.chip.ChipRepository;
+import com.lab.template.TaskTemplateRepository;
 import com.lab.task.EvaluationTask;
 import com.lab.task.TaskDispatcher;
 import com.lab.result.EvaluationResultRepository;
@@ -25,6 +27,8 @@ import java.util.List;
 public class EvaluationPlanService {
 
     private final EvaluationPlanRepository planRepository;
+    private final ChipRepository chipRepository;
+    private final TaskTemplateRepository templateRepository;
     private final com.lab.task.EvaluationTaskRepository taskRepository;
     private final EvaluationResultRepository resultRepository;
     private final ChipReportRepository chipReportRepository;
@@ -65,23 +69,31 @@ public class EvaluationPlanService {
 
     @Transactional(readOnly = true)
     public Page<EvaluationPlan> listPlans(EvaluationPlan.PlanStatus status, Long chipId, Pageable pageable) {
+        Page<EvaluationPlan> page;
         if (chipId != null) {
-            return planRepository.findByChipId(chipId, pageable);
+            page = planRepository.findByChipId(chipId, pageable);
         } else if (status != null) {
-            return planRepository.findByStatus(status, pageable);
+            page = planRepository.findByStatus(status, pageable);
+        } else {
+            page = planRepository.findAll(pageable);
         }
-        return planRepository.findAll(pageable);
+        enrichPlans(page.getContent());
+        return page;
     }
 
     @Transactional(readOnly = true)
     public EvaluationPlan getPlan(Long id) {
-        return planRepository.findById(id)
+        EvaluationPlan plan = planRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Evaluation task not found: " + id));
+        enrichPlan(plan);
+        return plan;
     }
 
     @Transactional(readOnly = true)
     public List<EvaluationPlan> getPlansByChipId(Long chipId) {
-        return planRepository.findByChipId(chipId);
+        List<EvaluationPlan> plans = planRepository.findByChipId(chipId);
+        enrichPlans(plans);
+        return plans;
     }
 
     @Transactional
@@ -230,6 +242,23 @@ public class EvaluationPlanService {
     @Transactional(readOnly = true)
     public long countByStatus(EvaluationPlan.PlanStatus status) {
         return planRepository.countByStatus(status);
+    }
+
+
+    /**
+     * #324: Enrich plan with chipName and templateName from related entities
+     */
+    private void enrichPlan(EvaluationPlan plan) {
+        if (plan.getChipId() != null) {
+            chipRepository.findById(plan.getChipId()).ifPresent(chip -> plan.setChipName(chip.getName()));
+        }
+        if (plan.getTemplateId() != null) {
+            templateRepository.findById(plan.getTemplateId()).ifPresent(t -> plan.setTemplateName(t.getName()));
+        }
+    }
+
+    private void enrichPlans(java.util.List<EvaluationPlan> plans) {
+        plans.forEach(this::enrichPlan);
     }
 
     // ============ Helpers ============

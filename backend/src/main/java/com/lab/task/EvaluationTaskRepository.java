@@ -52,6 +52,6 @@ public interface EvaluationTaskRepository extends JpaRepository<EvaluationTask, 
 
     // #227: Stats
     long countByStatus(EvaluationTask.TaskStatus status);
-n    // #321: chipId filter
+    // #321: chipId filter
     Page<EvaluationTask> findByChipId(Long chipId, Pageable pageable);
 }
