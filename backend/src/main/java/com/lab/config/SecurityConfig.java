@@ -66,6 +66,7 @@ public class SecurityConfig {
                 .requestMatchers("/tasks/*/result").permitAll()
                 .requestMatchers("/tasks/*/failure").permitAll()
                 .requestMatchers("/tasks/*/logs").permitAll()  // #225
+                .requestMatchers("/tasks/*/logs/stream").permitAll()  // #327 SSE
                 .requestMatchers("/tasks/*/logs/batch").permitAll()  // #229
                 .requestMatchers("/tasks/*/logs/stats").permitAll()  // #233
                 .requestMatchers("/tasks/*/logs/metrics").permitAll()  // #233 P2-1
