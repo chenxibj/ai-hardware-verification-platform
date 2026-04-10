@@ -193,3 +193,23 @@ VALUES (1, 'cpu-node-001', 8, 16, 'IDLE');
 
 -- 完成
 COMMENT ON DATABASE ahvp IS '人工智能软硬件验证平台数据库';
+
+-- #332: Sync password and password_hash columns
+CREATE OR REPLACE FUNCTION sync_password_columns()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.password_hash IS NOT NULL AND (NEW.password IS NULL OR NEW.password != NEW.password_hash) THEN
+        NEW.password = NEW.password_hash;
+    END IF;
+    IF NEW.password IS NOT NULL AND (NEW.password_hash IS NULL OR NEW.password_hash != NEW.password) THEN
+        NEW.password_hash = NEW.password;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS sync_password_trigger ON users;
+CREATE TRIGGER sync_password_trigger
+    BEFORE INSERT OR UPDATE ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION sync_password_columns();
