@@ -9,6 +9,8 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 @Data
 @Entity
@@ -53,4 +55,15 @@ public class TaskTemplate {
 
     @UpdateTimestamp
     private Instant updatedAt;
+
+    /**
+     * #325: 关联评测指标
+     */
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+        name = "template_metrics",
+        joinColumns = @JoinColumn(name = "template_id"),
+        inverseJoinColumns = @JoinColumn(name = "metric_id")
+    )
+    private List<EvaluationMetric> metrics = new ArrayList<>();
 }

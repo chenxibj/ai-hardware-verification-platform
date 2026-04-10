@@ -5,11 +5,13 @@ import com.lab.auth.Role;
 import com.lab.common.ApiResponse;
 import com.lab.common.BusinessException;
 import com.lab.common.ErrorCode;
+import org.hibernate.Hibernate;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -79,12 +81,15 @@ public class TemplateController {
     }
 
     /**
-     * GET /api/templates/{id} — 详情（返回完整 configJson）
+     * GET /api/templates/{id} — 详情（返回完整 configJson + 关联指标）
+     * #325: 初始化 metrics 关联
      */
     @GetMapping("/{id}")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<TaskTemplate>> getTemplate(@PathVariable Long id) {
         TaskTemplate template = templateRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "模板不存在: " + id));
+        Hibernate.initialize(template.getMetrics());
         return ResponseEntity.ok(ApiResponse.ok(template));
     }
 
