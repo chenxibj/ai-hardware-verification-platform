@@ -9,6 +9,7 @@ import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
 import com.lab.user.User;
 import com.lab.user.UserRepository;
+import com.lab.chipreport.ChipReportRepository;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.*;
@@ -25,24 +26,34 @@ public class DashboardController {
     private final EvaluationPlanRepository planRepo;
     private final EvaluationTaskRepository taskRepo;
     private final UserRepository userRepo;
+    private final ChipReportRepository reportRepo;
 
     public DashboardController(ChipRepository chipRepo,
                                EvaluationPlanRepository planRepo,
                                EvaluationTaskRepository taskRepo,
-                               UserRepository userRepo) {
+                               UserRepository userRepo,
+                               ChipReportRepository reportRepo) {
         this.chipRepo = chipRepo;
         this.planRepo = planRepo;
         this.taskRepo = taskRepo;
         this.userRepo = userRepo;
+        this.reportRepo = reportRepo;
+    }
+
+    /** GET /dashboard — 聚合首页数据 (#320) */
+    @GetMapping
+    public ApiResponse<Map<String, Object>> dashboard() {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("stats", stats().getData());
+        data.put("recentActivities", recentActivities().getData());
+        return ApiResponse.ok(data);
     }
 
     @GetMapping("/stats")
     public ApiResponse<Map<String, Object>> stats() {
         long chipCount = chipRepo.count();
-        long runningPlans = planRepo.findAll().stream()
-                .filter(p -> p.getStatus() == EvaluationPlan.PlanStatus.RUNNING).count();
-        long completedPlans = planRepo.findAll().stream()
-                .filter(p -> p.getStatus() == EvaluationPlan.PlanStatus.COMPLETED).count();
+        long runningPlans = planRepo.countByStatus(EvaluationPlan.PlanStatus.RUNNING);
+        long completedPlans = planRepo.countByStatus(EvaluationPlan.PlanStatus.COMPLETED);
         long unevaluatedChips = chipRepo.findByStatus(Chip.ChipStatus.UNEVALUATED).size();
 
         Map<String, Object> data = new LinkedHashMap<>();
@@ -55,20 +66,15 @@ public class DashboardController {
 
     @GetMapping("/recent-activities")
     public ApiResponse<List<Map<String, Object>>> recentActivities() {
-        // Gather recent plans and tasks, merge into activity feed
         List<Map<String, Object>> activities = new ArrayList<>();
-
-        // Cache user names
         Map<Long, String> userNames = new HashMap<>();
 
-        // Recent plans (latest 10)
         var recentPlans = planRepo.findAll(
                 PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt"))
         ).getContent();
 
         for (var plan : recentPlans) {
-            String userName = userNames.computeIfAbsent(plan.getCreatedBy(),
-                    id -> userRepo.findById(id).map(User::getUsername).orElse("系统"));
+            String userName = resolveUser(userNames, plan.getCreatedBy());
             String chipName = chipRepo.findById(plan.getChipId())
                     .map(Chip::getName).orElse("未知芯片");
 
@@ -80,27 +86,23 @@ public class DashboardController {
             activity.put("planNo", plan.getPlanNo());
             activities.add(activity);
 
-            // If plan completed, add completion activity
             if (plan.getStatus() == EvaluationPlan.PlanStatus.COMPLETED && plan.getCompletedAt() != null) {
-                Map<String, Object> completeActivity = new LinkedHashMap<>();
-                completeActivity.put("time", plan.getCompletedAt().toString());
-                completeActivity.put("user", "系统");
-                completeActivity.put("action", "完成了评测计划");
-                completeActivity.put("target", plan.getName() + " (" + chipName + ")");
-                completeActivity.put("planNo", plan.getPlanNo());
-                activities.add(completeActivity);
+                Map<String, Object> ca = new LinkedHashMap<>();
+                ca.put("time", plan.getCompletedAt().toString());
+                ca.put("user", "系统");
+                ca.put("action", "完成了评测计划");
+                ca.put("target", plan.getName() + " (" + chipName + ")");
+                ca.put("planNo", plan.getPlanNo());
+                activities.add(ca);
             }
         }
 
-        // Recent tasks (latest 10)
         var recentTasks = taskRepo.findAll(
                 PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt"))
         ).getContent();
 
         for (var task : recentTasks) {
-            String userName = userNames.computeIfAbsent(task.getCreatedBy(),
-                    id -> userRepo.findById(id).map(User::getUsername).orElse("系统"));
-
+            String userName = resolveUser(userNames, task.getCreatedBy());
             Map<String, Object> activity = new LinkedHashMap<>();
             activity.put("time", task.getCreatedAt() != null ? task.getCreatedAt().toString() : null);
             activity.put("user", userName);
@@ -110,7 +112,6 @@ public class DashboardController {
             activities.add(activity);
         }
 
-        // Sort by time desc, take top 10
         activities.sort((a, b) -> {
             String ta = (String) a.get("time");
             String tb = (String) b.get("time");
@@ -150,7 +151,69 @@ public class DashboardController {
             item.put("updatedAt", plan.getUpdatedAt() != null ? plan.getUpdatedAt().toString() : null);
             result.add(item);
         }
-
         return ApiResponse.ok(result);
+    }
+
+    /** GET /dashboard/recent-tasks — 最近任务列表 (#320) */
+    @GetMapping("/recent-tasks")
+    public ApiResponse<List<EvaluationTask>> recentTasks() {
+        var tasks = taskRepo.findAll(
+                PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt"))
+        ).getContent();
+        return ApiResponse.ok(tasks);
+    }
+
+    /** GET /dashboard/chip-ranking — 芯片排行 (#320) */
+    @GetMapping("/chip-ranking")
+    public ApiResponse<List<Map<String, Object>>> chipRanking() {
+        List<Chip> chips = chipRepo.findAll();
+        List<Map<String, Object>> ranking = new ArrayList<>();
+        for (Chip chip : chips) {
+            var reports = reportRepo.findByChipId(chip.getId());
+            double avgScore = reports.stream()
+                    .filter(r -> r.getOverallScore() != null && !Boolean.TRUE.equals(r.getDeleted()))
+                    .mapToDouble(r -> r.getOverallScore())
+                    .average().orElse(0.0);
+            long evalCount = reports.stream()
+                    .filter(r -> !Boolean.TRUE.equals(r.getDeleted())).count();
+
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", chip.getId());
+            item.put("chipNo", chip.getChipNo());
+            item.put("name", chip.getName());
+            item.put("manufacturer", chip.getManufacturer());
+            item.put("chipType", chip.getChipType());
+            item.put("status", chip.getStatus());
+            item.put("evaluationCount", evalCount);
+            item.put("averageScore", Math.round(avgScore * 10.0) / 10.0);
+            ranking.add(item);
+        }
+        ranking.sort((a, b) -> Double.compare(
+                ((Number) b.get("averageScore")).doubleValue(),
+                ((Number) a.get("averageScore")).doubleValue()));
+        return ApiResponse.ok(ranking);
+    }
+
+    /** GET /dashboard/overview — 总览统计 (#320) */
+    @GetMapping("/overview")
+    public ApiResponse<Map<String, Object>> overview() {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("totalChips", chipRepo.count());
+        data.put("totalPlans", planRepo.count());
+        data.put("totalTasks", taskRepo.count());
+        data.put("totalUsers", userRepo.count());
+        data.put("totalReports", reportRepo.countByDeletedFalse());
+        data.put("runningPlans", planRepo.countByStatus(EvaluationPlan.PlanStatus.RUNNING));
+        data.put("completedPlans", planRepo.countByStatus(EvaluationPlan.PlanStatus.COMPLETED));
+        data.put("runningTasks", taskRepo.countByStatus(EvaluationTask.TaskStatus.RUNNING));
+        data.put("completedTasks", taskRepo.countByStatus(EvaluationTask.TaskStatus.COMPLETED));
+        data.put("failedTasks", taskRepo.countByStatus(EvaluationTask.TaskStatus.FAILED));
+        return ApiResponse.ok(data);
+    }
+
+    private String resolveUser(Map<Long, String> cache, Long userId) {
+        if (userId == null) return "系统";
+        return cache.computeIfAbsent(userId,
+                id -> userRepo.findById(id).map(User::getUsername).orElse("系统"));
     }
 }
