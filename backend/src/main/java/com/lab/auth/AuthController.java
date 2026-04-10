@@ -90,6 +90,13 @@ public class AuthController {
         return ResponseEntity.ok(Map.of("code", 0, "message", "success", "data", userToMap(user)));
     }
 
+
+    @GetMapping("/profile")
+    public ResponseEntity<Map<String, Object>> getProfile(@AuthenticationPrincipal User user) {
+        if (user == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("code", 1005, "message", "Not authenticated"));
+        return ResponseEntity.ok(Map.of("code", 0, "message", "success", "data", userToMap(user)));
+    }
+
     @PostMapping("/logout")
     public ResponseEntity<Map<String, Object>> logout() {
         return ResponseEntity.ok(Map.of("code", 0, "message", "已退出登录"));

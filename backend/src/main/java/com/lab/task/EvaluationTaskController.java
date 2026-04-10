@@ -55,8 +55,17 @@ public class EvaluationTaskController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         Pageable pageable = PageRequest.of(page, size);
-        EvaluationTask.TaskStatus taskStatus = status != null ?
-                EvaluationTask.TaskStatus.valueOf(status) : null;
+        EvaluationTask.TaskStatus taskStatus = null;
+        if (status != null) {
+            try {
+                taskStatus = EvaluationTask.TaskStatus.valueOf(status);
+            } catch (IllegalArgumentException e) {
+                Map<String, Object> response = new HashMap<>();
+                response.put("code", 1001);
+                response.put("message", "无效的状态值: " + status + "，有效值: PENDING, QUEUED, RUNNING, PAUSED, COMPLETED, FAILED, CANCELLED, SKIPPED");
+                return ResponseEntity.badRequest().body(response);
+            }
+        }
         Page<EvaluationTask> tasks = taskService.listTasks(userId, planId, chipId, taskStatus, pageable);
         Map<String, Object> response = new HashMap<>();
         response.put("code", 0);
@@ -79,7 +88,12 @@ public class EvaluationTaskController {
                     response.put("data", task);
                     return ResponseEntity.ok(response);
                 })
-                .orElse(ResponseEntity.notFound().build());
+                .orElseGet(() -> {
+                    Map<String, Object> response = new HashMap<>();
+                    response.put("code", 1001);
+                    response.put("message", "任务不存在: " + taskId);
+                    return ResponseEntity.status(404).body(response);
+                });
     }
 
     @PostMapping("/{taskId}/cancel")
@@ -334,5 +348,130 @@ public class EvaluationTaskController {
     }
 
 
+
+
+    /**
+     * DELETE /tasks/{taskId} — 删除任务 (#325)
+     */
+    @DeleteMapping("/{taskId}")
+    @RequireRole(Role.ENGINEER)
+    public ResponseEntity<Map<String, Object>> deleteTask(
+            @PathVariable Long taskId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        if (userId == null) userId = 1L;
+        try {
+            taskService.deleteTask(taskId, userId);
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 0);
+            response.put("message", "success");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 1001);
+            response.put("message", e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
+    /**
+     * POST /tasks/{taskId}/execute — 执行任务 (#325)
+     */
+    @PostMapping("/{taskId}/execute")
+    @RequireRole(Role.ENGINEER)
+    public ResponseEntity<Map<String, Object>> executeTask(
+            @PathVariable Long taskId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        if (userId == null) userId = 1L;
+        try {
+            EvaluationTask task = taskService.executeTask(taskId, userId);
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 0);
+            response.put("message", "success");
+            response.put("data", task);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 1001);
+            response.put("message", e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
+    /**
+     * POST /tasks/batch/delete — 批量删除任务 (#336)
+     */
+    @PostMapping("/batch/delete")
+    @RequireRole(Role.ENGINEER)
+    public ResponseEntity<Map<String, Object>> batchDeleteTasks(
+            @RequestBody Map<String, List<Long>> request,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        if (userId == null) userId = 1L;
+        List<Long> taskIds = null;
+        if (request != null) {
+            taskIds = request.get("ids");
+            if (taskIds == null) taskIds = request.get("taskIds");
+        }
+        if (taskIds == null || taskIds.isEmpty()) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 1001);
+            response.put("message", "ids不能为空");
+            return ResponseEntity.badRequest().body(response);
+        }
+        try {
+            int deleted = taskService.batchDeleteTasks(taskIds, userId);
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 0);
+            response.put("message", "success");
+            response.put("data", Map.of("deleted", deleted));
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 1001);
+            response.put("message", e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
+    /**
+     * POST /tasks/batch/cancel — 批量取消任务 (#337)
+     */
+    @PostMapping("/batch/cancel")
+    @RequireRole(Role.ENGINEER)
+    public ResponseEntity<Map<String, Object>> batchCancelTasks(
+            @RequestBody Map<String, List<Long>> request,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        if (userId == null) userId = 1L;
+        List<Long> taskIds = null;
+        if (request != null) {
+            taskIds = request.get("ids");
+            if (taskIds == null) taskIds = request.get("taskIds");
+        }
+        if (taskIds == null) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 1001);
+            response.put("message", "ids不能为空");
+            return ResponseEntity.badRequest().body(response);
+        }
+        if (taskIds.isEmpty()) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 0);
+            response.put("message", "success");
+            response.put("data", Map.of("cancelled", 0));
+            return ResponseEntity.ok(response);
+        }
+        try {
+            int cancelled = taskService.batchCancelTasks(taskIds, userId);
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 0);
+            response.put("message", "success");
+            response.put("data", Map.of("cancelled", cancelled));
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 1001);
+            response.put("message", e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
 
 }

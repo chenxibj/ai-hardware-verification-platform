@@ -3,6 +3,9 @@ package com.lab.task;
 import com.lab.task.EvaluationTask.*;
 import lombok.Data;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 
 /**
@@ -11,6 +14,9 @@ import java.util.List;
 @Data
 public class CreateTaskRequest {
 
+    @NotBlank(message = "任务名称不能为空")
+    @Size(max = 200, message = "任务名称不能超过200个字符")
+    @Pattern(regexp = "^[^<>]*$", message = "任务名称不能包含HTML标签字符")
     private String name;
 
     @NotNull(message = "任务类型不能为空")

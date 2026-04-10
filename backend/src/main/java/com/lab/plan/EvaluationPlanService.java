@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import com.lab.common.XssUtils;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -39,6 +40,20 @@ public class EvaluationPlanService {
 
     @Transactional
     public EvaluationPlan createPlan(EvaluationPlan plan, Long userId) {
+        // #329: 参数校验
+        if (plan.getName() == null || plan.getName().isBlank()) {
+            throw new RuntimeException("评测计划名称不能为空");
+        }
+        // XSS sanitization (#331)
+        plan.setName(XssUtils.stripXss(plan.getName()));
+        if (plan.getDescription() != null) plan.setDescription(XssUtils.stripXss(plan.getDescription()));
+        if (plan.getChipId() == null) {
+            throw new RuntimeException("芯片ID不能为空");
+        }
+        // 验证芯片存在
+        chipRepository.findById(plan.getChipId())
+                .orElseThrow(() -> new RuntimeException("芯片不存在: " + plan.getChipId()));
+
         plan.setPlanNo(generatePlanNo());
         plan.setCreatedBy(userId);
         if (plan.getStatus() == null) {

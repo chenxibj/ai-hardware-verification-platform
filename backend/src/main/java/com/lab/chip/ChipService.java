@@ -12,6 +12,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import com.lab.common.XssUtils;
 
 /**
  * 芯片服务（v3.2适配）
@@ -34,6 +35,12 @@ public class ChipService {
         if (chip.getStatus() == null) {
             chip.setStatus(Chip.ChipStatus.REGISTERED);
         }
+        // XSS sanitization (#331)
+        chip.setName(XssUtils.stripXss(chip.getName()));
+        if (chip.getManufacturer() != null) chip.setManufacturer(XssUtils.stripXss(chip.getManufacturer()));
+        if (chip.getRemark() != null) chip.setRemark(XssUtils.stripXss(chip.getRemark()));
+        if (chip.getTags() != null) chip.setTags(XssUtils.stripXss(chip.getTags()));
+
         // 校验
         if (chip.getName() == null || chip.getName().isBlank()) {
             throw new RuntimeException("芯片名称不能为空");
@@ -89,7 +96,7 @@ public class ChipService {
     @Transactional
     public Chip updateChip(Long id, Chip update) {
         Chip chip = getChip(id);
-        if (update.getName() != null) chip.setName(update.getName());
+        if (update.getName() != null) chip.setName(XssUtils.stripXss(update.getName()));
         if (update.getManufacturer() != null) chip.setManufacturer(update.getManufacturer());
         if (update.getChipType() != null) chip.setChipType(update.getChipType());
         if (update.getArchitecture() != null) chip.setArchitecture(update.getArchitecture());

@@ -34,8 +34,12 @@ public class EvaluationPlanController {
             @RequestBody EvaluationPlan plan,
             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
         if (userId == null) userId = 1L;
-        EvaluationPlan created = planService.createPlan(plan, userId);
-        return ResponseEntity.ok(success(created));
+        try {
+            EvaluationPlan created = planService.createPlan(plan, userId);
+            return ResponseEntity.ok(success(created));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(error(e.getMessage()));
+        }
     }
 
     @GetMapping("/plans")
@@ -52,7 +56,14 @@ public class EvaluationPlanController {
         Sort.Direction direction = sortParts.length > 1 && sortParts[1].equalsIgnoreCase("asc")
                 ? Sort.Direction.ASC : Sort.Direction.DESC;
         Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortField));
-        EvaluationPlan.PlanStatus st = status != null ? EvaluationPlan.PlanStatus.valueOf(status) : null;
+        EvaluationPlan.PlanStatus st = null;
+        if (status != null) {
+            try {
+                st = EvaluationPlan.PlanStatus.valueOf(status);
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().body(error("无效的计划状态: " + status));
+            }
+        }
         Page<EvaluationPlan> plans = planService.listPlans(st, chipId, pageable);
         Map<String, Object> resp = success(plans.getContent());
         resp.put("total", plans.getTotalElements());

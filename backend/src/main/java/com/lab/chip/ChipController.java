@@ -7,9 +7,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import com.lab.task.EvaluationTask;
@@ -20,6 +20,7 @@ import com.lab.chipreport.ChipReport;
 import com.lab.chipreport.ChipReportRepository;
 
 import java.util.*;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -99,9 +100,59 @@ public class ChipController {
             return ResponseEntity.ok(resp);
         }
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Chip.ChipType type = chipType != null ? Chip.ChipType.valueOf(chipType) : null;
-        Chip.ChipStatus st = status != null ? Chip.ChipStatus.valueOf(status) : null;
+        Chip.ChipType type = null;
+        if (chipType != null) {
+            try {
+                type = Chip.ChipType.valueOf(chipType);
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().body(error("无效的芯片类型: " + chipType));
+            }
+        }
+        Chip.ChipStatus st = null;
+        if (status != null) {
+            try {
+                st = Chip.ChipStatus.valueOf(status);
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().body(error("无效的芯片状态: " + status));
+            }
+        }
         Page<Chip> chips = chipService.listChips(type, st, search, vendor, pageable);
+        Map<String, Object> resp = success(chips.getContent());
+        resp.put("total", chips.getTotalElements());
+        resp.put("page", page);
+        resp.put("size", size);
+        return ResponseEntity.ok(resp);
+    }
+
+
+    /**
+     * 芯片对比 (#324)
+     */
+    @GetMapping("/compare")
+    public ResponseEntity<Map<String, Object>> compareChips(@RequestParam List<Long> ids) {
+        try {
+            List<Chip> chips = ids.stream()
+                    .map(chipService::getChip)
+                    .toList();
+            return ResponseEntity.ok(success(chips));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(error(e.getMessage()));
+        }
+    }
+
+    /**
+     * 芯片排名 (#324)
+     */
+    @GetMapping("/ranking")
+    public ResponseEntity<Map<String, Object>> getChipRanking(
+            @RequestParam(required = false) String chipType,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Chip.ChipType type = chipType != null ? Chip.ChipType.valueOf(chipType) : null;
+        Page<Chip> chips = type != null ?
+                chipService.listChips(type, null, null, null, pageable) :
+                chipService.listChips(null, null, null, null, pageable);
         Map<String, Object> resp = success(chips.getContent());
         resp.put("total", chips.getTotalElements());
         resp.put("page", page);
@@ -128,6 +179,23 @@ public class ChipController {
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('super_admin', 'tenant_admin', 'engineer')")
     public ResponseEntity<Map<String, Object>> updateChip(
+            @PathVariable Long id,
+            @RequestBody Chip chip) {
+        try {
+            Chip updated = chipService.updateChip(id, chip);
+            return ResponseEntity.ok(success(updated));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(error(e.getMessage()));
+        }
+    }
+
+
+    /**
+     * 部分更新芯片 (#328 PATCH)
+     */
+    @PatchMapping("/{id}")
+    @PreAuthorize("hasAnyRole('super_admin', 'tenant_admin', 'engineer')")
+    public ResponseEntity<Map<String, Object>> patchChip(
             @PathVariable Long id,
             @RequestBody Chip chip) {
         try {

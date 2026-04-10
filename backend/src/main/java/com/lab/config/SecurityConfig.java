@@ -83,9 +83,15 @@ public class SecurityConfig {
                 // RBAC: 芯片注册/修改/删除需 engineer 以上
                 .requestMatchers(HttpMethod.POST, "/chips").hasAnyRole("super_admin", "tenant_admin", "engineer")
                 .requestMatchers(HttpMethod.PUT, "/chips/**").hasAnyRole("super_admin", "tenant_admin", "engineer")
+                .requestMatchers(HttpMethod.PATCH, "/chips/**").hasAnyRole("super_admin", "tenant_admin", "engineer")
                 .requestMatchers(HttpMethod.DELETE, "/chips/**").hasAnyRole("super_admin", "tenant_admin", "engineer")
+                // 芯片 compare/ranking 需认证但无角色限制
+                .requestMatchers(HttpMethod.GET, "/chips/compare", "/chips/ranking").authenticated()
                 // RBAC: 创建评测计划需 engineer 以上
                 .requestMatchers(HttpMethod.POST, "/plans").hasAnyRole("super_admin", "tenant_admin", "engineer")
+                // Task batch operations
+                .requestMatchers(HttpMethod.POST, "/tasks/batch/**").hasAnyRole("super_admin", "tenant_admin", "engineer")
+                .requestMatchers(HttpMethod.DELETE, "/tasks/**").hasAnyRole("super_admin", "tenant_admin", "engineer")
                 // 其余需认证
                 .anyRequest().authenticated()
             )

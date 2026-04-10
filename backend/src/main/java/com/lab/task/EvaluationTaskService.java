@@ -11,6 +11,7 @@ import java.time.Instant;
 import com.lab.plan.EvaluationPlanRepository;
 import com.lab.plan.EvaluationPlan;
 import java.util.List;
+import com.lab.common.XssUtils;
 import java.util.Optional;
 import com.lab.config.TaskLogWebSocketHandler;
 import org.springframework.context.ApplicationContext;
@@ -24,6 +25,7 @@ import org.springframework.context.ApplicationContext;
 public class EvaluationTaskService {
 
     private final EvaluationTaskRepository taskRepository;
+    private final TaskLogRepository taskLogRepository;
     private final EvaluationPlanRepository planRepository;
     private final TaskLogWebSocketHandler webSocketHandler;
     private final ApplicationContext applicationContext;
@@ -35,7 +37,8 @@ public class EvaluationTaskService {
     public EvaluationTask createTask(CreateTaskRequest request, Long userId) {
         EvaluationTask task = new EvaluationTask();
         task.setTaskNo(generateTaskNo());
-        task.setName(request.getName() != null ? request.getName() : "Task-" + task.getTaskNo());
+        String taskName = request.getName() != null ? XssUtils.stripXss(request.getName()) : "Task-" + task.getTaskNo();
+        task.setName(taskName);
         task.setTaskType(request.getTaskType());
         task.setEvalType(request.getEvalType());
         task.setStatus(EvaluationTask.TaskStatus.PENDING);
@@ -112,6 +115,22 @@ public class EvaluationTaskService {
 
         EvaluationTask saved = taskRepository.save(task);
         log.info("Updated task {} status from {} to {}", taskId, oldStatus, status);
+
+        // #339: Write status change to task logs so completed tasks have log entries
+        try {
+            TaskLog statusLog = new TaskLog();
+            statusLog.setTaskId(taskId);
+            statusLog.setLevel("INFO");
+            statusLog.setMessage(String.format("任务状态变更: %s → %s%s", oldStatus, status,
+                    message != null ? " (" + message + ")" : ""));
+            statusLog.setContent(statusLog.getMessage());
+            statusLog.setLogType("STATUS");
+            statusLog.setSource("SYSTEM");
+            if (saved.getPlanId() != null) statusLog.setPlanId(saved.getPlanId());
+            taskLogRepository.save(statusLog);
+        } catch (Exception e) {
+            log.warn("Failed to write status log: {}", e.getMessage());
+        }
         // #229: Broadcast status change via WebSocket
         try { webSocketHandler.broadcastTaskStatus(taskId, task.getPlanId(), status.name()); } catch (Exception e) { log.warn("WS broadcast failed: {}", e.getMessage()); }
         
@@ -291,5 +310,71 @@ public class EvaluationTaskService {
         plan.setCompletedTasks((int) done);
         plan.setProgress(total > 0 ? (int) (done * 100 / total) : 0);
         planRepository.save(plan);
+    }
+
+    /**
+     * 删除任务 (#325)
+     */
+    @Transactional
+    public void deleteTask(Long taskId, Long userId) {
+        EvaluationTask task = taskRepository.findById(taskId)
+                .orElseThrow(() -> new RuntimeException("Task not found: " + taskId));
+        
+        if (task.getStatus() == EvaluationTask.TaskStatus.RUNNING) {
+            throw new RuntimeException("Cannot delete a running task. Please cancel it first.");
+        }
+
+        taskRepository.delete(task);
+        log.info("Deleted task: {} by user {}", taskId, userId);
+    }
+
+    /**
+     * 执行任务（将PENDING/QUEUED任务变为RUNNING）(#325)
+     */
+    @Transactional
+    public EvaluationTask executeTask(Long taskId, Long userId) {
+        EvaluationTask task = taskRepository.findById(taskId)
+                .orElseThrow(() -> new RuntimeException("Task not found: " + taskId));
+        
+        if (task.getStatus() != EvaluationTask.TaskStatus.PENDING &&
+            task.getStatus() != EvaluationTask.TaskStatus.QUEUED) {
+            throw new RuntimeException("Only PENDING or QUEUED tasks can be executed, current: " + task.getStatus());
+        }
+
+        return updateTaskStatus(taskId, EvaluationTask.TaskStatus.RUNNING, "Executed by user " + userId);
+    }
+
+    /**
+     * 批量删除任务 (#336)
+     */
+    @Transactional
+    public int batchDeleteTasks(java.util.List<Long> taskIds, Long userId) {
+        int deleted = 0;
+        for (Long taskId : taskIds) {
+            try {
+                deleteTask(taskId, userId);
+                deleted++;
+            } catch (Exception e) {
+                log.warn("Failed to delete task {}: {}", taskId, e.getMessage());
+            }
+        }
+        return deleted;
+    }
+
+    /**
+     * 批量取消任务 (#337)
+     */
+    @Transactional
+    public int batchCancelTasks(java.util.List<Long> taskIds, Long userId) {
+        int cancelled = 0;
+        for (Long taskId : taskIds) {
+            try {
+                cancelTask(taskId, userId);
+                cancelled++;
+            } catch (Exception e) {
+                log.warn("Failed to cancel task {}: {}", taskId, e.getMessage());
+            }
+        }
+        return cancelled;
     }
 }
