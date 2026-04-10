@@ -12,10 +12,15 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.lab.task.EvaluationTask;
+import com.lab.task.EvaluationTaskRepository;
+import com.lab.result.EvaluationResult;
+import com.lab.result.EvaluationResultRepository;
 import com.lab.chipreport.ChipReport;
 import com.lab.chipreport.ChipReportRepository;
 
 import java.util.*;
+import java.util.Optional;
 
 /**
  * 芯片管理控制器（v3.2适配）
@@ -28,6 +33,8 @@ public class ChipController {
 
     private final ChipService chipService;
     private final ChipReportRepository chipReportRepository;
+    private final EvaluationTaskRepository taskRepository;
+    private final EvaluationResultRepository resultRepository;
 
     /**
      * 预置厂商列表
@@ -153,6 +160,46 @@ public class ChipController {
         List<ChipReport> reports = chipReportRepository.findByChipId(id);
         Map<String, Object> resp = success(reports);
         resp.put("total", reports.size());
+        return ResponseEntity.ok(resp);
+    }
+
+
+    /**
+     * GET /api/chips/{id}/timeline — 芯片评测历史时间线 (#326)
+     */
+    @GetMapping("/{id}/timeline")
+    public ResponseEntity<Map<String, Object>> getChipTimeline(@PathVariable Long id) {
+        // Verify chip exists
+        chipService.getChip(id);
+
+        List<EvaluationTask> tasks = taskRepository.findByChipId(id,
+                PageRequest.of(0, 100, Sort.by(Sort.Direction.DESC, "createdAt"))).getContent();
+        List<Map<String, Object>> timeline = new ArrayList<>();
+        for (EvaluationTask task : tasks) {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("date", task.getCreatedAt());
+            entry.put("taskName", task.getName());
+            entry.put("taskId", task.getId());
+            entry.put("status", task.getStatus() != null ? task.getStatus().name() : null);
+            // Try to get score from evaluation results
+            Double score = null;
+            try {
+                Optional<EvaluationResult> result = resultRepository.findByTaskId(task.getId());
+                if (result.isPresent() && result.get().getMetricsSummary() != null) {
+                    com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> summary = om.readValue(result.get().getMetricsSummary(), Map.class);
+                    Object s = summary.get("overallScore");
+                    if (s == null) s = summary.get("score");
+                    if (s instanceof Number) score = ((Number) s).doubleValue();
+                }
+            } catch (Exception ignored) {}
+            entry.put("score", score);
+            entry.put("completedAt", task.getCompletedAt());
+            timeline.add(entry);
+        }
+        Map<String, Object> resp = success(timeline);
+        resp.put("total", timeline.size());
         return ResponseEntity.ok(resp);
     }
 
