@@ -60,11 +60,6 @@ public class EvaluationPlanService {
                     .orElseThrow(() -> new RuntimeException("评测模板不存在: " + plan.getTemplateId()));
         }
 
-        // #370: 验证模板存在
-        if (plan.getTemplateId() != null) {
-            templateRepository.findById(plan.getTemplateId())
-                    .orElseThrow(() -> new RuntimeException("评测模板不存在: " + plan.getTemplateId()));
-        }
 
         plan.setPlanNo(generatePlanNo());
         plan.setCreatedBy(userId);
