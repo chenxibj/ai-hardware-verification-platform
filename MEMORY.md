@@ -136,6 +136,17 @@
 - **凌晨巡检可降频：** 00:00-08:00 无待办时每小时一次够了，12 次空转浪费 token
 - **后端频繁重启不一定是问题：** 04-08 后端重启 5+ 次，全部是研发手动部署调试，RestartCount=0，非崩溃。巡检时区分"手动重启"和"异常崩溃"很重要
 
+### 🔴🔴 Sub-agent 并行修 bug = 质量灾难（2026-04-11 最重要教训）
+- **现象：** 4 个 sub-agent 并行修 20 个 bug，全部报告"已验证"，但麦克雷复测发现多个未修复
+- **根因1：** "curl 返回 200" ≠ "功能正常"。验证标准太低，自欺欺人
+- **根因2：** 并行 agent 互相覆盖代码。最后 build 的覆盖前面的改动
+- **根因3：** agent 不理解业务，只做机械修改。完成 task prompt 字面要求，不是真正解决问题
+- **铁律：**
+  1. **禁止并行 sub-agent 改同一代码库** — 串行或严格按模块拆分
+  2. **验证必须走完整用户路径** — 不是 curl 一下，是前端操作→后端处理→数据正确
+  3. **Quality > Speed** — 做 10 个真正修好的好过 20 个假装修好的
+  4. **Sub-agent task 必须包含具体验证场景** — 不是"修复X"，是"修复X并验证Y场景能工作"
+
 ### 🔴 @Transactional + HTTP = 连接池杀手（2026-04-11 血泪教训）
 - **现象：** 后端所有 API 超时（包括登录），HikariPool 报 "Connection is not available, request timed out after 30000ms"
 - **根因：** `TaskRecoveryScheduler.recoverTasks()` 带 `@Transactional`，里面调 `dispatchSingleTask()` 做 HTTP POST 到 agent 节点。agent 不可达时 HTTP 默认无超时 → 事务期间 DB 连接不释放 → HikariCP 默认 10 个连接全堵死

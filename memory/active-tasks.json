@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "id": "task-20260411-009",
+    "description": "#381 #382 P0 + 验证 #361 #365 #380",
+    "status": "running",
+    "subAgentLabel": "fix-p0-381-382",
+    "sessionKey": "agent:main:subagent:495ab956-40ad-4a1c-bcdc-37ab219eb5e5",
+    "lastChecked": "2026-04-11T23:08:00+08:00",
+    "lastProgress": "Agent spawned",
+    "retryCount": 0
+  }
+]
