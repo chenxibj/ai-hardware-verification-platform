@@ -24,6 +24,13 @@ import java.util.stream.Collectors;
  * 2. PENDING + Plan=RUNNING → 重新分发
  * 3. 所有 Task 终态但 Plan=RUNNING → complete Plan
  * 4. 节点 OFFLINE → 其 Task 回 PENDING 重分发
+ *
+ * #FIX: connection pool exhaustion
+ * - Removed @Transactional from recoverTasks() to avoid holding DB connections during HTTP calls
+ * - Each sub-method manages its own transaction
+ * - redispatchPendingTasks() has no @Transactional since it calls HTTP
+ * - Rate limited to max 5 dispatches per round
+ * - Scheduled rate: 10s → 30s
  */
 @Slf4j
 @Component
@@ -42,8 +49,9 @@ public class TaskRecoveryScheduler {
             EvaluationTask.TaskStatus.SKIPPED
     );
 
-    @Scheduled(fixedRate = 10000) // 每分钟执行一次
-    @Transactional
+    private static final int MAX_DISPATCH_PER_ROUND = 5;
+
+    @Scheduled(fixedRate = 30000) // 每30秒执行一次（原10秒太频繁）
     public void recoverTasks() {
         try {
             recoverStaleRunningTasks();
@@ -58,7 +66,8 @@ public class TaskRecoveryScheduler {
     /**
      * 1. RUNNING 超 15 分钟无更新 → FAILED
      */
-    private void recoverStaleRunningTasks() {
+    @Transactional
+    public void recoverStaleRunningTasks() {
         Instant threshold = Instant.now().minus(15, ChronoUnit.MINUTES);
         List<EvaluationTask> staleTasks = taskRepository.findByStatusAndUpdatedAtBefore(
                 EvaluationTask.TaskStatus.RUNNING, threshold);
@@ -77,14 +86,15 @@ public class TaskRecoveryScheduler {
         }
 
         if (!staleTasks.isEmpty()) {
-            log.info("Recovered {} stale RUNNING tasks → FAILED", staleTasks.size());
+            log.info("Recovered {} stale RUNNING tasks -> FAILED", staleTasks.size());
         }
     }
 
     /**
      * 4. 节点 OFFLINE → 其上的 RUNNING Task 回 PENDING 重分发
      */
-    private void recoverOfflineNodeTasks() {
+    @Transactional
+    public void recoverOfflineNodeTasks() {
         List<ComputeNode> offlineNodes = nodeRepository.findByStatus(ComputeNode.Status.OFFLINE);
 
         for (ComputeNode node : offlineNodes) {
@@ -105,16 +115,26 @@ public class TaskRecoveryScheduler {
 
     /**
      * 2. PENDING + Plan=RUNNING → 重新分发
+     * NO @Transactional here - dispatchSingleTask makes HTTP calls that could timeout,
+     * and we don't want to hold a DB connection during those calls.
+     * Rate-limited to MAX_DISPATCH_PER_ROUND per cycle.
      */
     private void redispatchPendingTasks() {
         List<EvaluationTask> pendingTasks = taskRepository.findByStatus(EvaluationTask.TaskStatus.PENDING);
+        int dispatched = 0;
 
         for (EvaluationTask task : pendingTasks) {
+            if (dispatched >= MAX_DISPATCH_PER_ROUND) {
+                log.debug("Reached max dispatch limit ({}) for this round, {} tasks remaining",
+                        MAX_DISPATCH_PER_ROUND, pendingTasks.size() - dispatched);
+                break;
+            }
             if (task.getPlanId() == null) continue;
             EvaluationPlan plan = planRepository.findById(task.getPlanId()).orElse(null);
             if (plan != null && plan.getStatus() == EvaluationPlan.PlanStatus.RUNNING) {
                 try {
-                    taskDispatcher.dispatchSingleTask(task);
+                    boolean success = taskDispatcher.dispatchSingleTask(task);
+                    if (success) dispatched++;
                 } catch (Exception e) {
                     log.debug("Re-dispatch attempt for task {} failed: {}", task.getTaskNo(), e.getMessage());
                 }
@@ -125,7 +145,8 @@ public class TaskRecoveryScheduler {
     /**
      * 3. 所有 Task 终态但 Plan=RUNNING → complete Plan
      */
-    private void completeFinishedPlans() {
+    @Transactional
+    public void completeFinishedPlans() {
         // 找到所有 RUNNING 的 Plan
         List<EvaluationPlan> runningPlans = planRepository.findByStatus(
                 EvaluationPlan.PlanStatus.RUNNING,

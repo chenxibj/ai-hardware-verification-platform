@@ -44,8 +44,8 @@ public class TaskDispatcher {
 
     private static RestTemplate createTimeoutRestTemplate() {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(5_000);  // 5s connect timeout
-        factory.setReadTimeout(30_000);    // 30s read timeout
+        factory.setConnectTimeout(3_000);  // 3s connect timeout
+        factory.setReadTimeout(10_000);    // 10s read timeout
         return new RestTemplate(factory);
     }
 
