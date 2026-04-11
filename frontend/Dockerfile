@@ -2,9 +2,10 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+RUN apk add --no-cache bash git
+
 COPY package*.json ./
 RUN npm ci
-RUN apk add --no-cache bash git
 
 COPY . .
 RUN npm run build
