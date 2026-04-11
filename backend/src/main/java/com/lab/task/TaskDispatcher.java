@@ -62,6 +62,30 @@ public class TaskDispatcher {
         this.restTemplate = createTimeoutRestTemplate();
     }
 
+
+    /**
+     * 事件驱动分发：从 QUEUED 队列中取优先级最高的任务，尝试分发到空闲节点
+     * 被心跳恢复、任务完成、新任务创建时调用
+     */
+    public void tryDispatchNext() {
+        // 找空闲节点
+        List<ComputeNode> onlineNodes = nodeRepository.findByStatus(ComputeNode.Status.ONLINE);
+        if (onlineNodes.isEmpty()) {
+            return;
+        }
+
+        // 从 QUEUED 队列取优先级最高的任务
+        List<EvaluationTask> queuedTasks = taskRepository.findQueuedTasksOrderByPriorityAndCreatedAt();
+        if (queuedTasks.isEmpty()) {
+            return;
+        }
+
+        // 尝试分发第一个
+        EvaluationTask task = queuedTasks.get(0);
+        log.info("Event-driven dispatch: attempting to dispatch task {} ({})", task.getTaskNo(), task.getStatus());
+        dispatchSingleTask(task);
+    }
+
     /**
      * 分发指定 Plan 下所有 PENDING 的 Task
      * #354: 异步执行，不阻塞 API 请求
@@ -303,12 +327,12 @@ public class TaskDispatcher {
      */
     private void rollbackTask(EvaluationTask task) {
         try {
-            task.setStatus(EvaluationTask.TaskStatus.PENDING);
+            task.setStatus(EvaluationTask.TaskStatus.QUEUED);
             task.setAssignedNodeId(null);
             task.setStartedAt(null);
             task.setLastHeartbeatAt(null);
             taskRepository.save(task);
-            log.info("Task {} rolled back to PENDING", task.getId());
+            log.info("Task {} rolled back to QUEUED", task.getId());
         } catch (Exception e) {
             log.error("Failed to rollback task {}: {}", task.getId(), e.getMessage());
         }

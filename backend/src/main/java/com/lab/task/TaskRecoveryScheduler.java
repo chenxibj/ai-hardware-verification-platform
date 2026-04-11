@@ -12,25 +12,24 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
- * 断链修复器 — 定期扫描并修复异常任务
- * #223
+ * 任务异常恢复调度器
  * 
- * 1. RUNNING 超 15min 无更新 → FAILED
- * 2. PENDING + Plan=RUNNING → 重新分发
- * 3. 所有 Task 终态但 Plan=RUNNING → complete Plan
- * 4. 节点 OFFLINE → 其 Task 回 PENDING 重分发
- *
- * #FIX: connection pool exhaustion
- * - Removed @Transactional from recoverTasks() to avoid holding DB connections during HTTP calls
- * - Each sub-method manages its own transaction
- * - redispatchPendingTasks() has no @Transactional since it calls HTTP
- * - Rate limited to max 5 dispatches per round
- * - Scheduled rate: 10s → 30s
+ * 不再轮询分发任务！分发由事件驱动（见 TaskDispatcher.tryDispatchNext）：
+ * - 新任务创建时
+ * - 任务完成/失败释放节点时
+ * - 节点心跳从 OFFLINE 恢复时
+ * 
+ * 本调度器只负责异常恢复：
+ * 1. RUNNING 超时 → FAILED
+ * 2. OFFLINE 节点的 RUNNING 任务 → QUEUED
+ * 3. PENDING/QUEUED 超 24h → CANCELLED
+ * 4. 所有 Task 终态 → 完成 Plan
+ * 5. 启动时迁移 PENDING → QUEUED
  */
 @Slf4j
 @Component
@@ -49,14 +48,13 @@ public class TaskRecoveryScheduler {
             EvaluationTask.TaskStatus.SKIPPED
     );
 
-    private static final int MAX_DISPATCH_PER_ROUND = 5;
-
-    @Scheduled(fixedRate = 30000) // 每30秒执行一次（原10秒太频繁）
+    @Scheduled(fixedRate = 60000) // 每60秒，只做异常恢复
     public void recoverTasks() {
         try {
+            migratePendingToQueued();
             recoverStaleRunningTasks();
             recoverOfflineNodeTasks();
-            redispatchPendingTasks();
+            cleanupStalePendingTasks();
             completeFinishedPlans();
         } catch (Exception e) {
             log.error("Task recovery scheduler error: {}", e.getMessage(), e);
@@ -64,7 +62,29 @@ public class TaskRecoveryScheduler {
     }
 
     /**
-     * 1. RUNNING 超 15 分钟无更新 → FAILED
+     * 迁移遗留 PENDING 任务为 QUEUED（向后兼容）
+     */
+    @Transactional
+    public void migratePendingToQueued() {
+        List<EvaluationTask> pendingTasks = taskRepository.findByStatus(EvaluationTask.TaskStatus.PENDING);
+        if (!pendingTasks.isEmpty()) {
+            for (EvaluationTask task : pendingTasks) {
+                task.setStatus(EvaluationTask.TaskStatus.QUEUED);
+                taskRepository.save(task);
+            }
+            log.info("Migrated {} PENDING tasks to QUEUED", pendingTasks.size());
+
+            // 迁移后尝试分发
+            try {
+                taskDispatcher.tryDispatchNext();
+            } catch (Exception e) {
+                log.debug("Post-migration dispatch failed: {}", e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * RUNNING 超 15 分钟无更新 → FAILED
      */
     @Transactional
     public void recoverStaleRunningTasks() {
@@ -87,67 +107,71 @@ public class TaskRecoveryScheduler {
 
         if (!staleTasks.isEmpty()) {
             log.info("Recovered {} stale RUNNING tasks -> FAILED", staleTasks.size());
+            // 释放节点后尝试分发排队任务
+            try {
+                taskDispatcher.tryDispatchNext();
+            } catch (Exception e) {
+                log.debug("Post-recovery dispatch failed: {}", e.getMessage());
+            }
         }
     }
 
     /**
-     * 4. 节点 OFFLINE → 其上的 RUNNING Task 回 PENDING 重分发
+     * 节点 OFFLINE → 其上的 RUNNING Task 回 QUEUED 等待重分发
      */
     @Transactional
     public void recoverOfflineNodeTasks() {
         List<ComputeNode> offlineNodes = nodeRepository.findByStatus(ComputeNode.Status.OFFLINE);
+        int recovered = 0;
 
         for (ComputeNode node : offlineNodes) {
             List<EvaluationTask> nodeTasks = taskRepository.findByAssignedNodeId(node.getId());
             for (EvaluationTask task : nodeTasks) {
                 if (task.getStatus() == EvaluationTask.TaskStatus.RUNNING) {
-                    log.warn("Node {} is OFFLINE, resetting task {} to PENDING for re-dispatch",
+                    log.warn("Node {} is OFFLINE, resetting task {} to QUEUED for re-dispatch",
                             node.getName(), task.getTaskNo());
-                    task.setStatus(EvaluationTask.TaskStatus.PENDING);
+                    task.setStatus(EvaluationTask.TaskStatus.QUEUED);
                     task.setAssignedNodeId(null);
                     task.setStartedAt(null);
                     task.setLastHeartbeatAt(null);
                     taskRepository.save(task);
+                    recovered++;
                 }
             }
+        }
+
+        if (recovered > 0) {
+            log.info("Recovered {} tasks from OFFLINE nodes -> QUEUED", recovered);
         }
     }
 
     /**
-     * 2. PENDING + Plan=RUNNING → 重新分发
-     * NO @Transactional here - dispatchSingleTask makes HTTP calls that could timeout,
-     * and we don't want to hold a DB connection during those calls.
-     * Rate-limited to MAX_DISPATCH_PER_ROUND per cycle.
+     * QUEUED/PENDING 超 24h → CANCELLED
      */
-    private void redispatchPendingTasks() {
-        List<EvaluationTask> pendingTasks = taskRepository.findByStatus(EvaluationTask.TaskStatus.PENDING);
-        int dispatched = 0;
+    @Transactional
+    public void cleanupStalePendingTasks() {
+        Instant threshold = Instant.now().minus(24, ChronoUnit.HOURS);
+        List<EvaluationTask> staleTasks = new ArrayList<>(
+                taskRepository.findByStatusAndCreatedAtBefore(EvaluationTask.TaskStatus.QUEUED, threshold));
+        staleTasks.addAll(
+                taskRepository.findByStatusAndCreatedAtBefore(EvaluationTask.TaskStatus.PENDING, threshold));
 
-        for (EvaluationTask task : pendingTasks) {
-            if (dispatched >= MAX_DISPATCH_PER_ROUND) {
-                log.debug("Reached max dispatch limit ({}) for this round, {} tasks remaining",
-                        MAX_DISPATCH_PER_ROUND, pendingTasks.size() - dispatched);
-                break;
-            }
-            if (task.getPlanId() == null) continue;
-            EvaluationPlan plan = planRepository.findById(task.getPlanId()).orElse(null);
-            if (plan != null && plan.getStatus() == EvaluationPlan.PlanStatus.RUNNING) {
-                try {
-                    boolean success = taskDispatcher.dispatchSingleTask(task);
-                    if (success) dispatched++;
-                } catch (Exception e) {
-                    log.debug("Re-dispatch attempt for task {} failed: {}", task.getTaskNo(), e.getMessage());
-                }
-            }
+        for (EvaluationTask task : staleTasks) {
+            log.info("Auto-cancelling stale task {} (QUEUED/PENDING for >24h)", task.getTaskNo());
+            task.setStatus(EvaluationTask.TaskStatus.CANCELLED);
+            task.setCompletedAt(Instant.now());
+            taskRepository.save(task);
+        }
+        if (!staleTasks.isEmpty()) {
+            log.info("Auto-cancelled {} stale QUEUED/PENDING tasks", staleTasks.size());
         }
     }
 
     /**
-     * 3. 所有 Task 终态但 Plan=RUNNING → complete Plan
+     * 所有 Task 终态但 Plan=RUNNING → complete Plan
      */
     @Transactional
     public void completeFinishedPlans() {
-        // 找到所有 RUNNING 的 Plan
         List<EvaluationPlan> runningPlans = planRepository.findByStatus(
                 EvaluationPlan.PlanStatus.RUNNING,
                 org.springframework.data.domain.PageRequest.of(0, 100)).getContent();

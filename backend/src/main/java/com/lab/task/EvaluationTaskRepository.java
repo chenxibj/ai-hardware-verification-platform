@@ -51,6 +51,9 @@ public interface EvaluationTaskRepository extends JpaRepository<EvaluationTask, 
     List<EvaluationTask> findByResourcePoolIdAndStatus(Long resourcePoolId, EvaluationTask.TaskStatus status);
     List<EvaluationTask> findByResourcePoolIdAndStatusIn(Long resourcePoolId, List<EvaluationTask.TaskStatus> statuses);
 
+    // Stale task cleanup
+    List<EvaluationTask> findByStatusAndCreatedAtBefore(EvaluationTask.TaskStatus status, Instant threshold);
+
     // #227: Stats
     long countByStatus(EvaluationTask.TaskStatus status);
     // #321: chipId filter

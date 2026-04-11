@@ -41,7 +41,7 @@ public class EvaluationTaskService {
         task.setName(taskName);
         task.setTaskType(request.getTaskType());
         task.setEvalType(request.getEvalType());
-        task.setStatus(EvaluationTask.TaskStatus.PENDING);
+        task.setStatus(EvaluationTask.TaskStatus.QUEUED);
         task.setPriority(request.getPriority());
         task.setEvalConfig(request.getEvalConfig());
         task.setDatasetIds(request.getDatasetIds());
@@ -50,7 +50,16 @@ public class EvaluationTaskService {
         task.setProgress(0);
 
         EvaluationTask saved = taskRepository.save(task);
-        log.info("Created task: {}", saved.getTaskNo());
+        log.info("Created task: {} (status=QUEUED)", saved.getTaskNo());
+
+        // 事件驱动：创建后立即尝试分发
+        try {
+            TaskDispatcher dispatcher = applicationContext.getBean(TaskDispatcher.class);
+            dispatcher.tryDispatchNext();
+        } catch (Exception e) {
+            log.debug("Immediate dispatch attempt failed, task stays QUEUED: {}", e.getMessage());
+        }
+
         return saved;
     }
 
@@ -134,19 +143,16 @@ public class EvaluationTaskService {
         // #229: Broadcast status change via WebSocket
         try { webSocketHandler.broadcastTaskStatus(taskId, task.getPlanId(), status.name()); } catch (Exception e) { log.warn("WS broadcast failed: {}", e.getMessage()); }
         
-        // 任务完成/失败后立刻触发下一个任务分发（不等 60s 定时扫描）
+        // 事件驱动：任务完成/失败后尝试分发下一个排队任务
         if (status == EvaluationTask.TaskStatus.COMPLETED || 
             status == EvaluationTask.TaskStatus.FAILED ||
             status == EvaluationTask.TaskStatus.CANCELLED) {
             try {
                 TaskDispatcher dispatcher = applicationContext.getBean(TaskDispatcher.class);
-                Long planId = saved.getPlanId();
-                if (planId != null) {
-                    log.info("Task {} finished ({}), triggering immediate dispatch for plan {}", taskId, status, planId);
-                    dispatcher.dispatchPlanTasks(planId);
-                }
+                log.info("Task {} finished ({}), triggering event-driven dispatch", taskId, status);
+                dispatcher.tryDispatchNext();
             } catch (Exception e) {
-                log.warn("Immediate dispatch trigger failed: {}", e.getMessage());
+                log.debug("Post-completion dispatch failed: {}", e.getMessage());
             }
         }
         return saved;
@@ -189,13 +195,22 @@ public class EvaluationTaskService {
             throw new RuntimeException("Only failed or cancelled tasks can be retried");
         }
 
-        task.setStatus(EvaluationTask.TaskStatus.PENDING);
+        task.setStatus(EvaluationTask.TaskStatus.QUEUED);
         task.setProgress(0);
         task.setStartedAt(null);
         task.setCompletedAt(null);
 
         EvaluationTask saved = taskRepository.save(task);
-        log.info("Retried task: {}", taskId);
+        log.info("Retried task: {} (status=QUEUED)", taskId);
+
+        // 事件驱动：重试后立即尝试分发
+        try {
+            TaskDispatcher dispatcher = applicationContext.getBean(TaskDispatcher.class);
+            dispatcher.tryDispatchNext();
+        } catch (Exception e) {
+            log.debug("Retry dispatch attempt failed: {}", e.getMessage());
+        }
+
         return saved;
     }
 
@@ -216,7 +231,7 @@ public class EvaluationTaskService {
         clone.setName(original.getName() + "(\u526F\u672C)");
         clone.setTaskType(original.getTaskType());
         clone.setEvalType(original.getEvalType());
-        clone.setStatus(EvaluationTask.TaskStatus.PENDING);
+        clone.setStatus(EvaluationTask.TaskStatus.QUEUED);
         clone.setPriority(original.getPriority());
         clone.setEvalConfig(original.getEvalConfig());
         clone.setDatasetIds(original.getDatasetIds());
@@ -268,7 +283,7 @@ public class EvaluationTaskService {
             throw new RuntimeException("Only paused tasks can be resumed, current: " + task.getStatus());
         }
 
-        return updateTaskStatus(taskId, EvaluationTask.TaskStatus.PENDING, "Resumed by user");
+        return updateTaskStatus(taskId, EvaluationTask.TaskStatus.QUEUED, "Resumed by user");
     }
 
 

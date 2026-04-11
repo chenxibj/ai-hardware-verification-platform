@@ -16,6 +16,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import com.lab.task.TaskDispatcher;
+import org.springframework.context.annotation.Lazy;
 
 @Service
 public class ComputeNodeService {
@@ -24,10 +26,13 @@ public class ComputeNodeService {
 
     private final ComputeNodeRepository repo;
     private final K8sClusterRepository clusterRepo;
+    private final TaskDispatcher taskDispatcher;
 
-    public ComputeNodeService(ComputeNodeRepository repo, K8sClusterRepository clusterRepo) {
+    public ComputeNodeService(ComputeNodeRepository repo, K8sClusterRepository clusterRepo,
+                              @Lazy TaskDispatcher taskDispatcher) {
         this.repo = repo;
         this.clusterRepo = clusterRepo;
+        this.taskDispatcher = taskDispatcher;
     }
 
     /**
@@ -197,6 +202,7 @@ public class ComputeNodeService {
     @Transactional
     public ComputeNode heartbeat(Long id, String hardwareInfo) {
         ComputeNode node = getById(id);
+        ComputeNode.Status oldStatus = node.getStatus();
 
         // #352: 检测 loopback IP 并 log 警告
         if (node.getIpAddress() != null && isLoopbackIp(node.getIpAddress())) {
@@ -216,7 +222,19 @@ public class ComputeNodeService {
         if (hardwareInfo != null && !hardwareInfo.isBlank()) {
             node.setHardwareInfo(hardwareInfo);
         }
-        return repo.save(node);
+        ComputeNode saved = repo.save(node);
+
+        // 事件驱动：节点从 OFFLINE 恢复为 ONLINE 时，尝试分发排队任务
+        if (oldStatus == ComputeNode.Status.OFFLINE && saved.getStatus() == ComputeNode.Status.ONLINE) {
+            log.info("Node {} recovered from OFFLINE, triggering queue dispatch", saved.getName());
+            try {
+                taskDispatcher.tryDispatchNext();
+            } catch (Exception e) {
+                log.debug("Heartbeat-triggered dispatch failed: {}", e.getMessage());
+            }
+        }
+
+        return saved;
     }
 
     /**
