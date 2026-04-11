@@ -495,8 +495,14 @@ class TaskExecutor:
         except Exception as e:
             logger.warning("保存任务日志失败: %s", e)
 
+    # #360: 最大重试次数和退避配置
+    MAX_REPORT_RETRIES = 3
+    REPORT_BACKOFF_BASE = 30  # 秒: 30s, 60s, 120s
+
     def _report_result(self, task_id, status, result, logs=""):
-        """上报执行结果到平台"""
+        """上报执行结果到平台
+        #360: 最多重试 3 次，指数退避，4xx 立即停止
+        """
         url = "{}/tasks/{}/result".format(self.platform_url, task_id)
         headers = {
             "Content-Type": "application/json",
@@ -507,18 +513,40 @@ class TaskExecutor:
             "result": result,
             "logs": logs[-10000:] if logs else "",
         }
-        try:
-            resp = requests.post(url, json=payload, headers=headers, timeout=30)
-            if resp.status_code == 200:
-                logger.info("任务 %s 结果上报成功, status=%s", task_id, status)
-            else:
-                logger.error("任务 %s 结果上报失败: %s %s", task_id, resp.status_code, resp.text)
-                # #216: 上报失败，持久化到本地
-                self._save_pending_result(task_id, payload)
-        except Exception as e:
-            logger.error("任务 %s 结果上报异常: %s", task_id, e)
-            # #216: 上报异常，持久化到本地
-            self._save_pending_result(task_id, payload)
+
+        for attempt in range(self.MAX_REPORT_RETRIES):
+            try:
+                resp = requests.post(url, json=payload, headers=headers, timeout=30)
+                if resp.status_code == 200:
+                    logger.info("任务 %s 结果上报成功, status=%s", task_id, status)
+                    # 上报成功，清理本地持久化文件（如果有）
+                    self._remove_pending_result(task_id)
+                    return
+                elif 400 <= resp.status_code < 500:
+                    # #360: 4xx 客户端错误（含 410 Gone），不重试
+                    logger.warning("任务 %s 结果上报被拒绝 (HTTP %s): %s，停止重试",
+                                   task_id, resp.status_code, resp.text[:200])
+                    self._remove_pending_result(task_id)
+                    return
+                else:
+                    # 5xx 服务器错误，可重试
+                    logger.error("任务 %s 结果上报失败 (attempt %d/%d): %s %s",
+                                 task_id, attempt + 1, self.MAX_REPORT_RETRIES,
+                                 resp.status_code, resp.text[:200])
+            except Exception as e:
+                logger.error("任务 %s 结果上报异常 (attempt %d/%d): %s",
+                             task_id, attempt + 1, self.MAX_REPORT_RETRIES, e)
+
+            # 指数退避：30s, 60s, 120s
+            if attempt < self.MAX_REPORT_RETRIES - 1:
+                backoff = self.REPORT_BACKOFF_BASE * (2 ** attempt)
+                logger.info("任务 %s 将在 %ds 后重试上报 (attempt %d/%d)",
+                            task_id, backoff, attempt + 2, self.MAX_REPORT_RETRIES)
+                time.sleep(backoff)
+
+        # 所有重试用尽，持久化到本地
+        logger.error("任务 %s 结果上报 %d 次均失败，持久化到本地", task_id, self.MAX_REPORT_RETRIES)
+        self._save_pending_result(task_id, payload)
 
     def _save_pending_result(self, task_id, payload):
         """#216: 上报失败时将结果持久化到本地，等待心跳重传"""
@@ -530,6 +558,16 @@ class TaskExecutor:
             logger.info("任务 %s 结果已持久化到 %s，等待重传", task_id, fpath)
         except Exception as e:
             logger.error("持久化任务结果失败: %s", e)
+
+    def _remove_pending_result(self, task_id):
+        """#360: 清理本地持久化的结果文件"""
+        try:
+            fpath = os.path.join(PENDING_DIR, "{}.json".format(task_id))
+            if os.path.exists(fpath):
+                os.remove(fpath)
+                logger.info("已清理本地持久化结果: %s", fpath)
+        except Exception as e:
+            logger.debug("清理持久化结果失败: %s", e)
 
 
 class MetricsCollector(threading.Thread):

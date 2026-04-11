@@ -65,26 +65,47 @@ public class TaskDispatcher {
 
 
     /**
-     * 事件驱动分发：从 QUEUED 队列中取优先级最高的任务，尝试分发到空闲节点
-     * 被心跳恢复、任务完成、新任务创建时调用
+     * 事件驱动分发：尝试分发所有可分发的 QUEUED 任务（受可用节点限制）
+     * #359: 批量分发，不再只取第一个
+     * #360: 自动取消已终态方案的残留任务
      */
     public void tryDispatchNext() {
-        // 找空闲节点
-        List<ComputeNode> onlineNodes = nodeRepository.findByStatus(ComputeNode.Status.ONLINE);
-        if (onlineNodes.isEmpty()) {
-            return;
-        }
+        List<ComputeNode> availableNodes = nodeRepository.findByStatus(ComputeNode.Status.ONLINE);
+        if (availableNodes.isEmpty()) return;
 
-        // 从 QUEUED 队列取优先级最高的任务
         List<EvaluationTask> queuedTasks = taskRepository.findQueuedTasksOrderByPriorityAndCreatedAt();
-        if (queuedTasks.isEmpty()) {
-            return;
+        if (queuedTasks.isEmpty()) return;
+
+        int dispatched = 0;
+        for (EvaluationTask task : queuedTasks) {
+            // #360: 跳过已取消/完成方案的任务（自动取消）
+            if (task.getPlanId() != null) {
+                var planOpt = planRepository.findById(task.getPlanId());
+                if (planOpt.isPresent()) {
+                    var plan = planOpt.get();
+                    if (plan.getStatus() == EvaluationPlan.PlanStatus.CANCELLED ||
+                        plan.getStatus() == EvaluationPlan.PlanStatus.COMPLETED) {
+                        task.setStatus(EvaluationTask.TaskStatus.CANCELLED);
+                        task.setCompletedAt(Instant.now());
+                        taskRepository.save(task);
+                        log.info("Auto-cancelled task {} (plan {} is {})",
+                            task.getTaskNo(), plan.getPlanNo(), plan.getStatus());
+                        continue;
+                    }
+                }
+            }
+
+            try {
+                boolean success = dispatchSingleTask(task);
+                if (success) dispatched++;
+            } catch (Exception e) {
+                log.debug("Dispatch failed for task {}: {}", task.getTaskNo(), e.getMessage());
+            }
         }
 
-        // 尝试分发第一个
-        EvaluationTask task = queuedTasks.get(0);
-        log.info("Event-driven dispatch: attempting to dispatch task {} ({})", task.getTaskNo(), task.getStatus());
-        dispatchSingleTask(task);
+        if (dispatched > 0) {
+            log.info("Event-driven dispatch: {} tasks dispatched from queue", dispatched);
+        }
     }
 
     /**

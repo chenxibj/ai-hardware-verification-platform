@@ -212,13 +212,12 @@ public class TaskRecoveryScheduler {
 
 
     /**
-     * #358: 兜底重调度 — 如果有 QUEUED 任务且有空闲节点，尝试分发
-     * 不遍历所有任务，只尝试一次 tryDispatchNext
+     * #358/#359: 兜底重调度 — tryDispatchNext 现在已经是批量分发了
      */
     private void retryQueuedIfPossible() {
         long queuedCount = taskRepository.countByStatus(EvaluationTask.TaskStatus.QUEUED);
         if (queuedCount > 0) {
-            log.debug("Found {} QUEUED tasks, attempting fallback dispatch", queuedCount);
+            log.debug("Found {} QUEUED tasks, attempting batch fallback dispatch", queuedCount);
             try {
                 taskDispatcher.tryDispatchNext();
             } catch (Exception e) {

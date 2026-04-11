@@ -4,6 +4,8 @@ import com.lab.auth.RequireRole;
 import com.lab.auth.Role;
 import com.lab.chipreport.ChipReport;
 import com.lab.chipreport.ChipReportRepository;
+import com.lab.task.EvaluationTask;
+import com.lab.task.EvaluationTaskRepository;
 import com.lab.task.TaskLogRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +31,7 @@ import java.util.Optional;
 public class EvaluationResultController {
 
     private final EvaluationResultRepository resultRepository;
+    private final EvaluationTaskRepository taskRepository;
     private final EvaluationResultService resultService;
     private final ChipReportRepository chipReportRepository;
     private final TaskLogRepository taskLogRepository;
@@ -75,12 +78,34 @@ public class EvaluationResultController {
 
     /**
      * Agent 提交任务结果 (permitAll in SecurityConfig)
+     * #360: 如果任务已终态，返回 410 Gone 告知 Agent 停止重试
      */
     @PostMapping("/tasks/{taskId}/result")
     public ResponseEntity<Map<String, Object>> submitResult(
             @PathVariable Long taskId,
             @RequestBody Map<String, Object> body) {
         try {
+            // #360: Check if task is already in terminal state
+            var taskOpt = taskRepository.findById(taskId);
+            if (taskOpt.isPresent()) {
+                EvaluationTask task = taskOpt.get();
+                if (task.getStatus() == EvaluationTask.TaskStatus.COMPLETED ||
+                    task.getStatus() == EvaluationTask.TaskStatus.FAILED ||
+                    task.getStatus() == EvaluationTask.TaskStatus.CANCELLED) {
+                    log.warn("Task {} is already in terminal state {}, returning 410 Gone", taskId, task.getStatus());
+                    Map<String, Object> resp = new HashMap<>();
+                    resp.put("code", 4100);
+                    resp.put("message", "Task " + taskId + " is already " + task.getStatus() + ", stop retrying");
+                    return ResponseEntity.status(org.springframework.http.HttpStatus.GONE).body(resp);
+                }
+            } else {
+                log.warn("Task {} not found, returning 410 Gone", taskId);
+                Map<String, Object> resp = new HashMap<>();
+                resp.put("code", 4100);
+                resp.put("message", "Task " + taskId + " not found, stop retrying");
+                return ResponseEntity.status(org.springframework.http.HttpStatus.GONE).body(resp);
+            }
+
             String rawData = body.containsKey("rawData")
                     ? body.get("rawData").toString()
                     : new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(body);
@@ -94,12 +119,28 @@ public class EvaluationResultController {
 
     /**
      * Agent 报告任务失败
+     * #360: 如果任务已终态，返回 410 Gone 告知 Agent 停止重试
      */
     @PostMapping("/tasks/{taskId}/failure")
     public ResponseEntity<Map<String, Object>> submitFailure(
             @PathVariable Long taskId,
             @RequestBody Map<String, String> body) {
         try {
+            // #360: Check if task is already in terminal state
+            var taskOpt = taskRepository.findById(taskId);
+            if (taskOpt.isPresent()) {
+                EvaluationTask task = taskOpt.get();
+                if (task.getStatus() == EvaluationTask.TaskStatus.COMPLETED ||
+                    task.getStatus() == EvaluationTask.TaskStatus.FAILED ||
+                    task.getStatus() == EvaluationTask.TaskStatus.CANCELLED) {
+                    log.warn("Task {} is already in terminal state {}, returning 410 Gone", taskId, task.getStatus());
+                    Map<String, Object> resp = new HashMap<>();
+                    resp.put("code", 4100);
+                    resp.put("message", "Task " + taskId + " is already " + task.getStatus() + ", stop retrying");
+                    return ResponseEntity.status(org.springframework.http.HttpStatus.GONE).body(resp);
+                }
+            }
+
             String errorMsg = body.getOrDefault("error", "Unknown error");
             EvaluationResult result = resultService.submitFailure(taskId, errorMsg);
             return ResponseEntity.ok(success(result));

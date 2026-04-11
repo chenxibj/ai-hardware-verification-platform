@@ -66,8 +66,11 @@ class HeartbeatThread(threading.Thread):
         except Exception as e:
             logger.warning("心跳发送失败: %s", e)
 
+    # #360: 每个 pending 结果最多重试次数
+    MAX_PENDING_RETRIES = 3
+
     def _retry_pending(self):
-        """#216: 重传上报失败的任务结果"""
+        """#216/#360: 重传上报失败的任务结果，最多重试 3 次，4xx 立即放弃"""
         if not os.path.exists(PENDING_DIR):
             return
         headers = {
@@ -81,13 +84,32 @@ class HeartbeatThread(threading.Thread):
             try:
                 with open(fpath) as f:
                     payload = json.load(f)
+
+                # #360: 追踪重试次数
+                retry_count = payload.get("_retry_count", 0)
+                if retry_count >= self.MAX_PENDING_RETRIES:
+                    logger.warning("任务 %s 结果重传已达上限 (%d 次)，放弃并删除",
+                                   fname, self.MAX_PENDING_RETRIES)
+                    os.remove(fpath)
+                    continue
+
                 task_id = fname.replace(".json", "")
                 url = "{}/tasks/{}/result".format(self.platform_url, task_id)
                 resp = requests.post(url, json=payload, headers=headers, timeout=10)
                 if resp.status_code == 200:
                     os.remove(fpath)
                     logger.info("重传任务 %s 结果成功", task_id)
+                elif 400 <= resp.status_code < 500:
+                    # #360: 4xx 错误（含 410 Gone）→ 停止重试，删除文件
+                    logger.warning("任务 %s 结果被服务端拒绝 (HTTP %s)，停止重传并删除",
+                                   task_id, resp.status_code)
+                    os.remove(fpath)
                 else:
-                    logger.warning("重传任务 %s 失败: %s %s", task_id, resp.status_code, resp.text)
+                    # 5xx：递增重试计数并保存
+                    payload["_retry_count"] = retry_count + 1
+                    with open(fpath, "w") as f:
+                        json.dump(payload, f, ensure_ascii=False)
+                    logger.warning("重传任务 %s 失败 (%d/%d): %s",
+                                   task_id, retry_count + 1, self.MAX_PENDING_RETRIES, resp.status_code)
             except Exception as e:
                 logger.warning("重传失败: %s", e)
