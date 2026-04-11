@@ -17,6 +17,8 @@ import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
 import java.util.*;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 
 /**
  * 评测任务分发引擎
@@ -38,7 +40,14 @@ public class TaskDispatcher {
     @Value("${agent.token:ahvp-agent-secret-2026}")
     private String agentToken;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
+
+    private static RestTemplate createTimeoutRestTemplate() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5_000);  // 5s connect timeout
+        factory.setReadTimeout(30_000);    // 30s read timeout
+        return new RestTemplate(factory);
+    }
 
     public TaskDispatcher(EvaluationTaskRepository taskRepository,
                           ComputeNodeRepository nodeRepository,
@@ -50,11 +59,14 @@ public class TaskDispatcher {
         this.planRepository = planRepository;
         this.chipRepository = chipRepository;
         this.objectMapper = objectMapper;
+        this.restTemplate = createTimeoutRestTemplate();
     }
 
     /**
      * 分发指定 Plan 下所有 PENDING 的 Task
+     * #354: 异步执行，不阻塞 API 请求
      */
+    @Async
     public void dispatchPlanTasks(Long planId) {
         List<EvaluationTask> pendingTasks = taskRepository.findByPlanIdAndStatus(
                 planId, EvaluationTask.TaskStatus.PENDING);
@@ -145,11 +157,36 @@ public class TaskDispatcher {
 
     /**
      * #349: 校验节点 IP 是否有效（非 null、非空、非 loopback）
+     * #355: 排除 172.16.0.0/12 内网段节点（K8s VPC 内网，Docker 容器不可达）
      */
     private boolean isValidNodeIp(String ip) {
-        return ip != null && !ip.isBlank()
-                && !"127.0.0.1".equals(ip)
-                && !"localhost".equals(ip);
+        if (ip == null || ip.isBlank()) return false;
+        if ("127.0.0.1".equals(ip) || "localhost".equals(ip)) return false;
+        // #355: 排除 172.16.0.0/12 (172.16.x.x ~ 172.31.x.x) 内网段
+        if (isPrivate172Subnet(ip)) {
+            log.debug("Filtering out private 172.16/12 IP: {}", ip);
+            return false;
+        }
+        // 排除 10.0.0.0/8 内网段
+        if (ip.startsWith("10.")) {
+            log.debug("Filtering out private 10.0/8 IP: {}", ip);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * #355: 判断 IP 是否在 172.16.0.0/12 范围内 (172.16.x.x ~ 172.31.x.x)
+     */
+    private boolean isPrivate172Subnet(String ip) {
+        if (!ip.startsWith("172.")) return false;
+        try {
+            String[] parts = ip.split("\\.");
+            int secondOctet = Integer.parseInt(parts[1]);
+            return secondOctet >= 16 && secondOctet <= 31;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**
@@ -187,6 +224,7 @@ public class TaskDispatcher {
             List<ComputeNode> onlinePoolNodes = poolNodes.stream()
                     .filter(n -> n.getStatus() == ComputeNode.Status.ONLINE)
                     .filter(n -> isValidNodeIp(n.getIpAddress()))  // #349
+                    .filter(n -> !"k8s-daemonset".equals(n.getSource()))  // #355: K8s nodes use exec channel
                     .toList();
             if (!onlinePoolNodes.isEmpty()) {
                 return onlinePoolNodes.get(0);
@@ -201,6 +239,7 @@ public class TaskDispatcher {
         List<ComputeNode> onlineNodes = nodeRepository.findByStatus(ComputeNode.Status.ONLINE);
         List<ComputeNode> validNodes = onlineNodes.stream()
                 .filter(n -> isValidNodeIp(n.getIpAddress()))
+                .filter(n -> !"k8s-daemonset".equals(n.getSource()))  // #355
                 .toList();
         if (!validNodes.isEmpty()) {
             return validNodes.get(0);

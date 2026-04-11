@@ -8,6 +8,7 @@ import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
 import com.lab.node.ComputeNode;
 import com.lab.node.ComputeNodeRepository;
+import com.lab.chip.ChipRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -33,6 +34,7 @@ public class EvaluationResultService {
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
     private final ComputeNodeRepository nodeRepository;
+    private final ChipRepository chipRepository;
 
     /**
      * Agent 提交任务结果
@@ -49,11 +51,21 @@ public class EvaluationResultService {
         String evalType = task.getTestSubject() != null ? task.getTestSubject().name() : "OPERATOR";
         double score = calculateScore(metrics, evalType);
 
+        // #353: chipId 防御 — 如果 task 没有 chipId，从 Plan 获取
+        Long chipId = task.getChipId();
+        if (chipId == null && task.getPlanId() != null) {
+            EvaluationPlan plan = planRepository.findById(task.getPlanId()).orElse(null);
+            if (plan != null) {
+                chipId = plan.getChipId();
+                log.info("Task {} chipId was null, resolved from plan: {}", taskId, chipId);
+            }
+        }
+
         // 保存结果
         EvaluationResult result = new EvaluationResult();
         result.setTaskId(taskId);
         result.setPlanId(task.getPlanId());
-        result.setChipId(task.getChipId());
+        result.setChipId(chipId);
         result.setRawData(rawData);
 
         Map<String, Object> summary = new HashMap<>(metrics);
@@ -65,7 +77,12 @@ public class EvaluationResultService {
             result.setMetricsSummary("{\"score\":" + score + "}");
         }
         result.setPassed(score >= 60.0);
-        result = resultRepository.save(result);
+        try {
+            result = resultRepository.save(result);
+        } catch (Exception dbEx) {
+            log.error("#353 Failed to save result for task {}: {}", taskId, dbEx.getMessage());
+            throw new RuntimeException("Failed to save evaluation result: " + dbEx.getMessage(), dbEx);
+        }
 
         // 更新任务状态
         task.setStatus(EvaluationTask.TaskStatus.COMPLETED);
@@ -90,13 +107,26 @@ public class EvaluationResultService {
         EvaluationTask task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new RuntimeException("Task not found: " + taskId));
 
+        // #353: chipId 防御
+        Long chipId = task.getChipId();
+        if (chipId == null && task.getPlanId() != null) {
+            EvaluationPlan plan = planRepository.findById(task.getPlanId()).orElse(null);
+            if (plan != null) chipId = plan.getChipId();
+        }
+
         EvaluationResult result = new EvaluationResult();
         result.setTaskId(taskId);
         result.setPlanId(task.getPlanId());
-        result.setChipId(task.getChipId());
+        result.setChipId(chipId);
         result.setPassed(false);
         result.setErrorMessage(errorMessage);
-        result = resultRepository.save(result);
+        try {
+            result = resultRepository.save(result);
+        } catch (Exception dbEx) {
+            log.error("Failed to save failure result for task {}: {}", taskId, dbEx.getMessage());
+            // #353: 不让 DB 异常拖垮连接池，快速释放
+            throw new RuntimeException("Failed to save result: " + dbEx.getMessage(), dbEx);
+        }
 
         task.setStatus(EvaluationTask.TaskStatus.FAILED);
         task.setCompletedAt(Instant.now());

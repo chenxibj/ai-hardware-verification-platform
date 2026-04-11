@@ -130,20 +130,31 @@ public class EvaluationPlanService {
 
     // ============ 状态流转 ============
 
+    /**
+     * #354: startPlan 只更新状态并立即返回，任务分发改为异步
+     * #356: 幂等检查 — RUNNING 状态的 Plan 不重复 start，直接返回成功
+     */
     @Transactional
     public EvaluationPlan startPlan(Long id) {
         EvaluationPlan plan = getPlan(id);
+
+        // #356: 幂等保护 — 已经 RUNNING 的 Plan 直接返回，不重复分发
+        if (plan.getStatus() == EvaluationPlan.PlanStatus.RUNNING) {
+            log.info("Plan {} is already RUNNING, idempotent return", plan.getPlanNo());
+            return plan;
+        }
+
         assertStatus(plan, EvaluationPlan.PlanStatus.DRAFT, "start");
         plan.setStatus(EvaluationPlan.PlanStatus.RUNNING);
         plan.setStartedAt(Instant.now());
         EvaluationPlan saved = planRepository.save(plan);
         log.info("Started evaluation task: {}", saved.getPlanNo());
 
-        // #222: 启动后立即分发任务
+        // #354: 异步分发任务 — dispatchPlanTasks 是 @Async，不阻塞当前请求
         try {
             taskDispatcher.dispatchPlanTasks(saved.getId());
         } catch (Exception e) {
-            log.error("Failed to dispatch tasks for plan {}: {}", saved.getPlanNo(), e.getMessage());
+            log.error("Failed to trigger async dispatch for plan {}: {}", saved.getPlanNo(), e.getMessage());
             // 不回滚 Plan 状态 — Recovery scheduler 会重新分发
         }
 
@@ -163,12 +174,17 @@ public class EvaluationPlanService {
     @Transactional
     public EvaluationPlan resumePlan(Long id) {
         EvaluationPlan plan = getPlan(id);
+        // #356: 幂等保护
+        if (plan.getStatus() == EvaluationPlan.PlanStatus.RUNNING) {
+            log.info("Plan {} is already RUNNING, idempotent return", plan.getPlanNo());
+            return plan;
+        }
         assertStatus(plan, EvaluationPlan.PlanStatus.PAUSED, "resume");
         plan.setStatus(EvaluationPlan.PlanStatus.RUNNING);
         EvaluationPlan saved = planRepository.save(plan);
         log.info("Resumed evaluation task: {}", saved.getPlanNo());
 
-        // #222: 恢复后也分发任务
+        // #354: 异步分发
         try {
             taskDispatcher.dispatchPlanTasks(saved.getId());
         } catch (Exception e) {

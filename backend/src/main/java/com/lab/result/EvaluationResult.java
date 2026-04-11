@@ -20,7 +20,7 @@ public class EvaluationResult {
     private Long taskId;
     @Column(name = "plan_id", nullable = false)
     private Long planId;
-    @Column(name = "chip_id", nullable = false)
+    @Column(name = "chip_id")
     private Long chipId;
 
     @JdbcTypeCode(SqlTypes.JSON)
