@@ -3,6 +3,8 @@ package com.lab.task;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lab.node.ComputeNode;
 import com.lab.node.ComputeNodeRepository;
+import com.lab.plan.EvaluationPlan;
+import com.lab.plan.EvaluationPlanRepository;
 import com.lab.chip.Chip;
 import com.lab.chip.ChipRepository;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +22,8 @@ import java.util.*;
  * 评测任务分发引擎
  * 负责将 PENDING 状态的 Task 分发到 ONLINE 的 Agent 节点执行
  * #222, #346: 增加资源池感知 + QUEUED 排队机制
+ * #349: 校验节点 IP 有效性
+ * #350: Plan 指定 nodeId 时优先分发到该节点
  */
 @Slf4j
 @Service
@@ -27,6 +31,7 @@ public class TaskDispatcher {
 
     private final EvaluationTaskRepository taskRepository;
     private final ComputeNodeRepository nodeRepository;
+    private final EvaluationPlanRepository planRepository;
     private final ChipRepository chipRepository;
     private final ObjectMapper objectMapper;
 
@@ -37,10 +42,12 @@ public class TaskDispatcher {
 
     public TaskDispatcher(EvaluationTaskRepository taskRepository,
                           ComputeNodeRepository nodeRepository,
+                          EvaluationPlanRepository planRepository,
                           ChipRepository chipRepository,
                           ObjectMapper objectMapper) {
         this.taskRepository = taskRepository;
         this.nodeRepository = nodeRepository;
+        this.planRepository = planRepository;
         this.chipRepository = chipRepository;
         this.objectMapper = objectMapper;
     }
@@ -137,30 +144,69 @@ public class TaskDispatcher {
     }
 
     /**
+     * #349: 校验节点 IP 是否有效（非 null、非空、非 loopback）
+     */
+    private boolean isValidNodeIp(String ip) {
+        return ip != null && !ip.isBlank()
+                && !"127.0.0.1".equals(ip)
+                && !"localhost".equals(ip);
+    }
+
+    /**
      * 找到一个可用节点
      * #346: 优先从任务关联的资源池中查找 ONLINE 节点，再 fallback 到全局
+     * #349: 过滤掉 IP 无效的节点
+     * #350: Plan 指定 nodeId 时优先分发到该节点
      */
     private ComputeNode findAvailableNode(EvaluationTask task) {
+        // #350: 如果任务关联 Plan 且 Plan 指定了 nodeId，优先使用
+        if (task.getPlanId() != null) {
+            Optional<EvaluationPlan> planOpt = planRepository.findById(task.getPlanId());
+            if (planOpt.isPresent() && planOpt.get().getNodeId() != null) {
+                Long preferredNodeId = planOpt.get().getNodeId();
+                Optional<ComputeNode> preferredNode = nodeRepository.findById(preferredNodeId);
+                if (preferredNode.isPresent()) {
+                    ComputeNode pn = preferredNode.get();
+                    if (pn.getStatus() == ComputeNode.Status.ONLINE && isValidNodeIp(pn.getIpAddress())) {
+                        log.info("Task {} using Plan-preferred node {} (id={})",
+                                task.getTaskNo(), pn.getName(), pn.getId());
+                        return pn;
+                    } else {
+                        log.warn("Plan-preferred node {} (id={}) is not available (status={}, ip={}), falling back",
+                                pn.getName(), pn.getId(), pn.getStatus(), pn.getIpAddress());
+                    }
+                } else {
+                    log.warn("Plan-preferred nodeId {} not found, falling back", preferredNodeId);
+                }
+            }
+        }
+
         // 如果任务指定了资源池，优先从资源池内找
         if (task.getResourcePoolId() != null) {
             List<ComputeNode> poolNodes = nodeRepository.findByResourcePoolId(task.getResourcePoolId());
             List<ComputeNode> onlinePoolNodes = poolNodes.stream()
                     .filter(n -> n.getStatus() == ComputeNode.Status.ONLINE)
+                    .filter(n -> isValidNodeIp(n.getIpAddress()))  // #349
                     .toList();
             if (!onlinePoolNodes.isEmpty()) {
-                // 选择负载最低的节点（简化：选第一个 ONLINE 的，因为 BUSY 的已过滤）
                 return onlinePoolNodes.get(0);
             }
             // 资源池内无可用节点，不 fallback 到全局（资源隔离原则）
-            log.debug("No available ONLINE node in resource pool {} for task {}",
+            log.debug("No available ONLINE node with valid IP in resource pool {} for task {}",
                     task.getResourcePoolId(), task.getId());
             return null;
         }
 
-        // 未指定资源池，从全局 ONLINE 节点中查找
+        // 未指定资源池，从全局 ONLINE 节点中查找（#349: 过滤无效 IP）
         List<ComputeNode> onlineNodes = nodeRepository.findByStatus(ComputeNode.Status.ONLINE);
+        List<ComputeNode> validNodes = onlineNodes.stream()
+                .filter(n -> isValidNodeIp(n.getIpAddress()))
+                .toList();
+        if (!validNodes.isEmpty()) {
+            return validNodes.get(0);
+        }
         if (!onlineNodes.isEmpty()) {
-            return onlineNodes.get(0);
+            log.warn("Found {} ONLINE nodes but all have invalid IPs, cannot dispatch", onlineNodes.size());
         }
         return null;
     }

@@ -31,6 +31,20 @@ public class ComputeNodeService {
     }
 
     /**
+     * #352: 检测 loopback IP 并记录警告
+     */
+    private boolean isLoopbackIp(String ip) {
+        return "127.0.0.1".equals(ip) || "localhost".equals(ip);
+    }
+
+    /**
+     * #351: 校验 IP 是否有效（非 null、非空、非 loopback）
+     */
+    private boolean isValidIp(String ip) {
+        return ip != null && !ip.isBlank() && !isLoopbackIp(ip);
+    }
+
+    /**
      * 节点列表 — 支持 source 和 clusterId 过滤
      */
     public List<ComputeNode> list(ComputeNode.Status status, String type, String source, Long clusterId) {
@@ -69,6 +83,19 @@ public class ComputeNodeService {
 
     @Transactional
     public ComputeNode register(ComputeNode node) {
+        // #351: 非 K8s 来源注册时校验 ipAddress 不为空
+        if (!"k8s-daemonset".equals(node.getSource()) && !"k8s-discovery".equals(node.getSource())) {
+            if (node.getIpAddress() == null || node.getIpAddress().isBlank()) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "节点注册时 ipAddress 不能为空");
+            }
+        }
+
+        // #352: 检测 loopback IP 并 log 警告
+        if (node.getIpAddress() != null && isLoopbackIp(node.getIpAddress())) {
+            log.warn("节点 {} 注册时使用了 loopback IP: {}，该节点将无法被调度分发任务",
+                    node.getName(), node.getIpAddress());
+        }
+
         Optional<ComputeNode> existing = repo.findByName(node.getName());
         // Problem 6 fix: also check by IP+clusterId to avoid duplicate nodes
         if (existing.isEmpty() && node.getIpAddress() != null && node.getClusterId() != null) {
@@ -82,7 +109,13 @@ public class ComputeNodeService {
             if (node.getAgentPort() != null) ex.setAgentPort(node.getAgentPort());
             if (node.getClusterId() != null) ex.setClusterId(node.getClusterId());
             if (node.getSource() != null) ex.setSource(node.getSource());
-            ex.setStatus(ComputeNode.Status.ONLINE);
+            // #351: 心跳更新时，只有 IP 有效才设为 ONLINE
+            if (isValidIp(node.getIpAddress()) || isValidIp(ex.getIpAddress())) {
+                ex.setStatus(ComputeNode.Status.ONLINE);
+            } else {
+                log.warn("节点 {} IP 无效 (ip={}), 不设为 ONLINE，保持 {}",
+                        ex.getName(), ex.getIpAddress(), ex.getStatus());
+            }
             ex.setLastHeartbeat(Instant.now());
             ex.setErrorMessage(null);
             return repo.save(ex);
@@ -164,8 +197,21 @@ public class ComputeNodeService {
     @Transactional
     public ComputeNode heartbeat(Long id, String hardwareInfo) {
         ComputeNode node = getById(id);
+
+        // #352: 检测 loopback IP 并 log 警告
+        if (node.getIpAddress() != null && isLoopbackIp(node.getIpAddress())) {
+            log.warn("节点 {} (id={}) 心跳时检测到 loopback IP: {}，该节点将无法被调度分发任务",
+                    node.getName(), node.getId(), node.getIpAddress());
+        }
+
         node.setLastHeartbeat(Instant.now());
-        node.setStatus(ComputeNode.Status.ONLINE);
+        // #351: 心跳时只有 IP 有效才设为 ONLINE
+        if (isValidIp(node.getIpAddress())) {
+            node.setStatus(ComputeNode.Status.ONLINE);
+        } else {
+            log.warn("节点 {} (id={}) IP 无效 (ip={}), 心跳不设为 ONLINE",
+                    node.getName(), node.getId(), node.getIpAddress());
+        }
         node.setErrorMessage(null);
         if (hardwareInfo != null && !hardwareInfo.isBlank()) {
             node.setHardwareInfo(hardwareInfo);
