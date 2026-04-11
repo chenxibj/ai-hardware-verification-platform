@@ -30,6 +30,7 @@ import java.util.Set;
  * 3. PENDING/QUEUED 超 24h → CANCELLED
  * 4. 所有 Task 终态 → 完成 Plan
  * 5. 启动时迁移 PENDING → QUEUED
+ * 6. #358: QUEUED 任务兜底重调度（每60秒尝试一次）
  */
 @Slf4j
 @Component
@@ -56,6 +57,7 @@ public class TaskRecoveryScheduler {
             recoverOfflineNodeTasks();
             cleanupStalePendingTasks();
             completeFinishedPlans();
+            retryQueuedIfPossible();  // #358: 兜底重调度
         } catch (Exception e) {
             log.error("Task recovery scheduler error: {}", e.getMessage(), e);
         }
@@ -204,6 +206,23 @@ public class TaskRecoveryScheduler {
                 planRepository.save(plan);
                 log.info("Plan {} auto-completed (completed={}, failed={}, total={})",
                         plan.getPlanNo(), completedCount, failedCount, tasks.size());
+            }
+        }
+    }
+
+
+    /**
+     * #358: 兜底重调度 — 如果有 QUEUED 任务且有空闲节点，尝试分发
+     * 不遍历所有任务，只尝试一次 tryDispatchNext
+     */
+    private void retryQueuedIfPossible() {
+        long queuedCount = taskRepository.countByStatus(EvaluationTask.TaskStatus.QUEUED);
+        if (queuedCount > 0) {
+            log.debug("Found {} QUEUED tasks, attempting fallback dispatch", queuedCount);
+            try {
+                taskDispatcher.tryDispatchNext();
+            } catch (Exception e) {
+                log.debug("Queued retry attempt failed: {}", e.getMessage());
             }
         }
     }

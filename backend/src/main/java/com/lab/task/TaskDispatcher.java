@@ -26,6 +26,7 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
  * #222, #346: 增加资源池感知 + QUEUED 排队机制
  * #349: 校验节点 IP 有效性
  * #350: Plan 指定 nodeId 时优先分发到该节点
+ * #357: 移除过度 IP 段过滤，改为 agent 可达性检测
  */
 @Slf4j
 @Service
@@ -181,34 +182,29 @@ public class TaskDispatcher {
 
     /**
      * #349: 校验节点 IP 是否有效（非 null、非空、非 loopback）
-     * #355: 排除 172.16.0.0/12 内网段节点（K8s VPC 内网，Docker 容器不可达）
+     * #357: 不再按网段过滤，Docker bridge IP (172.17.0.1) 等内网地址应当可用
      */
     private boolean isValidNodeIp(String ip) {
         if (ip == null || ip.isBlank()) return false;
-        if ("127.0.0.1".equals(ip) || "localhost".equals(ip)) return false;
-        // #355: 排除 172.16.0.0/12 (172.16.x.x ~ 172.31.x.x) 内网段
-        if (isPrivate172Subnet(ip)) {
-            log.debug("Filtering out private 172.16/12 IP: {}", ip);
-            return false;
-        }
-        // 排除 10.0.0.0/8 内网段
-        if (ip.startsWith("10.")) {
-            log.debug("Filtering out private 10.0/8 IP: {}", ip);
-            return false;
-        }
+        if ("127.0.0.1".equals(ip) || "localhost".equals(ip) || "0.0.0.0".equals(ip)) return false;
         return true;
     }
 
     /**
-     * #355: 判断 IP 是否在 172.16.0.0/12 范围内 (172.16.x.x ~ 172.31.x.x)
+     * #357: 快速检测 Agent 是否可达（2秒超时）
      */
-    private boolean isPrivate172Subnet(String ip) {
-        if (!ip.startsWith("172.")) return false;
+    private boolean isAgentReachable(ComputeNode node) {
+        if (node.getIpAddress() == null || node.getAgentPort() == null) return false;
+        String url = "http://" + node.getIpAddress() + ":" + node.getAgentPort() + "/status";
         try {
-            String[] parts = ip.split("\\.");
-            int secondOctet = Integer.parseInt(parts[1]);
-            return secondOctet >= 16 && secondOctet <= 31;
+            var factory = new SimpleClientHttpRequestFactory();
+            factory.setConnectTimeout(2000);
+            factory.setReadTimeout(2000);
+            var rt = new RestTemplate(factory);
+            ResponseEntity<String> resp = rt.getForEntity(url, String.class);
+            return resp.getStatusCode().is2xxSuccessful();
         } catch (Exception e) {
+            log.debug("Agent {} not reachable at {}: {}", node.getName(), url, e.getMessage());
             return false;
         }
     }
@@ -228,7 +224,7 @@ public class TaskDispatcher {
                 Optional<ComputeNode> preferredNode = nodeRepository.findById(preferredNodeId);
                 if (preferredNode.isPresent()) {
                     ComputeNode pn = preferredNode.get();
-                    if (pn.getStatus() == ComputeNode.Status.ONLINE && isValidNodeIp(pn.getIpAddress())) {
+                    if (pn.getStatus() == ComputeNode.Status.ONLINE && isValidNodeIp(pn.getIpAddress()) && isAgentReachable(pn)) {
                         log.info("Task {} using Plan-preferred node {} (id={})",
                                 task.getTaskNo(), pn.getName(), pn.getId());
                         return pn;
@@ -249,6 +245,7 @@ public class TaskDispatcher {
                     .filter(n -> n.getStatus() == ComputeNode.Status.ONLINE)
                     .filter(n -> isValidNodeIp(n.getIpAddress()))  // #349
                     .filter(n -> !"k8s-daemonset".equals(n.getSource()))  // #355: K8s nodes use exec channel
+                    .filter(n -> isAgentReachable(n))  // #357: 实际连通性检测
                     .toList();
             if (!onlinePoolNodes.isEmpty()) {
                 return onlinePoolNodes.get(0);
@@ -264,6 +261,7 @@ public class TaskDispatcher {
         List<ComputeNode> validNodes = onlineNodes.stream()
                 .filter(n -> isValidNodeIp(n.getIpAddress()))
                 .filter(n -> !"k8s-daemonset".equals(n.getSource()))  // #355
+                .filter(n -> isAgentReachable(n))  // #357: 实际连通性检测
                 .toList();
         if (!validNodes.isEmpty()) {
             return validNodes.get(0);
