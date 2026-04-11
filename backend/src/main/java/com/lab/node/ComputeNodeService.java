@@ -112,6 +112,7 @@ public class ComputeNodeService {
             if (node.getDescription() != null) ex.setDescription(node.getDescription());
             if (node.getTags() != null) ex.setTags(node.getTags());
             if (node.getAgentPort() != null) ex.setAgentPort(node.getAgentPort());
+            if (node.getIpAddress() != null && !node.getIpAddress().isBlank()) ex.setIpAddress(node.getIpAddress());
             if (node.getClusterId() != null) ex.setClusterId(node.getClusterId());
             if (node.getSource() != null) ex.setSource(node.getSource());
             // #351: 心跳更新时，只有 IP 有效才设为 ONLINE
