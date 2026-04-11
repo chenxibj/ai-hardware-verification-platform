@@ -852,6 +852,7 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
 
     /* #251: 资源池卡片 */
     const renderPoolSelection = () => (
+      <>
       <Spin spinning={poolsLoading}>
         <div style={{ marginBottom: 16 }}>
           <Text type="secondary">选择资源池，系统将自动分配池内负载最低的节点执行任务 (least_loaded 调度)</Text>
@@ -892,10 +893,17 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
                         {pool.totalGpu > 0 && <Tag color="blue">GPU ×{pool.totalGpu}</Tag>}
                       </Space>
                       {/* least_loaded 提示 */}
-                      {isSelected && (
+                      {isSelected && (pool.onlineNodeCount || 0) > 0 && (
                         <div style={{ marginTop: 8, padding: "6px 8px", background: "#f6ffed", borderRadius: 4 }}>
                           <Text style={{ fontSize: 12, color: "#52c41a" }}>
                             ⚡ 系统将自动选择池内负载最低的在线节点
+                          </Text>
+                        </div>
+                      )}
+                      {isSelected && (pool.onlineNodeCount || 0) === 0 && (
+                        <div style={{ marginTop: 8, padding: "6px 8px", background: "#fff7e6", borderRadius: 4 }}>
+                          <Text style={{ fontSize: 12, color: "#fa8c16" }}>
+                            ⏳ 该资源池当前无空闲节点，任务将进入排队等待
                           </Text>
                         </div>
                       )}
@@ -907,6 +915,22 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
           </Row>
         )}
       </Spin>
+      {selectedPoolId && (() => {
+        const sel = resourcePools.find(p => p.id === selectedPoolId);
+        if (sel && (sel.onlineNodeCount || 0) === 0) {
+          return (
+            <Alert
+              message="排队提示"
+              description="该资源池当前无空闲节点，任务提交后将进入排队状态（QUEUED），待有节点空闲时自动调度执行。"
+              type="warning"
+              showIcon
+              style={{ marginTop: 16 }}
+            />
+          );
+        }
+        return null;
+      })()}
+      </>
     );
 
     // Filter nodes by type

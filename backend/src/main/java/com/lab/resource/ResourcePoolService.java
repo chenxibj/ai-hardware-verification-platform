@@ -73,6 +73,19 @@ public class ResourcePoolService {
             item.put("totalCpu", totalCpu);
             item.put("totalMemoryGb", Math.round(totalMemory * 10.0) / 10.0);
             item.put("totalGpu", totalGpu);
+
+            // #346: 任务排队统计
+            long runningCount = 0;
+            long queuedCount = 0;
+            try {
+                List<EvaluationTask> poolRunning = taskRepo.findByResourcePoolIdAndStatus(pool.getId(), EvaluationTask.TaskStatus.RUNNING);
+                List<EvaluationTask> poolQueued = taskRepo.findByResourcePoolIdAndStatus(pool.getId(), EvaluationTask.TaskStatus.QUEUED);
+                runningCount = poolRunning.size();
+                queuedCount = poolQueued.size();
+            } catch (Exception ignored) {}
+            item.put("runningTaskCount", runningCount);
+            item.put("queuedTaskCount", queuedCount);
+
             result.add(item);
         }
         return result;
@@ -289,4 +302,51 @@ public class ResourcePoolService {
         stats.put("offlineNodes", offlineNodes);
         return stats;
     }
+
+    /**
+     * #346: 获取资源池关联的运行中和排队中的任务
+     */
+    public Map<String, Object> getPoolTasks(Long poolId) {
+        getById(poolId); // verify pool exists
+
+        List<EvaluationTask> runningTasks = taskRepo.findByResourcePoolIdAndStatus(
+                poolId, EvaluationTask.TaskStatus.RUNNING);
+        List<EvaluationTask> queuedTasks = taskRepo.findByResourcePoolIdAndStatus(
+                poolId, EvaluationTask.TaskStatus.QUEUED);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("poolId", poolId);
+        result.put("runningCount", runningTasks.size());
+        result.put("queuedCount", queuedTasks.size());
+
+        List<Map<String, Object>> runningList = new ArrayList<>();
+        for (EvaluationTask t : runningTasks) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", t.getId());
+            item.put("taskNo", t.getTaskNo());
+            item.put("name", t.getName());
+            item.put("status", t.getStatus().name());
+            item.put("progress", t.getProgress());
+            item.put("startedAt", t.getStartedAt());
+            item.put("assignedNodeId", t.getAssignedNodeId());
+            runningList.add(item);
+        }
+        result.put("runningTasks", runningList);
+
+        List<Map<String, Object>> queuedList = new ArrayList<>();
+        for (EvaluationTask t : queuedTasks) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", t.getId());
+            item.put("taskNo", t.getTaskNo());
+            item.put("name", t.getName());
+            item.put("status", t.getStatus().name());
+            item.put("priority", t.getPriority().name());
+            item.put("createdAt", t.getCreatedAt());
+            queuedList.add(item);
+        }
+        result.put("queuedTasks", queuedList);
+
+        return result;
+    }
+
 }

@@ -68,4 +68,13 @@ public class ResourcePoolController {
     public ApiResponse<Map<String, Object>> getStats(@PathVariable Long id) {
         return ApiResponse.ok(service.getPoolStats(id));
     }
+
+    /**
+     * #346: 获取资源池关联的运行中和排队中的任务
+     */
+    @GetMapping("/{id}/tasks")
+    public ApiResponse<Map<String, Object>> getPoolTasks(@PathVariable Long id) {
+        return ApiResponse.ok(service.getPoolTasks(id));
+    }
+
 }

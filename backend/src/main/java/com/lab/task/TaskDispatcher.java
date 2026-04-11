@@ -19,7 +19,7 @@ import java.util.*;
 /**
  * 评测任务分发引擎
  * 负责将 PENDING 状态的 Task 分发到 ONLINE 的 Agent 节点执行
- * #222
+ * #222, #346: 增加资源池感知 + QUEUED 排队机制
  */
 @Slf4j
 @Service
@@ -70,17 +70,26 @@ public class TaskDispatcher {
 
     /**
      * 分发单个任务到可用节点
+     * #346: 当无可用节点时，任务状态设为 QUEUED 而非保持 PENDING
      */
     public boolean dispatchSingleTask(EvaluationTask task) {
-        // 1. 找到一个可用节点 (ONLINE 且非 BUSY)
+        // 1. 找到一个可用节点 (ONLINE 且非 BUSY)，优先从资源池内查找
         ComputeNode node = findAvailableNode(task);
         if (node == null) {
-            log.warn("No available node for task {} ({}), will be picked up by recovery scheduler",
-                    task.getId(), task.getTaskNo());
+            // #346: 无可用节点 → 任务进入排队状态
+            if (task.getStatus() != EvaluationTask.TaskStatus.QUEUED) {
+                task.setStatus(EvaluationTask.TaskStatus.QUEUED);
+                taskRepository.save(task);
+                log.info("No available node for task {} ({}), status set to QUEUED",
+                        task.getId(), task.getTaskNo());
+            } else {
+                log.debug("Task {} ({}) remains QUEUED, no available node yet",
+                        task.getId(), task.getTaskNo());
+            }
             return false;
         }
 
-        // 2. CAS 更新 Task 状态: PENDING → RUNNING
+        // 2. CAS 更新 Task 状态: PENDING/QUEUED → RUNNING
         try {
             task.setStatus(EvaluationTask.TaskStatus.RUNNING);
             task.setAssignedNodeId(node.getId());
@@ -115,7 +124,7 @@ public class TaskDispatcher {
                 log.info("Task {} dispatched successfully to node {}", task.getTaskNo(), node.getName());
                 return true;
             } else {
-                log.error("Agent returned non-2xx for task {}: {} {}", 
+                log.error("Agent returned non-2xx for task {}: {} {}",
                         task.getId(), response.getStatusCode(), response.getBody());
                 rollbackTask(task);
                 return false;
@@ -129,8 +138,26 @@ public class TaskDispatcher {
 
     /**
      * 找到一个可用节点
+     * #346: 优先从任务关联的资源池中查找 ONLINE 节点，再 fallback 到全局
      */
     private ComputeNode findAvailableNode(EvaluationTask task) {
+        // 如果任务指定了资源池，优先从资源池内找
+        if (task.getResourcePoolId() != null) {
+            List<ComputeNode> poolNodes = nodeRepository.findByResourcePoolId(task.getResourcePoolId());
+            List<ComputeNode> onlinePoolNodes = poolNodes.stream()
+                    .filter(n -> n.getStatus() == ComputeNode.Status.ONLINE)
+                    .toList();
+            if (!onlinePoolNodes.isEmpty()) {
+                // 选择负载最低的节点（简化：选第一个 ONLINE 的，因为 BUSY 的已过滤）
+                return onlinePoolNodes.get(0);
+            }
+            // 资源池内无可用节点，不 fallback 到全局（资源隔离原则）
+            log.debug("No available ONLINE node in resource pool {} for task {}",
+                    task.getResourcePoolId(), task.getId());
+            return null;
+        }
+
+        // 未指定资源池，从全局 ONLINE 节点中查找
         List<ComputeNode> onlineNodes = nodeRepository.findByStatus(ComputeNode.Status.ONLINE);
         if (!onlineNodes.isEmpty()) {
             return onlineNodes.get(0);

@@ -13,6 +13,7 @@ import {
   PlusOutlined, CloudServerOutlined, ReloadOutlined,
   DeleteOutlined, EditOutlined, ArrowLeftOutlined,
   ClusterOutlined, LinkOutlined, DisconnectOutlined,
+  PlayCircleOutlined, ClockCircleOutlined,
 } from "@ant-design/icons";
 import api from "../utils/api";
 
@@ -42,6 +43,11 @@ export default function ResourcePoolList() {
 
   // #250: 节点绑定
   const [bindModalVisible, setBindModalVisible] = useState(false);
+
+  // #346: 资源池任务队列
+  const [poolTasks, setPoolTasks] = useState(null);
+  const [poolTasksLoading, setPoolTasksLoading] = useState(false);
+  const [taskListVisible, setTaskListVisible] = useState(false);
   const [allNodes, setAllNodes] = useState([]);
   const [nodesLoading, setNodesLoading] = useState(false);
 
@@ -72,6 +78,16 @@ export default function ResourcePoolList() {
       if (resp.code === 0) setAllNodes(resp.data || []);
     } catch (e) { message.error("获取节点列表失败"); }
     finally { setNodesLoading(false); }
+  };
+
+  // #346: 获取资源池任务队列
+  const fetchPoolTasks = async (id) => {
+    setPoolTasksLoading(true);
+    try {
+      const { data: resp } = await api.get(`/resource-pools/${id}/tasks`);
+      if (resp.code === 0) setPoolTasks(resp.data);
+    } catch (e) { message.error("获取任务队列失败"); }
+    finally { setPoolTasksLoading(false); }
   };
 
   const handleCreate = () => {
@@ -129,6 +145,7 @@ export default function ResourcePoolList() {
   const openDetail = (pool) => {
     setDetailPool(pool);
     fetchDetail(pool.id);
+    fetchPoolTasks(pool.id);
   };
 
   // #250: 绑定节点
@@ -284,6 +301,73 @@ export default function ResourcePoolList() {
                 pagination={false}
                 locale={{ emptyText: <Empty description="暂无关联节点" image={Empty.PRESENTED_IMAGE_SIMPLE}><Button type="primary" ghost onClick={handleOpenBind}>添加节点</Button></Empty> }}
               />
+
+              {/* #346: 任务队列展示 */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 24, marginBottom: 12 }}>
+                <Title level={5} style={{ margin: 0 }}>
+                  <PlayCircleOutlined /> 任务队列
+                  {poolTasks && (
+                    <Text type="secondary" style={{ fontSize: 14, fontWeight: "normal", marginLeft: 8 }}>
+                      运行中 {poolTasks.runningCount || 0} · 排队中 {poolTasks.queuedCount || 0}
+                    </Text>
+                  )}
+                </Title>
+                <Button size="small" icon={<ReloadOutlined />} onClick={() => fetchPoolTasks(detailPool.id)}>
+                  刷新
+                </Button>
+              </div>
+              <Spin spinning={poolTasksLoading}>
+                {poolTasks && (poolTasks.runningCount > 0 || poolTasks.queuedCount > 0) ? (
+                  <div>
+                    {(poolTasks.runningTasks || []).length > 0 && (
+                      <div style={{ marginBottom: 16 }}>
+                        <Text strong style={{ marginBottom: 8, display: "block" }}>
+                          <Badge status="processing" /> 运行中任务 ({poolTasks.runningTasks.length})
+                        </Text>
+                        <Table
+                          dataSource={poolTasks.runningTasks}
+                          rowKey="id"
+                          size="small"
+                          pagination={false}
+                          columns={[
+                            { title: "任务编号", dataIndex: "taskNo", key: "taskNo", width: 140,
+                              render: (t) => <Text copyable style={{ fontSize: 12 }}>{t}</Text> },
+                            { title: "任务名称", dataIndex: "name", key: "name" },
+                            { title: "进度", dataIndex: "progress", key: "progress", width: 80,
+                              render: (v) => <Tag color="processing">{v || 0}%</Tag> },
+                            { title: "开始时间", dataIndex: "startedAt", key: "startedAt", width: 170,
+                              render: (v) => v ? <Text type="secondary" style={{ fontSize: 12 }}>{new Date(v).toLocaleString("zh-CN")}</Text> : "-" },
+                          ]}
+                        />
+                      </div>
+                    )}
+                    {(poolTasks.queuedTasks || []).length > 0 && (
+                      <div>
+                        <Text strong style={{ marginBottom: 8, display: "block" }}>
+                          <Badge status="warning" /> 排队中任务 ({poolTasks.queuedTasks.length})
+                        </Text>
+                        <Table
+                          dataSource={poolTasks.queuedTasks}
+                          rowKey="id"
+                          size="small"
+                          pagination={false}
+                          columns={[
+                            { title: "任务编号", dataIndex: "taskNo", key: "taskNo", width: 140,
+                              render: (t) => <Text copyable style={{ fontSize: 12 }}>{t}</Text> },
+                            { title: "任务名称", dataIndex: "name", key: "name" },
+                            { title: "优先级", dataIndex: "priority", key: "priority", width: 80,
+                              render: (v) => <Tag color={v === "HIGH" ? "red" : v === "LOW" ? "default" : "blue"}>{v}</Tag> },
+                            { title: "创建时间", dataIndex: "createdAt", key: "createdAt", width: 170,
+                              render: (v) => v ? <Text type="secondary" style={{ fontSize: 12 }}>{new Date(v).toLocaleString("zh-CN")}</Text> : "-" },
+                          ]}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <Empty description="暂无运行中或排队中的任务" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                )}
+              </Spin>
             </>
           )}
         </Card>
@@ -373,6 +457,21 @@ export default function ResourcePoolList() {
                     <Col span={6}><Statistic title="CPU" value={pool.totalCpu || 0} suffix="核" valueStyle={{ fontSize: 18 }} /></Col>
                     <Col span={6}><Statistic title="内存" value={Number(pool.totalMemoryGb || 0).toFixed(0)} suffix="G" valueStyle={{ fontSize: 18 }} /></Col>
                   </Row>
+                  {/* #346: 任务队列统计 */}
+                  {((pool.runningTaskCount || 0) > 0 || (pool.queuedTaskCount || 0) > 0) && (
+                    <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                      {(pool.runningTaskCount || 0) > 0 && (
+                        <Tag icon={<PlayCircleOutlined />} color="processing">
+                          运行中 {pool.runningTaskCount}
+                        </Tag>
+                      )}
+                      {(pool.queuedTaskCount || 0) > 0 && (
+                        <Tag icon={<ClockCircleOutlined />} color="warning">
+                          排队中 {pool.queuedTaskCount}
+                        </Tag>
+                      )}
+                    </div>
+                  )}
                 </Card>
               </Col>
             ))}
