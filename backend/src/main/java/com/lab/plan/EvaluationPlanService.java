@@ -174,7 +174,21 @@ public class EvaluationPlanService {
         assertStatus(plan, EvaluationPlan.PlanStatus.RUNNING, "pause");
         plan.setStatus(EvaluationPlan.PlanStatus.PAUSED);
         EvaluationPlan saved = planRepository.save(plan);
-        log.info("Paused evaluation task: {}", saved.getPlanNo());
+
+        // #381: Pause underlying tasks (RUNNING/QUEUED/PENDING -> PAUSED)
+        int paused = 0;
+        for (EvaluationTask.TaskStatus st : List.of(
+                EvaluationTask.TaskStatus.RUNNING,
+                EvaluationTask.TaskStatus.QUEUED,
+                EvaluationTask.TaskStatus.PENDING)) {
+            List<EvaluationTask> tasks = taskRepository.findByPlanIdAndStatus(id, st);
+            for (EvaluationTask task : tasks) {
+                task.setStatus(EvaluationTask.TaskStatus.PAUSED);
+                taskRepository.save(task);
+                paused++;
+            }
+        }
+        log.info("Paused evaluation task: {} ({} tasks paused)", saved.getPlanNo(), paused);
         return saved;
     }
 
@@ -189,7 +203,16 @@ public class EvaluationPlanService {
         assertStatus(plan, EvaluationPlan.PlanStatus.PAUSED, "resume");
         plan.setStatus(EvaluationPlan.PlanStatus.RUNNING);
         EvaluationPlan saved = planRepository.save(plan);
-        log.info("Resumed evaluation task: {}", saved.getPlanNo());
+
+        // #381: Resume PAUSED tasks back to QUEUED
+        List<EvaluationTask> pausedTasks = taskRepository.findByPlanIdAndStatus(id, EvaluationTask.TaskStatus.PAUSED);
+        int resumed = 0;
+        for (EvaluationTask task : pausedTasks) {
+            task.setStatus(EvaluationTask.TaskStatus.QUEUED);
+            taskRepository.save(task);
+            resumed++;
+        }
+        log.info("Resumed evaluation task: {} ({} tasks resumed to QUEUED)", saved.getPlanNo(), resumed);
 
         // #354: 异步分发
         try {
