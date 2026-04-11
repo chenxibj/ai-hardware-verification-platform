@@ -28,7 +28,7 @@ public interface EvaluationTaskRepository extends JpaRepository<EvaluationTask, 
                                                 @Param("status") EvaluationTask.TaskStatus status,
                                                 Pageable pageable);
 
-    @Query("SELECT t FROM EvaluationTask t WHERE t.status = 'QUEUED' ORDER BY t.priority ASC, t.createdAt ASC")
+    @Query("SELECT t FROM EvaluationTask t WHERE t.status = 'QUEUED' ORDER BY CASE t.priority WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 WHEN 'LOW' THEN 2 ELSE 3 END ASC, t.createdAt ASC")
     List<EvaluationTask> findQueuedTasksOrderByPriorityAndCreatedAt();
 
     List<EvaluationTask> findByPlanId(Long planId);

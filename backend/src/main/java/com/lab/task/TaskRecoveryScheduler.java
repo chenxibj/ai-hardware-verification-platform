@@ -57,6 +57,7 @@ public class TaskRecoveryScheduler {
             recoverOfflineNodeTasks();
             cleanupStalePendingTasks();
             completeFinishedPlans();
+            cancelTerminatedPlanTasks();  // #359: 先清理终态方案的残留任务
             retryQueuedIfPossible();  // #358: 兜底重调度
         } catch (Exception e) {
             log.error("Task recovery scheduler error: {}", e.getMessage(), e);
@@ -226,6 +227,35 @@ public class TaskRecoveryScheduler {
         }
     }
 
+
+
+    /**
+     * #359: 主动取消已终态方案（CANCELLED/COMPLETED）下的 QUEUED 任务
+     * 避免这些任务占用调度资源，在 dispatch 之前清理
+     */
+    @Transactional
+    public void cancelTerminatedPlanTasks() {
+        List<EvaluationTask> queuedTasks = taskRepository.findByStatus(EvaluationTask.TaskStatus.QUEUED);
+        int cancelled = 0;
+        for (EvaluationTask task : queuedTasks) {
+            if (task.getPlanId() == null) continue;
+            var planOpt = planRepository.findById(task.getPlanId());
+            if (planOpt.isEmpty()) continue;
+            var plan = planOpt.get();
+            if (plan.getStatus() == EvaluationPlan.PlanStatus.CANCELLED ||
+                plan.getStatus() == EvaluationPlan.PlanStatus.COMPLETED) {
+                task.setStatus(EvaluationTask.TaskStatus.CANCELLED);
+                task.setCompletedAt(Instant.now());
+                taskRepository.save(task);
+                log.info("Auto-cancelled QUEUED task {} (plan {} is {})",
+                    task.getTaskNo(), plan.getPlanNo(), plan.getStatus());
+                cancelled++;
+            }
+        }
+        if (cancelled > 0) {
+            log.info("Proactively cancelled {} QUEUED tasks from terminated plans", cancelled);
+        }
+    }
 
     /**
      * #358/#359: 兜底重调度 — tryDispatchNext 现在已经是批量分发了
