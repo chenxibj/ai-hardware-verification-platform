@@ -78,9 +78,11 @@ public class ReportController {
         if (body == null) {
             return ApiResponse.error(1001, "请提供报告ID列表");
         }
+        // #377: Accept both "ids" and "reportIds" keys
         Object idsObj = body.get("ids");
+        if (idsObj == null) idsObj = body.get("reportIds");
         if (idsObj == null) {
-            return ApiResponse.error(1001, "请提供报告ID列表");
+            return ApiResponse.error(1001, "请提供报告ID列表 (支持 ids 或 reportIds)");
         }
         String idsStr;
         if (idsObj instanceof List) {
