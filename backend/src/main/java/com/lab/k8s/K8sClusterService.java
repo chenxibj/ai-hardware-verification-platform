@@ -183,6 +183,36 @@ public class K8sClusterService {
                 }
             }
 
+            // 清理 K8s 中已不存在的节点
+            List<ComputeNode> existingK8sNodes = nodeRepo.findByClusterId(cluster.getId());
+            Set<String> currentK8sNodeKeys = new HashSet<>();
+            for (Map<String, String> n : k8sNodes) {
+                String ip = n.get("ip");
+                String name = n.get("name");
+                if (ip != null) currentK8sNodeKeys.add("ip:" + ip);
+                if (name != null) currentK8sNodeKeys.add("name:" + cluster.getName() + "/" + name);
+            }
+
+            int removed = 0;
+            for (ComputeNode existing : existingK8sNodes) {
+                boolean stillExists = false;
+                if (existing.getIpAddress() != null) {
+                    stillExists = currentK8sNodeKeys.contains("ip:" + existing.getIpAddress());
+                }
+                if (!stillExists && existing.getName() != null) {
+                    stillExists = currentK8sNodeKeys.contains("name:" + existing.getName());
+                }
+                if (!stillExists) {
+                    log.info("Removing stale K8s node: {} (IP: {}) - no longer in cluster {}",
+                            existing.getName(), existing.getIpAddress(), cluster.getName());
+                    nodeRepo.delete(existing);
+                    removed++;
+                }
+            }
+            if (removed > 0) {
+                log.info("Cleaned up {} stale nodes from cluster {}", removed, cluster.getName());
+            }
+
             List<ComputeNode> clusterNodes = nodeRepo.findByClusterId(cluster.getId());
             cluster.setNodeCount(clusterNodes.size());
             cluster.setOnlineCount((int) clusterNodes.stream()
@@ -196,6 +226,7 @@ public class K8sClusterService {
             result.put("totalNodes", k8sNodes.size());
             result.put("added", added);
             result.put("updated", updated);
+            result.put("removed", removed);
             result.put("clusterNodeCount", cluster.getNodeCount());
         } catch (Exception e) {
             log.error("同步集群节点失败: {}", e.getMessage(), e);
@@ -449,28 +480,16 @@ public class K8sClusterService {
     }
 
     /**
-     * 定时同步集群节点计数
+     * 定时同步集群节点（包含发现新节点和清理已移除节点）
      */
     @Scheduled(fixedRate = 60000)
-    @Transactional
     public void syncClusterNodeCounts() {
         List<K8sCluster> clusters = clusterRepo.findByStatus(K8sCluster.STATUS_READY);
         for (K8sCluster cluster : clusters) {
             try {
-                List<ComputeNode> clusterNodes = nodeRepo.findByClusterId(cluster.getId());
-                int total = clusterNodes.size();
-                int online = (int) clusterNodes.stream()
-                        .filter(n -> n.getStatus() == ComputeNode.Status.ONLINE
-                                || n.getStatus() == ComputeNode.Status.BUSY)
-                        .count();
-                if (!Objects.equals(cluster.getNodeCount(), total)
-                        || !Objects.equals(cluster.getOnlineCount(), online)) {
-                    cluster.setNodeCount(total);
-                    cluster.setOnlineCount(online);
-                    clusterRepo.save(cluster);
-                }
+                syncNodes(cluster.getId());
             } catch (Exception e) {
-                log.warn("同步集群 {} 节点计数失败: {}", cluster.getName(), e.getMessage());
+                log.warn("Failed to sync cluster {}: {}", cluster.getName(), e.getMessage());
             }
         }
     }
