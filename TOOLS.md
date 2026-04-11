@@ -24,7 +24,7 @@
 
 - **地址:** http://39.97.251.94/
 - **账号:** test@ahvp.com
-- **密码:** test123
+- **密码:** Test1234（注：DB 密码可能被改过，initAdminUser 用的是 Test1234，admin 是 Admin123456）
 
 ## 飞书群（项目群）
 

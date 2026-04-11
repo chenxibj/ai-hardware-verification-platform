@@ -27,6 +27,7 @@
 - **🔴 代码质量铁律（2026-04-09）** — ESLint 零 warning、单文件≤300行、API 统一走 utils/api.js、每个 API 调用有 try-catch + 用户提示、无 console.log/hardcode/TODO、commit 前 `npx eslint src/ --max-warnings=0`
 - **开发完必须清理测试数据** —— 只有一个环境，每次开发/测试完毕后必须清空测试数据（评测任务/子任务/结果/报告/日志），给主人留干净环境验证。芯片、模板等基础数据保留。
 - **每 20 分钟汇报一次进展** —— 所有工作期间，每隔 20 分钟主动在飞书群汇报当前进展。这是 chenxi 的硬性要求，适用于所有工作场景。
+- **🔴 每日日报必须发，核心是反省和总结（2026-04-11）** — 日报不是流水账，重点是：①今天做了什么（成果）②遇到什么问题、怎么解决的 ③Lessons Learned（经验教训沉淀）。每天 23:00 写日报时，必须把当天的 lesson learned 提炼到 MEMORY.md 的 Lessons Learned 区。日报是持续自我迭代的核心机制，不可跳过。
 
 ## Key Facts
 
@@ -135,6 +136,32 @@
 - **凌晨巡检可降频：** 00:00-08:00 无待办时每小时一次够了，12 次空转浪费 token
 - **后端频繁重启不一定是问题：** 04-08 后端重启 5+ 次，全部是研发手动部署调试，RestartCount=0，非崩溃。巡检时区分"手动重启"和"异常崩溃"很重要
 
+### 🔴 @Transactional + HTTP = 连接池杀手（2026-04-11 血泪教训）
+- **现象：** 后端所有 API 超时（包括登录），HikariPool 报 "Connection is not available, request timed out after 30000ms"
+- **根因：** `TaskRecoveryScheduler.recoverTasks()` 带 `@Transactional`，里面调 `dispatchSingleTask()` 做 HTTP POST 到 agent 节点。agent 不可达时 HTTP 默认无超时 → 事务期间 DB 连接不释放 → HikariCP 默认 10 个连接全堵死
+- **触发条件：** 68 个 PENDING 任务 + 每 10 秒遍历分发 + agent 不可达
+- **影响范围：** 整个系统瘫痪（K8s 定时同步被阻塞、登录超时、所有 API 不可用）
+- **修复：**
+  1. 移除外层 `@Transactional`，各子方法独立事务
+  2. RestTemplate 加超时（connect 3s + read 10s）
+  3. 分发限流（每轮最多 5 个任务）
+  4. 调度频率 10s → 30s
+  5. HikariCP maximumPoolSize 10 → 50 + leak detection
+  6. PostgreSQL max_connections 100 → 1000
+- **铁律：永远不要在 @Transactional 方法里做外部 HTTP/RPC 调用。事务应尽快提交释放连接。**
+
+### 🔴 DaemonSet ≠ Discovery — 两种 K8s 节点纳管模式不能混用（2026-04-11）
+- DaemonSet agent 注册名 `k8s-node-01`，discovery 注册名 `ahvp-k8s/cn-beijing.172.18.188.151`
+- 名字不同 → `findByName` 去重失败 → 幽灵节点
+- `register()` 里的 `deployCluster()` 每次注册集群都会部署 DaemonSet
+- **修复：** discovery-only 模式，跳过 DaemonSet 部署
+- **K8s 自动扩缩容测试通过：** 2 轮完整测试，扩容发现 <20s，缩容清理 <15s
+
+### 🔴 Docker Compose 重建会覆盖容器内修改（2026-04-11）
+- `docker compose up -d` 重建 backend 时，Dockerfile COPY 了源码目录的空 kubectl（0字节），覆盖了之前 docker cp 进去的正常 kubectl
+- **教训：** 关键 binary 不能只靠 docker cp，要在 Dockerfile 里用多阶段构建或 curl 下载
+- 部署后验证要包含 `kubectl version --client` 等 binary 检查
+
 ### 🔴 巡检致命缺陷（2026-04-08 教训）
 - **6小时空转：** 03:56-09:14 心跳一直在跑，但只做"系统正常"空转，没有检查 active-tasks.json 和 sub-agent 状态
 - **根因：** 心跳执行时跳过了 HEARTBEAT.md 中的任务检查步骤，只做了最简单的系统状态查看
@@ -179,16 +206,16 @@
 - 开箱即用：预置模板让新用户零配置直接跑
 - 真实数据 > Mock 数据：所有接口必须走真实数据链路
 
-### 项目当前状态（2026-04-09 23:00 更新）
-- **Open issue = 0**（但有 6 个 issue 后端未实现，需与研发沟通关闭标准）
-- **资源管理模块验收结果：** 10 个 issue (#248-#257) 中仅 #248(节点CRUD)/#250(资源池)/#251(评测选资源池) 后端真正可用，其余 6 个只有前端骨架（#249 标签/252 K8s集群/253 K8s Agent/255 监控/256 告警/257 自愈）
-- **数字资产管理模块（#265-#275）** — Phase 1+2 已关闭
-- **Bug 修复（#279-#294）** — 全部已关闭
-- **开发机 04-09 故障：** 16:05-~17:00 约 1h 不可达（SSH/后端/云助手全超时，nginx 存活），后端容器重启后恢复
-- **K8s agent 开发进行中** — 公网回连、心跳代理、ACK 实测通过
-- **Agent 注册重试机制** — `cf2d4a91` 加了 5 次重试 + 后台线程持续重连
-- **今日 commit 约 15 个** — 资产管理、K8s、bug 修复、UX 改进，开发节奏极快
-- **待解决：** 6 个后端未实现 issue 的处理方式、与研发对齐 issue 关闭标准
+### 项目当前状态（2026-04-11 19:00 更新）
+- **Open issue = 0**
+- **K8s 自动扩缩容完成** — discovery-only 模式，2 轮测试通过
+- **ACK 集群 ahvp-k8s** — 当前 1 节点（cn-beijing），按需扩缩容
+- **芯片注册** — Intel Xeon Gold 6248 (CPU) + NVIDIA L40S (GPU)
+- **节点在线** — dev-node-01 + gpu-l40s-01 + K8s×1
+- **产品改进** — #345 移除关联资产选项 + #346 资源池排队机制
+- **连接池修复中** — HikariCP 50 + PG 1000 + TaskRecovery 限流 + HTTP 超时
+- **测试账号** — test2@ahvp.com / Test12345（compose 重建后原 test@ahvp.com 密码策略变了）
+- **docker compose 服务** — postgres/redis/minio/backend/frontend 全部正常运行
 
 ### 项目当前状态（旧 2026-04-05 23:00）
 - **MVP-0 + MVP-1 全部完成** — 18 个 issue 全部关闭
@@ -225,6 +252,27 @@
 ## Lessons Learned
 
 - **不要为了达到最终目标而偷懒**（2026-04-06，chenxi 直接反馈）— 过程不能跳步、不能糊弄。每一步都要踏实做到位，不能因为"反正最后目标达到了"就省略中间环节。这是菜菜子的核心行为准则。
+
+## K8s / ACK 集群
+
+- **ACK cluster**: `ahvp-k8s`, cluster_id `cb0e71315932640398673a9b2b6185ebc`, cn-beijing
+- **节点池**: default-nodepool, `np2485ac68794c4548a65400c02f2fb3cb`, ecs.c6.large
+- **当前节点数**: 1（可按需扩缩容，已验证全自动）
+- **纳管模式**: discovery-only（通过 kubeconfig + kubectl get nodes 自动发现，不使用 DaemonSet）
+- **同步频率**: 每 60s 定时同步（syncClusterNodeCounts → syncNodes），发现新节点 + 清理已移除节点
+- **kubeconfig**: 开发机 `/root/.kube/ahvp-ack-config`
+- **平台集群 ID**: 注册后动态分配（当前 id=2）
+- **⚠️ 注意**: 注册集群时不再部署 DaemonSet（2026-04-11 改为 discovery-only）
+
+## 平台节点（截至 2026-04-09）
+
+| id | name | IP | status | source |
+|----|------|----|--------|--------|
+| 2 | dev-node-01 | 172.17.0.1 | ONLINE | local |
+| 18 | gpu-l40s-01 | 180.184.249.205 | ONLINE | gpu |
+| 20 | k8s-node-01 | 172.18.188.151 | ONLINE | k8s |
+| 21 | k8s-cn-beijing.172.18.188.151 | 172.18.188.151 | ONLINE | k8s-daemonset |
+| 22 | k8s-cn-beijing.172.18.188.152 | 172.18.188.152 | ONLINE | k8s-daemonset |
 
 ## Notes
 
