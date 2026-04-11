@@ -10,6 +10,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.annotation.PostConstruct;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -49,8 +50,14 @@ public class TaskRecoveryScheduler {
             EvaluationTask.TaskStatus.SKIPPED
     );
 
-    @Scheduled(fixedRate = 60000) // 每60秒，只做异常恢复
+    @PostConstruct
+    public void init() {
+        log.info("TaskRecoveryScheduler initialized - scanning every 60s (progress=0 timeout: 5min, general timeout: 15min)");
+    }
+
+    @Scheduled(fixedRate = 60000)
     public void recoverTasks() {
+        log.debug("TaskRecoveryScheduler scan cycle started");
         try {
             migratePendingToQueued();
             recoverStaleRunningTasks();
@@ -94,14 +101,14 @@ public class TaskRecoveryScheduler {
     @Transactional
     public void recoverStaleRunningTasks() {
         Instant threshold15 = Instant.now().minus(15, ChronoUnit.MINUTES);
-        Instant threshold10 = Instant.now().minus(10, ChronoUnit.MINUTES);
+        Instant threshold5 = Instant.now().minus(5, ChronoUnit.MINUTES);
 
         List<EvaluationTask> staleTasks = taskRepository.findByStatusAndUpdatedAtBefore(
                 EvaluationTask.TaskStatus.RUNNING, threshold15);
 
-        // #380: Also catch RUNNING tasks with progress=0 after 10 minutes
+        // #380/#382: Also catch RUNNING tasks with progress=0 after 5 minutes
         List<EvaluationTask> stuckTasks = taskRepository.findByStatusAndUpdatedAtBefore(
-                EvaluationTask.TaskStatus.RUNNING, threshold10);
+                EvaluationTask.TaskStatus.RUNNING, threshold5);
         for (EvaluationTask task : stuckTasks) {
             if (task.getProgress() != null && task.getProgress() == 0 && !staleTasks.contains(task)) {
                 staleTasks.add(task);
@@ -110,7 +117,7 @@ public class TaskRecoveryScheduler {
 
         for (EvaluationTask task : staleTasks) {
             String reason = (task.getProgress() != null && task.getProgress() == 0)
-                    ? "RUNNING with progress=0 for >10min (never started)"
+                    ? "RUNNING with progress=0 for >5min (never started)"
                     : "RUNNING for >15min without update";
             log.warn("Task {} ({}) stale ({}), marking FAILED",
                     task.getId(), task.getTaskNo(), reason);

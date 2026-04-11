@@ -257,23 +257,51 @@ public class PlanTaskSplitter {
         task.setPlanId(plan.getId());
         task.setChipId(plan.getChipId());
         task.setTestSubject(subject);
-        task.setTestItem(testItem);
-        // #371: Include config details in name to avoid duplicate task names
-        String nameDetail = testItem;
+        // #371: Make testItem unique per config variant (e.g. MLP-Medium/batch=4, MatMul/INT8)
+        String uniqueTestItem = testItem;
         if (config != null) {
-            java.util.regex.Matcher bsMatcher = java.util.regex.Pattern.compile("\"batchSize\"\\s*:\\s*(\\d+)").matcher(config);
-            java.util.regex.Matcher dtMatcher = java.util.regex.Pattern.compile("\"dtype\"\\s*:\\s*\"([^\"]+)\"").matcher(config);
             StringBuilder suffix = new StringBuilder();
-            if (dtMatcher.find() && !"FP32".equals(dtMatcher.group(1))) {
-                suffix.append(dtMatcher.group(1));
+            // Extract dtype
+            int dtIdx = config.indexOf("dtype");
+            if (dtIdx >= 0) {
+                int q1 = config.indexOf('"', config.indexOf(':', dtIdx) + 1);
+                int q2 = config.indexOf('"', q1 + 1);
+                if (q1 >= 0 && q2 > q1) {
+                    String dtype = config.substring(q1 + 1, q2);
+                    if (!"FP32".equals(dtype)) suffix.append(dtype);
+                }
             }
-            if (bsMatcher.find()) {
-                if (suffix.length() > 0) suffix.append(",");
-                suffix.append("batch=").append(bsMatcher.group(1));
+            // Extract batchSize
+            int bsIdx = config.indexOf("batchSize");
+            if (bsIdx >= 0) {
+                int colon = config.indexOf(':', bsIdx);
+                if (colon >= 0) {
+                    StringBuilder numBuf = new StringBuilder();
+                    for (int ci = colon + 1; ci < config.length(); ci++) {
+                        char ch = config.charAt(ci);
+                        if (Character.isDigit(ch)) numBuf.append(ch);
+                        else if (numBuf.length() > 0) break;
+                    }
+                    if (numBuf.length() > 0) {
+                        if (suffix.length() > 0) suffix.append(",");
+                        suffix.append("batch=").append(numBuf);
+                    }
+                }
             }
             if (suffix.length() > 0) {
-                nameDetail = testItem + " (" + suffix + ")";
+                uniqueTestItem = testItem + "/" + suffix;
             }
+        }
+        task.setTestItem(uniqueTestItem);
+        // #371: Use uniqueTestItem for display name
+        String nameDetail = uniqueTestItem;
+        if (config != null && nameDetail.equals(testItem)) {
+            // Fallback: add parenthetical suffix
+            String sfx = uniqueTestItem.contains("/") ? uniqueTestItem.substring(uniqueTestItem.indexOf("/") + 1) : "";
+            if (!sfx.isEmpty()) nameDetail = testItem + " (" + sfx + ")";
+        } else if (uniqueTestItem.contains("/")) {
+            String sfx = uniqueTestItem.substring(uniqueTestItem.indexOf("/") + 1);
+            nameDetail = testItem + " (" + sfx + ")";
         }
         task.setName(subject.name() + " - " + nameDetail);
         task.setTaskNo(generateTaskNo());

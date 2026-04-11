@@ -108,7 +108,7 @@ public class EvaluationPlanController {
         }
     }
 
-    @PutMapping("/plans/{id}/start")
+    @RequestMapping(value = "/plans/{id}/start", method = {RequestMethod.PUT, RequestMethod.POST})
     @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> startPlan(@PathVariable Long id) {
         try {
@@ -118,7 +118,7 @@ public class EvaluationPlanController {
         }
     }
 
-    @PutMapping("/plans/{id}/pause")
+    @RequestMapping(value = "/plans/{id}/pause", method = {RequestMethod.PUT, RequestMethod.POST})
     @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> pausePlan(@PathVariable Long id) {
         try {
@@ -128,7 +128,7 @@ public class EvaluationPlanController {
         }
     }
 
-    @PutMapping("/plans/{id}/resume")
+    @RequestMapping(value = "/plans/{id}/resume", method = {RequestMethod.PUT, RequestMethod.POST})
     @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> resumePlan(@PathVariable Long id) {
         try {
@@ -138,7 +138,7 @@ public class EvaluationPlanController {
         }
     }
 
-    @PutMapping("/plans/{id}/cancel")
+    @RequestMapping(value = "/plans/{id}/cancel", method = {RequestMethod.PUT, RequestMethod.POST})
     @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> cancelPlan(@PathVariable Long id) {
         try {

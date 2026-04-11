@@ -10,6 +10,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 
 import java.util.stream.Collectors;
 
@@ -115,6 +116,19 @@ public class GlobalExceptionHandler {
         log.warn("Resource not found: {}", e.getMessage());
         ApiResponse<Void> resp = ApiResponse.error(ErrorCode.NOT_FOUND.getCode(), "请求的资源不存在");
         return ResponseEntity.status(404).body(resp);
+    }
+
+    /**
+     * #381: HTTP method not supported -> 405
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodNotAllowed(HttpRequestMethodNotSupportedException e) {
+        log.warn("Method not allowed: {}", e.getMessage());
+        String supported = e.getSupportedMethods() != null ? String.join(", ", e.getSupportedMethods()) : "unknown";
+        ApiResponse<Void> resp = ApiResponse.error(
+                ErrorCode.BAD_REQUEST.getCode(),
+                "Unsupported method: " + e.getMethod() + ", supported: " + supported);
+        return ResponseEntity.status(405).body(resp);
     }
 
     @ExceptionHandler(Exception.class)
