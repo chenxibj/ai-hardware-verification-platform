@@ -246,13 +246,13 @@ public class K8sClusterService {
             K8sCluster cluster = clusterRepo.findById(clusterId).orElse(null);
             if (cluster == null) return;
 
-            log.info("集群 {} 开始部署流程", cluster.getName());
-            updateStatus(clusterId, K8sCluster.STATUS_DEPLOYING, null);
+            log.info("集群 {} 开始部署流程（discovery-only模式，跳过DaemonSet）", cluster.getName());
 
-            deployDaemonSet(cluster);
+            // Skip DaemonSet deployment — use k8s-discovery mode only (#347)
+            // deployDaemonSet(cluster);
 
             updateStatus(clusterId, K8sCluster.STATUS_DISCOVERING, null);
-            Thread.sleep(3000);
+            Thread.sleep(2000);
 
             syncNodes(clusterId);
 
