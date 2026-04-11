@@ -69,10 +69,21 @@ public class TaskCompleteController {
         }
 
         // 3. 创建 EvaluationResult
+        // #361: Defensive planId/chipId resolution
+        Long planId = task.getPlanId();
+        Long chipId = task.getChipId();
+        if (chipId == null && planId != null) {
+            EvaluationPlan planForChip = planRepository.findById(planId).orElse(null);
+            if (planForChip != null) {
+                chipId = planForChip.getChipId();
+                log.info("Task {} chipId was null, resolved from plan: {}", taskId, chipId);
+            }
+        }
+
         EvaluationResult result = new EvaluationResult();
         result.setTaskId(taskId);
-        result.setPlanId(task.getPlanId());
-        result.setChipId(task.getChipId());
+        result.setPlanId(planId);
+        result.setChipId(chipId);
         result.setPassed(request.getPassed() != null ? request.getPassed() : false);
         result.setMetricsSummary(metricsSummary);
         result.setRawData(metricsSummary);

@@ -30,6 +30,11 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
   
+  task:
+    scheduling:
+      pool:
+        size: 4
+
   data:
     redis:
       host: ${REDIS_HOST:localhost}

@@ -4,6 +4,8 @@ import com.lab.node.ComputeNode;
 import com.lab.node.ComputeNodeRepository;
 import com.lab.plan.EvaluationPlan;
 import com.lab.plan.EvaluationPlanRepository;
+import com.lab.result.EvaluationResult;
+import com.lab.result.EvaluationResultRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -26,12 +28,13 @@ import java.util.Set;
  * - 节点心跳从 OFFLINE 恢复时
  * 
  * 本调度器只负责异常恢复：
- * 1. RUNNING 超时 → FAILED
+ * 1. RUNNING 超时 → FAILED（并写入 EvaluationResult）
  * 2. OFFLINE 节点的 RUNNING 任务 → QUEUED
  * 3. PENDING/QUEUED 超 24h → CANCELLED
  * 4. 所有 Task 终态 → 完成 Plan
  * 5. 启动时迁移 PENDING → QUEUED
  * 6. #358: QUEUED 任务兜底重调度（每60秒尝试一次）
+ * 7. #361/#382: 超时任务写入失败结果 + 更新 Plan 进度
  */
 @Slf4j
 @Component
@@ -41,6 +44,7 @@ public class TaskRecoveryScheduler {
     private final EvaluationTaskRepository taskRepository;
     private final EvaluationPlanRepository planRepository;
     private final ComputeNodeRepository nodeRepository;
+    private final EvaluationResultRepository resultRepository;
     private final TaskDispatcher taskDispatcher;
     private final com.lab.scoring.ReportGenerator reportGenerator;
 
@@ -65,8 +69,8 @@ public class TaskRecoveryScheduler {
             recoverOfflineNodeTasks();
             cleanupStalePendingTasks();
             completeFinishedPlans();
-            cancelTerminatedPlanTasks();  // #359: 先清理终态方案的残留任务
-            retryQueuedIfPossible();  // #358: 兜底重调度
+            cancelTerminatedPlanTasks();
+            retryQueuedIfPossible();
         } catch (Exception e) {
             log.error("Task recovery scheduler error: {}", e.getMessage(), e);
         }
@@ -85,7 +89,6 @@ public class TaskRecoveryScheduler {
             }
             log.info("Migrated {} PENDING tasks to QUEUED", pendingTasks.size());
 
-            // 迁移后尝试分发
             try {
                 taskDispatcher.tryDispatchNext();
             } catch (Exception e) {
@@ -95,19 +98,21 @@ public class TaskRecoveryScheduler {
     }
 
     /**
-     * #380: RUNNING 超时 → FAILED
-     * - progress=0 且超过 10 分钟 → FAILED（任务可能从未真正开始）
+     * #380/#382: RUNNING 超时 → FAILED + 写入 EvaluationResult
+     * - progress=0 且超过 5 分钟 → FAILED（任务从未真正开始）
      * - 任何 RUNNING 超过 15 分钟无更新 → FAILED
+     * #361: 同时创建失败的 EvaluationResult，确保 plan_id 不为 null
      */
     @Transactional
     public void recoverStaleRunningTasks() {
         Instant threshold15 = Instant.now().minus(15, ChronoUnit.MINUTES);
         Instant threshold5 = Instant.now().minus(5, ChronoUnit.MINUTES);
 
-        List<EvaluationTask> staleTasks = taskRepository.findByStatusAndUpdatedAtBefore(
-                EvaluationTask.TaskStatus.RUNNING, threshold15);
+        List<EvaluationTask> staleTasks = new ArrayList<>(
+                taskRepository.findByStatusAndUpdatedAtBefore(
+                        EvaluationTask.TaskStatus.RUNNING, threshold15));
 
-        // #380/#382: Also catch RUNNING tasks with progress=0 after 5 minutes
+        // #382: Also catch RUNNING tasks with progress=0 after 5 minutes
         List<EvaluationTask> stuckTasks = taskRepository.findByStatusAndUpdatedAtBefore(
                 EvaluationTask.TaskStatus.RUNNING, threshold5);
         for (EvaluationTask task : stuckTasks) {
@@ -115,6 +120,9 @@ public class TaskRecoveryScheduler {
                 staleTasks.add(task);
             }
         }
+
+        // Track affected planIds for progress update
+        java.util.Set<Long> affectedPlanIds = new java.util.HashSet<>();
 
         for (EvaluationTask task : staleTasks) {
             String reason = (task.getProgress() != null && task.getProgress() == 0)
@@ -126,6 +134,13 @@ public class TaskRecoveryScheduler {
             task.setCompletedAt(Instant.now());
             taskRepository.save(task);
 
+            // #361: Create EvaluationResult for the timed-out task
+            createTimeoutResult(task, reason);
+
+            if (task.getPlanId() != null) {
+                affectedPlanIds.add(task.getPlanId());
+            }
+
             // 释放节点
             if (task.getAssignedNodeId() != null) {
                 releaseNode(task.getAssignedNodeId());
@@ -134,12 +149,78 @@ public class TaskRecoveryScheduler {
 
         if (!staleTasks.isEmpty()) {
             log.info("Recovered {} stale RUNNING tasks -> FAILED", staleTasks.size());
+
+            // #361/#382: Update progress for all affected plans
+            for (Long planId : affectedPlanIds) {
+                updatePlanProgress(planId);
+            }
+
             // 释放节点后尝试分发排队任务
             try {
                 taskDispatcher.tryDispatchNext();
             } catch (Exception e) {
                 log.debug("Post-recovery dispatch failed: {}", e.getMessage());
             }
+        }
+    }
+
+    /**
+     * #361: 为超时任务创建失败的 EvaluationResult
+     * 确保 planId 从 Task 正确传递，不为 null
+     */
+    private void createTimeoutResult(EvaluationTask task, String reason) {
+        try {
+            // Check if result already exists for this task
+            if (resultRepository.findByTaskId(task.getId()).isPresent()) {
+                return;
+            }
+
+            EvaluationResult result = new EvaluationResult();
+            result.setTaskId(task.getId());
+
+            // #361: Ensure planId is set — resolve from task, fallback to DB lookup
+            Long planId = task.getPlanId();
+            result.setPlanId(planId);
+
+            // Resolve chipId — from task or from plan
+            Long chipId = task.getChipId();
+            if (chipId == null && planId != null) {
+                planRepository.findById(planId).ifPresent(plan -> {
+                    result.setChipId(plan.getChipId());
+                });
+            } else {
+                result.setChipId(chipId);
+            }
+
+            result.setPassed(false);
+            result.setErrorMessage("Task timeout: " + reason);
+            resultRepository.save(result);
+            log.info("Created timeout EvaluationResult for task {} (planId={})", task.getId(), planId);
+        } catch (Exception e) {
+            log.warn("Failed to create timeout result for task {}: {}", task.getId(), e.getMessage());
+        }
+    }
+
+    /**
+     * #361/#382: 更新 Plan 进度（任务回收后同步更新）
+     */
+    private void updatePlanProgress(Long planId) {
+        try {
+            EvaluationPlan plan = planRepository.findById(planId).orElse(null);
+            if (plan == null) return;
+
+            List<EvaluationTask> tasks = taskRepository.findByPlanId(planId);
+            int total = tasks.size();
+            long completed = tasks.stream()
+                    .filter(t -> TERMINAL_STATUSES.contains(t.getStatus()))
+                    .count();
+
+            plan.setCompletedTasks((int) completed);
+            plan.setProgress(total > 0 ? (int) (completed * 100 / total) : 0);
+            planRepository.save(plan);
+            log.debug("Updated plan {} progress: {}/{} ({}%)", plan.getPlanNo(), completed, total, plan.getProgress());
+        } catch (Exception e) {
+            log.warn("Failed to update plan {} progress: {}", planId, e.getMessage());
         }
     }
 
@@ -183,14 +264,20 @@ public class TaskRecoveryScheduler {
         staleTasks.addAll(
                 taskRepository.findByStatusAndCreatedAtBefore(EvaluationTask.TaskStatus.PENDING, threshold));
 
+        java.util.Set<Long> affectedPlanIds = new java.util.HashSet<>();
+
         for (EvaluationTask task : staleTasks) {
             log.info("Auto-cancelling stale task {} (QUEUED/PENDING for >24h)", task.getTaskNo());
             task.setStatus(EvaluationTask.TaskStatus.CANCELLED);
             task.setCompletedAt(Instant.now());
             taskRepository.save(task);
+            if (task.getPlanId() != null) affectedPlanIds.add(task.getPlanId());
         }
         if (!staleTasks.isEmpty()) {
             log.info("Auto-cancelled {} stale QUEUED/PENDING tasks", staleTasks.size());
+            for (Long planId : affectedPlanIds) {
+                updatePlanProgress(planId);
+            }
         }
     }
 
@@ -246,11 +333,8 @@ public class TaskRecoveryScheduler {
         }
     }
 
-
-
     /**
      * #359: 主动取消已终态方案（CANCELLED/COMPLETED）下的 QUEUED 任务
-     * 避免这些任务占用调度资源，在 dispatch 之前清理
      */
     @Transactional
     public void cancelTerminatedPlanTasks() {
@@ -277,7 +361,7 @@ public class TaskRecoveryScheduler {
     }
 
     /**
-     * #358/#359: 兜底重调度 — tryDispatchNext 现在已经是批量分发了
+     * #358/#359: 兜底重调度
      */
     private void retryQueuedIfPossible() {
         long queuedCount = taskRepository.countByStatus(EvaluationTask.TaskStatus.QUEUED);

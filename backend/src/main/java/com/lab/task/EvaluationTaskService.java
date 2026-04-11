@@ -124,6 +124,18 @@ public class EvaluationTaskService {
         // 状态转换时的处理
         if (status == EvaluationTask.TaskStatus.RUNNING && oldStatus != EvaluationTask.TaskStatus.RUNNING) {
             task.setStartedAt(Instant.now());
+            // #365: When task goes RUNNING, auto-update parent plan from DRAFT to RUNNING
+            if (task.getPlanId() != null) {
+                planRepository.findById(task.getPlanId()).ifPresent(plan -> {
+                    if (plan.getStatus() == com.lab.plan.EvaluationPlan.PlanStatus.DRAFT) {
+                        plan.setStatus(com.lab.plan.EvaluationPlan.PlanStatus.RUNNING);
+                        plan.setStartedAt(Instant.now());
+                        planRepository.save(plan);
+                        log.info("#365: Plan {} auto-transitioned DRAFT -> RUNNING (task {} started)",
+                                plan.getPlanNo(), taskId);
+                    }
+                });
+            }
         } else if (status == EvaluationTask.TaskStatus.COMPLETED || 
                    status == EvaluationTask.TaskStatus.FAILED) {
             task.setCompletedAt(Instant.now());
