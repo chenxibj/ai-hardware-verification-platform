@@ -54,6 +54,18 @@ public class EvaluationPlanService {
         chipRepository.findById(plan.getChipId())
                 .orElseThrow(() -> new RuntimeException("芯片不存在: " + plan.getChipId()));
 
+        // #370: 验证模板存在
+        if (plan.getTemplateId() != null) {
+            templateRepository.findById(plan.getTemplateId())
+                    .orElseThrow(() -> new RuntimeException("评测模板不存在: " + plan.getTemplateId()));
+        }
+
+        // #370: 验证模板存在
+        if (plan.getTemplateId() != null) {
+            templateRepository.findById(plan.getTemplateId())
+                    .orElseThrow(() -> new RuntimeException("评测模板不存在: " + plan.getTemplateId()));
+        }
+
         plan.setPlanNo(generatePlanNo());
         plan.setCreatedBy(userId);
         if (plan.getStatus() == null) {

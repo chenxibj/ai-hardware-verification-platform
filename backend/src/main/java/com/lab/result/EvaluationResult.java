@@ -18,7 +18,7 @@ public class EvaluationResult {
 
     @Column(name = "task_id", nullable = false)
     private Long taskId;
-    @Column(name = "plan_id", nullable = false)
+    @Column(name = "plan_id")
     private Long planId;
     @Column(name = "chip_id")
     private Long chipId;

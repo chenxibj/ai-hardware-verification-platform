@@ -71,7 +71,7 @@ public class ChipController {
      * #342: 增加必填字段校验，空 body 返回 400 而非 500
      */
     @PostMapping
-    @PreAuthorize("hasAnyRole('super_admin', 'tenant_admin', 'engineer')")
+    @PreAuthorize("hasAnyRole('super_admin', 'tenant_admin')")
     public ResponseEntity<Map<String, Object>> createChip(
             @RequestBody Chip chip,
             @AuthenticationPrincipal User user) {
@@ -200,7 +200,7 @@ public class ChipController {
      * #343: 芯片不存在时返回 404
      */
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('super_admin', 'tenant_admin', 'engineer')")
+    @PreAuthorize("hasAnyRole('super_admin', 'tenant_admin')")
     public ResponseEntity<Map<String, Object>> updateChip(
             @PathVariable Long id,
             @RequestBody Chip chip) {
@@ -219,7 +219,7 @@ public class ChipController {
      * #343: 芯片不存在时返回 404
      */
     @PatchMapping("/{id}")
-    @PreAuthorize("hasAnyRole('super_admin', 'tenant_admin', 'engineer')")
+    @PreAuthorize("hasAnyRole('super_admin', 'tenant_admin')")
     public ResponseEntity<Map<String, Object>> patchChip(
             @PathVariable Long id,
             @RequestBody(required = false) Map<String, Object> fields) {
@@ -239,7 +239,7 @@ public class ChipController {
      * #343: 芯片不存在时返回 404
      */
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('super_admin', 'tenant_admin', 'engineer')")
+    @PreAuthorize("hasAnyRole('super_admin', 'tenant_admin')")
     public ResponseEntity<Map<String, Object>> deleteChip(@PathVariable Long id) {
         try {
             chipService.softDeleteChip(id);

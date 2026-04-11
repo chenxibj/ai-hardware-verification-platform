@@ -2,6 +2,7 @@ package com.lab.plan;
 
 import com.lab.auth.RequireRole;
 import com.lab.auth.Role;
+import com.lab.user.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -10,6 +11,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -29,12 +32,21 @@ public class EvaluationPlanController {
     private final EvaluationPlanService planService;
     private final EvaluationTaskRepository taskRepository;
 
+    /**
+     * #366: 从 SecurityContext 获取当前用户 ID
+     */
+    private Long getCurrentUserId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getPrincipal() instanceof User user) {
+            return user.getId();
+        }
+        return 1L;
+    }
+
     @PostMapping("/plans")
     @RequireRole(Role.ENGINEER)
-    public ResponseEntity<Map<String, Object>> createPlan(
-            @RequestBody EvaluationPlan plan,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        if (userId == null) userId = 1L;
+    public ResponseEntity<Map<String, Object>> createPlan(@RequestBody EvaluationPlan plan) {
+        Long userId = getCurrentUserId();
         try {
             EvaluationPlan created = planService.createPlan(plan, userId);
             return ResponseEntity.ok(success(created));
@@ -51,7 +63,6 @@ public class EvaluationPlanController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "createdAt,desc") String sort) {
-        // Parse sort parameter (e.g. "createdAt,desc")
         String[] sortParts = sort.split(",");
         String sortField = sortParts[0];
         Sort.Direction direction = sortParts.length > 1 && sortParts[1].equalsIgnoreCase("asc")
@@ -73,9 +84,6 @@ public class EvaluationPlanController {
         return ResponseEntity.ok(resp);
     }
 
-    /**
-     * #343: 评测计划不存在时返回 404
-     */
     @GetMapping("/plans/{id}")
     @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getPlan(@PathVariable Long id) {
@@ -87,9 +95,6 @@ public class EvaluationPlanController {
         }
     }
 
-    /**
-     * #343: 评测计划不存在时返回 404
-     */
     @PutMapping("/plans/{id}")
     @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> updatePlan(
@@ -143,25 +148,17 @@ public class EvaluationPlanController {
         }
     }
 
-    /**
-     * POST /api/plans/{id}/copy — 拷贝评测任务为新的 DRAFT
-     */
     @PostMapping("/plans/{id}/copy")
     @RequireRole(Role.ENGINEER)
-    public ResponseEntity<Map<String, Object>> copyPlan(
-            @PathVariable Long id,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+    public ResponseEntity<Map<String, Object>> copyPlan(@PathVariable Long id) {
         try {
-            if (userId == null) userId = 1L;
+            Long userId = getCurrentUserId();
             return ResponseEntity.ok(success(planService.copyPlan(id, userId)));
         } catch (Exception e) {
             return handlePlanException(e);
         }
     }
 
-    /**
-     * GET /api/plans/stats — 统计各状态数量 (#199)
-     */
     @GetMapping("/plans/stats")
     @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getPlanStats() {
@@ -197,9 +194,6 @@ public class EvaluationPlanController {
         return ResponseEntity.ok(success(plans));
     }
 
-    /**
-     * #343: 统一异常处理 — 资源不存在返回 404，其他返回 400
-     */
     private ResponseEntity<Map<String, Object>> handlePlanException(Exception e) {
         String msg = e.getMessage();
         if (msg != null && (msg.contains("not found") || msg.contains("不存在"))) {

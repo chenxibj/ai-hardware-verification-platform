@@ -67,4 +67,11 @@ public class ApiResponse<T> {
         } catch (Exception ignored) {}
         return -1;
     }
+
+    public static <T> ApiResponse<T> error(int code, String message) {
+        ApiResponse<T> resp = new ApiResponse<>();
+        resp.setCode(code);
+        resp.setMessage(message);
+        return resp;
+    }
 }

@@ -2,12 +2,15 @@ package com.lab.task;
 
 import com.lab.auth.RequireRole;
 import com.lab.auth.Role;
+import com.lab.user.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.validation.Valid;
@@ -16,6 +19,8 @@ import com.lab.node.ComputeNodeRepository;
 import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
+import com.lab.result.EvaluationResult;
+import com.lab.result.EvaluationResultRepository;
 
 /**
  * 评测任务控制器
@@ -30,13 +35,24 @@ public class EvaluationTaskController {
     private final EvaluationTaskRepository taskRepository;
     private final TaskLogRepository taskLogRepository;
     private final ComputeNodeRepository computeNodeRepository;
+    private final EvaluationResultRepository evaluationResultRepository;
+
+    /**
+     * #366: 从 SecurityContext 获取当前用户 ID，而非依赖 X-User-Id header
+     */
+    private Long getCurrentUserId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getPrincipal() instanceof User user) {
+            return user.getId();
+        }
+        return 1L; // fallback for agent tokens etc.
+    }
 
     @PostMapping
     @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> createTask(
-            @Valid @RequestBody CreateTaskRequest request,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        if (userId == null) userId = 1L;
+            @Valid @RequestBody CreateTaskRequest request) {
+        Long userId = getCurrentUserId();
         EvaluationTask task = taskService.createTask(request, userId);
         Map<String, Object> response = new HashMap<>();
         response.put("code", 0);
@@ -96,12 +112,32 @@ public class EvaluationTaskController {
                 });
     }
 
+    /**
+     * #368: POST /tasks/{taskId}/start — 启动任务
+     */
+    @PostMapping("/{taskId}/start")
+    @RequireRole(Role.ENGINEER)
+    public ResponseEntity<Map<String, Object>> startTask(@PathVariable Long taskId) {
+        Long userId = getCurrentUserId();
+        try {
+            EvaluationTask task = taskService.executeTask(taskId, userId);
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 0);
+            response.put("message", "success");
+            response.put("data", task);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 1001);
+            response.put("message", e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
     @PostMapping("/{taskId}/cancel")
     @RequireRole(Role.ENGINEER)
-    public ResponseEntity<Map<String, Object>> cancelTask(
-            @PathVariable Long taskId,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        if (userId == null) userId = 1L;
+    public ResponseEntity<Map<String, Object>> cancelTask(@PathVariable Long taskId) {
+        Long userId = getCurrentUserId();
         try {
             EvaluationTask task = taskService.cancelTask(taskId, userId);
             Map<String, Object> response = new HashMap<>();
@@ -119,10 +155,8 @@ public class EvaluationTaskController {
 
     @PostMapping("/{taskId}/retry")
     @RequireRole(Role.ENGINEER)
-    public ResponseEntity<Map<String, Object>> retryTask(
-            @PathVariable Long taskId,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        if (userId == null) userId = 1L;
+    public ResponseEntity<Map<String, Object>> retryTask(@PathVariable Long taskId) {
+        Long userId = getCurrentUserId();
         try {
             EvaluationTask task = taskService.retryTask(taskId, userId);
             Map<String, Object> response = new HashMap<>();
@@ -162,10 +196,8 @@ public class EvaluationTaskController {
 
     @PostMapping("/{taskId}/pause")
     @RequireRole(Role.ENGINEER)
-    public ResponseEntity<Map<String, Object>> pauseTask(
-            @PathVariable Long taskId,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        if (userId == null) userId = 1L;
+    public ResponseEntity<Map<String, Object>> pauseTask(@PathVariable Long taskId) {
+        Long userId = getCurrentUserId();
         try {
             EvaluationTask task = taskService.pauseTask(taskId, userId);
             Map<String, Object> response = new HashMap<>();
@@ -183,10 +215,8 @@ public class EvaluationTaskController {
 
     @PostMapping("/{taskId}/resume")
     @RequireRole(Role.ENGINEER)
-    public ResponseEntity<Map<String, Object>> resumeTask(
-            @PathVariable Long taskId,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        if (userId == null) userId = 1L;
+    public ResponseEntity<Map<String, Object>> resumeTask(@PathVariable Long taskId) {
+        Long userId = getCurrentUserId();
         try {
             EvaluationTask task = taskService.resumeTask(taskId, userId);
             Map<String, Object> response = new HashMap<>();
@@ -204,10 +234,8 @@ public class EvaluationTaskController {
 
     @PostMapping("/{taskId}/skip")
     @RequireRole(Role.ENGINEER)
-    public ResponseEntity<Map<String, Object>> skipTask(
-            @PathVariable Long taskId,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        if (userId == null) userId = 1L;
+    public ResponseEntity<Map<String, Object>> skipTask(@PathVariable Long taskId) {
+        Long userId = getCurrentUserId();
         try {
             EvaluationTask task = taskService.skipTask(taskId, userId);
             Map<String, Object> response = new HashMap<>();
@@ -223,15 +251,10 @@ public class EvaluationTaskController {
         }
     }
 
-    /**
-     * POST /tasks/{taskId}/clone — 克隆任务 (#227)
-     */
     @PostMapping("/{taskId}/clone")
     @RequireRole(Role.ENGINEER)
-    public ResponseEntity<Map<String, Object>> cloneTask(
-            @PathVariable Long taskId,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        if (userId == null) userId = 1L;
+    public ResponseEntity<Map<String, Object>> cloneTask(@PathVariable Long taskId) {
+        Long userId = getCurrentUserId();
         try {
             EvaluationTask cloned = taskService.cloneTask(taskId, userId);
             Map<String, Object> response = new HashMap<>();
@@ -247,9 +270,6 @@ public class EvaluationTaskController {
         }
     }
 
-    /**
-     * GET /tasks/stats — 任务统计 (#227)
-     */
     @GetMapping("/stats")
     @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getTaskStats() {
@@ -267,9 +287,6 @@ public class EvaluationTaskController {
         return ResponseEntity.ok(response);
     }
 
-    /**
-     * GET /tasks/{taskId}/debug-info — \u8c03\u8bd5\u4fe1\u606f (#228)
-     */
     @GetMapping("/{taskId}/debug-info")
     @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getDebugInfo(@PathVariable Long taskId) {
@@ -287,7 +304,6 @@ public class EvaluationTaskController {
             info.put("progress", task.getProgress());
             info.put("evalConfig", task.getEvalConfig());
 
-            // \u83b7\u53d6\u8282\u70b9\u4fe1\u606f
             if (task.getAssignedNodeId() != null) {
                 computeNodeRepository.findById(task.getAssignedNodeId()).ifPresent(node -> {
                     info.put("nodeHost", node.getIpAddress());
@@ -311,9 +327,6 @@ public class EvaluationTaskController {
         }
     }
 
-    /**
-     * GET /tasks/{taskId}/debug-log — \u8c03\u8bd5\u65e5\u5fd7 (#228)
-     */
     @GetMapping("/{taskId}/debug-log")
     @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getDebugLog(@PathVariable Long taskId) {
@@ -347,18 +360,10 @@ public class EvaluationTaskController {
         }
     }
 
-
-
-
-    /**
-     * DELETE /tasks/{taskId} — 删除任务 (#325)
-     */
     @DeleteMapping("/{taskId}")
     @RequireRole(Role.ENGINEER)
-    public ResponseEntity<Map<String, Object>> deleteTask(
-            @PathVariable Long taskId,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        if (userId == null) userId = 1L;
+    public ResponseEntity<Map<String, Object>> deleteTask(@PathVariable Long taskId) {
+        Long userId = getCurrentUserId();
         try {
             taskService.deleteTask(taskId, userId);
             Map<String, Object> response = new HashMap<>();
@@ -373,15 +378,10 @@ public class EvaluationTaskController {
         }
     }
 
-    /**
-     * POST /tasks/{taskId}/execute — 执行任务 (#325)
-     */
     @PostMapping("/{taskId}/execute")
     @RequireRole(Role.ENGINEER)
-    public ResponseEntity<Map<String, Object>> executeTask(
-            @PathVariable Long taskId,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        if (userId == null) userId = 1L;
+    public ResponseEntity<Map<String, Object>> executeTask(@PathVariable Long taskId) {
+        Long userId = getCurrentUserId();
         try {
             EvaluationTask task = taskService.executeTask(taskId, userId);
             Map<String, Object> response = new HashMap<>();
@@ -397,15 +397,54 @@ public class EvaluationTaskController {
         }
     }
 
+
     /**
-     * POST /tasks/batch/delete — 批量删除任务 (#336)
+     * #372: 批量执行任务 — 接受 JSON body {"taskIds": [1,2,3]}
      */
+    @PostMapping("/batch/execute")
+    @RequireRole(Role.ENGINEER)
+    public ResponseEntity<Map<String, Object>> batchExecuteTasks(
+            @RequestBody Map<String, List<Long>> request) {
+        Long userId = getCurrentUserId();
+        List<Long> taskIds = null;
+        if (request != null) {
+            taskIds = request.get("taskIds");
+            if (taskIds == null) taskIds = request.get("ids");
+        }
+        if (taskIds == null || taskIds.isEmpty()) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 1001);
+            response.put("message", "taskIds不能为空");
+            return ResponseEntity.badRequest().body(response);
+        }
+        try {
+            int executed = 0;
+            for (Long taskId : taskIds) {
+                try {
+                    taskService.executeTask(taskId, userId);
+                    executed++;
+                } catch (Exception e) {
+                    log.warn("Failed to execute task {}: {}", taskId, e.getMessage());
+                }
+            }
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 0);
+            response.put("message", "success");
+            response.put("data", Map.of("executed", executed));
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 1001);
+            response.put("message", e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
     @PostMapping("/batch/delete")
     @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> batchDeleteTasks(
-            @RequestBody Map<String, List<Long>> request,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        if (userId == null) userId = 1L;
+            @RequestBody Map<String, List<Long>> request) {
+        Long userId = getCurrentUserId();
         List<Long> taskIds = null;
         if (request != null) {
             taskIds = request.get("ids");
@@ -432,15 +471,11 @@ public class EvaluationTaskController {
         }
     }
 
-    /**
-     * POST /tasks/batch/cancel — 批量取消任务 (#337)
-     */
     @PostMapping("/batch/cancel")
     @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> batchCancelTasks(
-            @RequestBody Map<String, List<Long>> request,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        if (userId == null) userId = 1L;
+            @RequestBody Map<String, List<Long>> request) {
+        Long userId = getCurrentUserId();
         List<Long> taskIds = null;
         if (request != null) {
             taskIds = request.get("ids");
@@ -466,6 +501,96 @@ public class EvaluationTaskController {
             response.put("data", Map.of("cancelled", cancelled));
             return ResponseEntity.ok(response);
         } catch (Exception e) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 1001);
+            response.put("message", e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
+
+    /**
+     * GET /tasks/{taskId}/results — #362: 获取任务的评测结果
+     */
+    @GetMapping("/{taskId}/results")
+    @RequireRole(Role.VIEWER)
+    public ResponseEntity<Map<String, Object>> getTaskResults(@PathVariable Long taskId) {
+        java.util.Optional<EvaluationTask> taskOpt = taskRepository.findById(taskId);
+        if (taskOpt.isEmpty()) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 1001);
+            response.put("message", "任务不存在: " + taskId);
+            return ResponseEntity.status(404).body(response);
+        }
+        java.util.Optional<EvaluationResult> resultOpt = evaluationResultRepository.findByTaskId(taskId);
+        Map<String, Object> response = new HashMap<>();
+        response.put("code", 0);
+        response.put("message", "success");
+        if (resultOpt.isPresent()) {
+            response.put("data", java.util.List.of(resultOpt.get()));
+        } else {
+            response.put("data", java.util.List.of());
+        }
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * PATCH /tasks/{taskId} — #363: 部分更新任务
+     */
+    @PatchMapping("/{taskId}")
+    @RequireRole(Role.ENGINEER)
+    public ResponseEntity<Map<String, Object>> patchTask(
+            @PathVariable Long taskId,
+            @RequestBody Map<String, Object> updates) {
+        try {
+            EvaluationTask task = taskRepository.findById(taskId)
+                    .orElseThrow(() -> new RuntimeException("Task not found: " + taskId));
+
+            if (updates.containsKey("name") && updates.get("name") != null) {
+                task.setName(com.lab.common.XssUtils.stripXss(updates.get("name").toString()));
+            }
+            if (updates.containsKey("priority") && updates.get("priority") != null) {
+                try {
+                    task.setPriority(EvaluationTask.Priority.valueOf(updates.get("priority").toString()));
+                } catch (IllegalArgumentException e) {
+                    Map<String, Object> resp = new HashMap<>();
+                    resp.put("code", 1001);
+                    resp.put("message", "无效的优先级: " + updates.get("priority"));
+                    return ResponseEntity.badRequest().body(resp);
+                }
+            }
+            if (updates.containsKey("evalConfig") && updates.get("evalConfig") != null) {
+                task.setEvalConfig(updates.get("evalConfig").toString());
+            }
+            if (updates.containsKey("status") && updates.get("status") != null) {
+                try {
+                    EvaluationTask.TaskStatus newStatus = EvaluationTask.TaskStatus.valueOf(updates.get("status").toString());
+                    task.setStatus(newStatus);
+                } catch (IllegalArgumentException e) {
+                    Map<String, Object> resp = new HashMap<>();
+                    resp.put("code", 1001);
+                    resp.put("message", "无效的状态: " + updates.get("status"));
+                    return ResponseEntity.badRequest().body(resp);
+                }
+            }
+            if (updates.containsKey("progress") && updates.get("progress") != null) {
+                task.setProgress(Integer.parseInt(updates.get("progress").toString()));
+            }
+            if (updates.containsKey("timeoutSeconds") && updates.get("timeoutSeconds") != null) {
+                task.setTimeoutSeconds(Integer.parseInt(updates.get("timeoutSeconds").toString()));
+            }
+            if (updates.containsKey("assignedNodeId") && updates.get("assignedNodeId") != null) {
+                task.setAssignedNodeId(Long.parseLong(updates.get("assignedNodeId").toString()));
+            }
+
+            EvaluationTask saved = taskRepository.save(task);
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 0);
+            response.put("message", "success");
+            response.put("data", saved);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Failed to patch task {}", taskId, e);
             Map<String, Object> response = new HashMap<>();
             response.put("code", 1001);
             response.put("message", e.getMessage());

@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import com.lab.common.XssUtils;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * 芯片服务（v3.2适配）
@@ -25,6 +26,7 @@ import com.lab.common.XssUtils;
 public class ChipService {
 
     private final ChipRepository chipRepository;
+    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
 
     /**
      * 创建芯片
@@ -47,12 +49,27 @@ public class ChipService {
         if (chip.getName() == null || chip.getName().isBlank()) {
             throw new RuntimeException("芯片名称不能为空");
         }
+        // #373: 芯片名称唯一性校验
+        if (chipRepository.existsByNameIgnoreCase(chip.getName())) {
+            throw new RuntimeException("芯片名称已存在: " + chip.getName());
+        }
         if (chip.getManufacturer() == null || chip.getManufacturer().isBlank()) {
             throw new RuntimeException("厂商不能为空");
         }
         if (chip.getChipType() == null) {
             throw new RuntimeException("芯片类型不能为空");
         }
+
+        // #367: Validate JSON fields before save
+        validateJsonField(chip.getTechSpec(), "techSpec");
+        validateJsonField(chip.getSoftwareStack(), "softwareStack");
+        validateJsonField(chip.getCapabilityProfile(), "capabilityProfile");
+        validateJsonField(chip.getProfileData(), "profileData");
+        // #367: Validate JSON fields before save
+        validateJsonField(chip.getTechSpec(), "techSpec");
+        validateJsonField(chip.getSoftwareStack(), "softwareStack");
+        validateJsonField(chip.getCapabilityProfile(), "capabilityProfile");
+        validateJsonField(chip.getProfileData(), "profileData");
 
         Chip saved = chipRepository.save(chip);
         log.info("Created chip: {} ({}) type={} vendor={} arch={} gen={} model={}",
@@ -115,6 +132,17 @@ public class ChipService {
         if (update.getPeakGflopsFp32() != null) chip.setPeakGflopsFp32(update.getPeakGflopsFp32());
         if (update.getPeakGflopsFp16() != null) chip.setPeakGflopsFp16(update.getPeakGflopsFp16());
         if (update.getPeakBandwidthGbps() != null) chip.setPeakBandwidthGbps(update.getPeakBandwidthGbps());
+        // #367: Validate JSON fields before save
+        validateJsonField(chip.getTechSpec(), "techSpec");
+        validateJsonField(chip.getSoftwareStack(), "softwareStack");
+        validateJsonField(chip.getCapabilityProfile(), "capabilityProfile");
+        validateJsonField(chip.getProfileData(), "profileData");
+        // #367: Validate JSON fields before save
+        validateJsonField(chip.getTechSpec(), "techSpec");
+        validateJsonField(chip.getSoftwareStack(), "softwareStack");
+        validateJsonField(chip.getCapabilityProfile(), "capabilityProfile");
+        validateJsonField(chip.getProfileData(), "profileData");
+
         Chip saved = chipRepository.save(chip);
         log.info("Updated chip: {}", saved.getChipNo());
         return saved;
@@ -152,6 +180,18 @@ public class ChipService {
     /**
      * 生成芯片编号: CHIP-YYYYMMDD-NNN
      */
+    /**
+     * #367: 校验 JSON 字符串是否合法
+     */
+    private void validateJsonField(String value, String fieldName) {
+        if (value == null || value.isBlank()) return;
+        try {
+            JSON_MAPPER.readTree(value);
+        } catch (Exception e) {
+            throw new RuntimeException(fieldName + " 必须是合法的 JSON 格式，当前值无法解析: " + e.getMessage());
+        }
+    }
+
     private synchronized String generateChipNo() {
         String today = LocalDate.now(ZoneId.of("Asia/Shanghai"))
                 .format(DateTimeFormatter.BASIC_ISO_DATE);
@@ -233,6 +273,17 @@ public class ChipService {
             Object v = fields.get("peakBandwidthGbps");
             chip.setPeakBandwidthGbps(v != null ? Double.parseDouble(v.toString()) : null);
         }
+
+        // #367: Validate JSON fields before save
+        validateJsonField(chip.getTechSpec(), "techSpec");
+        validateJsonField(chip.getSoftwareStack(), "softwareStack");
+        validateJsonField(chip.getCapabilityProfile(), "capabilityProfile");
+        validateJsonField(chip.getProfileData(), "profileData");
+        // #367: Validate JSON fields before save
+        validateJsonField(chip.getTechSpec(), "techSpec");
+        validateJsonField(chip.getSoftwareStack(), "softwareStack");
+        validateJsonField(chip.getCapabilityProfile(), "capabilityProfile");
+        validateJsonField(chip.getProfileData(), "profileData");
 
         Chip saved = chipRepository.save(chip);
         log.info("Patched chip: {} fields={}", saved.getChipNo(), fields.keySet());

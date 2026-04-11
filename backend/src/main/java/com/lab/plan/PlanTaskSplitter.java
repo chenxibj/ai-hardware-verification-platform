@@ -258,7 +258,24 @@ public class PlanTaskSplitter {
         task.setChipId(plan.getChipId());
         task.setTestSubject(subject);
         task.setTestItem(testItem);
-        task.setName(subject.name() + " - " + testItem);
+        // #371: Include config details in name to avoid duplicate task names
+        String nameDetail = testItem;
+        if (config != null) {
+            java.util.regex.Matcher bsMatcher = java.util.regex.Pattern.compile("\"batchSize\"\\s*:\\s*(\\d+)").matcher(config);
+            java.util.regex.Matcher dtMatcher = java.util.regex.Pattern.compile("\"dtype\"\\s*:\\s*\"([^\"]+)\"").matcher(config);
+            StringBuilder suffix = new StringBuilder();
+            if (dtMatcher.find() && !"FP32".equals(dtMatcher.group(1))) {
+                suffix.append(dtMatcher.group(1));
+            }
+            if (bsMatcher.find()) {
+                if (suffix.length() > 0) suffix.append(",");
+                suffix.append("batch=").append(bsMatcher.group(1));
+            }
+            if (suffix.length() > 0) {
+                nameDetail = testItem + " (" + suffix + ")";
+            }
+        }
+        task.setName(subject.name() + " - " + nameDetail);
         task.setTaskNo(generateTaskNo());
         task.setTaskType(EvaluationTask.TaskType.TEMPLATE);
         task.setEvalType(subject == EvaluationTask.TestSubject.OPERATOR

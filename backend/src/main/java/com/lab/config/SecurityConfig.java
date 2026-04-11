@@ -80,11 +80,11 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.PUT, "/users/*/role").hasRole("super_admin")
                 .requestMatchers(HttpMethod.PUT, "/users/*/status").hasRole("super_admin")
                 .requestMatchers("/users/**").hasAnyRole("super_admin", "tenant_admin")
-                // RBAC: 芯片注册/修改/删除需 engineer 以上
-                .requestMatchers(HttpMethod.POST, "/chips").hasAnyRole("super_admin", "tenant_admin", "engineer")
-                .requestMatchers(HttpMethod.PUT, "/chips/**").hasAnyRole("super_admin", "tenant_admin", "engineer")
-                .requestMatchers(HttpMethod.PATCH, "/chips/**").hasAnyRole("super_admin", "tenant_admin", "engineer")
-                .requestMatchers(HttpMethod.DELETE, "/chips/**").hasAnyRole("super_admin", "tenant_admin", "engineer")
+                // RBAC: 芯片注册/修改/删除需 admin 以上 (#375)
+                .requestMatchers(HttpMethod.POST, "/chips").hasAnyRole("super_admin", "tenant_admin")
+                .requestMatchers(HttpMethod.PUT, "/chips/**").hasAnyRole("super_admin", "tenant_admin")
+                .requestMatchers(HttpMethod.PATCH, "/chips/**").hasAnyRole("super_admin", "tenant_admin")
+                .requestMatchers(HttpMethod.DELETE, "/chips/**").hasAnyRole("super_admin", "tenant_admin")
                 // 芯片 compare/ranking 需认证但无角色限制
                 .requestMatchers(HttpMethod.GET, "/chips/compare", "/chips/ranking").authenticated()
                 // RBAC: 创建评测计划需 engineer 以上

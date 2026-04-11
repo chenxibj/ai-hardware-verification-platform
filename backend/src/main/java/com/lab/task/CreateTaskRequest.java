@@ -34,4 +34,13 @@ public class CreateTaskRequest {
     private Long[] datasetIds;
 
     private String resourceSpec;
+
+    // #364: 新增字段
+    private Long planId;
+
+    private Long chipId;
+
+    private TestSubject testSubject;
+
+    private String testItem;
 }

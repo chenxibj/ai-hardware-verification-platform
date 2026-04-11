@@ -35,6 +35,13 @@ public class EvaluationTaskService {
      */
     @Transactional
     public EvaluationTask createTask(CreateTaskRequest request, Long userId) {
+        // #376: Validate planId exists if provided
+        if (request.getPlanId() != null) {
+            planRepository.findById(request.getPlanId())
+                .orElseThrow(() -> new com.lab.common.BusinessException(
+                    com.lab.common.ErrorCode.NOT_FOUND, "评测计划不存在: " + request.getPlanId()));
+        }
+
         EvaluationTask task = new EvaluationTask();
         task.setTaskNo(generateTaskNo());
         String taskName = request.getName() != null ? XssUtils.stripXss(request.getName()) : "Task-" + task.getTaskNo();
@@ -48,6 +55,11 @@ public class EvaluationTaskService {
         task.setResourceSpec(request.getResourceSpec());
         task.setCreatedBy(userId);
         task.setProgress(0);
+        // #364: Set planId, chipId, testSubject, testItem from request
+        task.setPlanId(request.getPlanId());
+        task.setChipId(request.getChipId());
+        task.setTestSubject(request.getTestSubject());
+        task.setTestItem(request.getTestItem());
 
         EvaluationTask saved = taskRepository.save(task);
         log.info("Created task: {} (status=QUEUED)", saved.getTaskNo());
@@ -116,10 +128,12 @@ public class EvaluationTaskService {
         if (status == EvaluationTask.TaskStatus.RUNNING && oldStatus != EvaluationTask.TaskStatus.RUNNING) {
             task.setStartedAt(Instant.now());
         } else if (status == EvaluationTask.TaskStatus.COMPLETED || 
-                   status == EvaluationTask.TaskStatus.FAILED || 
-                   status == EvaluationTask.TaskStatus.CANCELLED) {
+                   status == EvaluationTask.TaskStatus.FAILED) {
             task.setCompletedAt(Instant.now());
             task.setProgress(100);
+        } else if (status == EvaluationTask.TaskStatus.CANCELLED) {
+            // #374: CANCELLED tasks keep their current progress, don't force to 100
+            task.setCompletedAt(Instant.now());
         }
 
         EvaluationTask saved = taskRepository.save(task);

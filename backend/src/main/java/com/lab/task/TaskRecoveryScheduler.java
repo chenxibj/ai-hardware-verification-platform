@@ -86,17 +86,33 @@ public class TaskRecoveryScheduler {
     }
 
     /**
-     * RUNNING 超 15 分钟无更新 → FAILED
+     * #380: RUNNING 超时 → FAILED
+     * - progress=0 且超过 10 分钟 → FAILED（任务可能从未真正开始）
+     * - 任何 RUNNING 超过 15 分钟无更新 → FAILED
      */
     @Transactional
     public void recoverStaleRunningTasks() {
-        Instant threshold = Instant.now().minus(15, ChronoUnit.MINUTES);
+        Instant threshold15 = Instant.now().minus(15, ChronoUnit.MINUTES);
+        Instant threshold10 = Instant.now().minus(10, ChronoUnit.MINUTES);
+
         List<EvaluationTask> staleTasks = taskRepository.findByStatusAndUpdatedAtBefore(
-                EvaluationTask.TaskStatus.RUNNING, threshold);
+                EvaluationTask.TaskStatus.RUNNING, threshold15);
+
+        // #380: Also catch RUNNING tasks with progress=0 after 10 minutes
+        List<EvaluationTask> stuckTasks = taskRepository.findByStatusAndUpdatedAtBefore(
+                EvaluationTask.TaskStatus.RUNNING, threshold10);
+        for (EvaluationTask task : stuckTasks) {
+            if (task.getProgress() != null && task.getProgress() == 0 && !staleTasks.contains(task)) {
+                staleTasks.add(task);
+            }
+        }
 
         for (EvaluationTask task : staleTasks) {
-            log.warn("Task {} ({}) stale (RUNNING for >15min without update), marking FAILED",
-                    task.getId(), task.getTaskNo());
+            String reason = (task.getProgress() != null && task.getProgress() == 0)
+                    ? "RUNNING with progress=0 for >10min (never started)"
+                    : "RUNNING for >15min without update";
+            log.warn("Task {} ({}) stale ({}), marking FAILED",
+                    task.getId(), task.getTaskNo(), reason);
             task.setStatus(EvaluationTask.TaskStatus.FAILED);
             task.setCompletedAt(Instant.now());
             taskRepository.save(task);

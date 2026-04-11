@@ -18,6 +18,9 @@ public interface ChipRepository extends JpaRepository<Chip, Long> {
 
     Optional<Chip> findByChipNo(String chipNo);
 
+    // #373: 芯片名称唯一性查询
+    boolean existsByNameIgnoreCase(String name);
+
     List<Chip> findByChipType(Chip.ChipType chipType);
 
     List<Chip> findByStatus(Chip.ChipStatus status);
