@@ -42,6 +42,7 @@ public class TaskRecoveryScheduler {
     private final EvaluationPlanRepository planRepository;
     private final ComputeNodeRepository nodeRepository;
     private final TaskDispatcher taskDispatcher;
+    private final com.lab.scoring.ReportGenerator reportGenerator;
 
     private static final Set<EvaluationTask.TaskStatus> TERMINAL_STATUSES = Set.of(
             EvaluationTask.TaskStatus.COMPLETED,
@@ -230,6 +231,17 @@ public class TaskRecoveryScheduler {
                 planRepository.save(plan);
                 log.info("Plan {} auto-completed (completed={}, failed={}, total={})",
                         plan.getPlanNo(), completedCount, failedCount, tasks.size());
+
+                // #383: Auto-generate report when plan completes
+                if (plan.getStatus() == EvaluationPlan.PlanStatus.COMPLETED && completedCount > 0) {
+                    try {
+                        reportGenerator.generateReport(plan.getId());
+                        log.info("Auto-generated report for plan {}", plan.getPlanNo());
+                    } catch (Exception e) {
+                        log.warn("Failed to auto-generate report for plan {}: {}",
+                                plan.getPlanNo(), e.getMessage());
+                    }
+                }
             }
         }
     }

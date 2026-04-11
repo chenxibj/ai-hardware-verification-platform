@@ -13,6 +13,7 @@ import com.lab.plan.EvaluationPlan;
 import java.util.List;
 import com.lab.common.XssUtils;
 import java.util.Optional;
+import com.lab.user.UserRepository;
 import com.lab.config.TaskLogWebSocketHandler;
 import org.springframework.context.ApplicationContext;
 
@@ -29,6 +30,7 @@ public class EvaluationTaskService {
     private final EvaluationPlanRepository planRepository;
     private final TaskLogWebSocketHandler webSocketHandler;
     private final ApplicationContext applicationContext;
+    private final UserRepository userRepository;
 
     /**
      * 创建评测任务
@@ -64,13 +66,8 @@ public class EvaluationTaskService {
         EvaluationTask saved = taskRepository.save(task);
         log.info("Created task: {} (status=QUEUED)", saved.getTaskNo());
 
-        // 事件驱动：创建后立即尝试分发
-        try {
-            TaskDispatcher dispatcher = applicationContext.getBean(TaskDispatcher.class);
-            dispatcher.tryDispatchNext();
-        } catch (Exception e) {
-            log.debug("Immediate dispatch attempt failed, task stays QUEUED: {}", e.getMessage());
-        }
+        // #388: Do NOT auto-dispatch on creation. Task stays QUEUED.
+        // User must explicitly call /execute or /start to dispatch.
 
         return saved;
     }
@@ -180,7 +177,8 @@ public class EvaluationTaskService {
         EvaluationTask task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new RuntimeException("Task not found: " + taskId));
         
-        if (!task.getCreatedBy().equals(userId)) {
+        // #386: Admin (super_admin/tenant_admin) can cancel any task
+        if (!task.getCreatedBy().equals(userId) && !isAdmin(userId)) {
             throw new RuntimeException("No permission to cancel this task");
         }
 
@@ -200,7 +198,8 @@ public class EvaluationTaskService {
         EvaluationTask task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new RuntimeException("Task not found: " + taskId));
         
-        if (!task.getCreatedBy().equals(userId)) {
+        // #386: Admin (super_admin/tenant_admin) can retry any task
+        if (!task.getCreatedBy().equals(userId) && !isAdmin(userId)) {
             throw new RuntimeException("No permission to retry this task");
         }
 
@@ -262,6 +261,18 @@ public class EvaluationTaskService {
         EvaluationTask saved = taskRepository.save(clone);
         log.info("Cloned task {} -> {} ({})", original.getTaskNo(), saved.getTaskNo(), saved.getName());
         return saved;
+    }
+
+    /**
+     * #386: Check if user is admin (super_admin or tenant_admin)
+     */
+    private boolean isAdmin(Long userId) {
+        return userRepository.findById(userId)
+                .map(user -> {
+                    String role = user.getRole();
+                    return "super_admin".equals(role) || "tenant_admin".equals(role);
+                })
+                .orElse(false);
     }
 
     private String generateTaskNo() {

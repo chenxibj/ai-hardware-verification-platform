@@ -97,6 +97,55 @@ public class ComputeNodeController {
         return ApiResponse.ok(stats);
     }
 
+    /**
+     * #384: GET /nodes/{id}/health — Node health check
+     */
+    @GetMapping("/{id}/health")
+    public ApiResponse<Map<String, Object>> getNodeHealth(@PathVariable Long id) {
+        ComputeNode node = service.getById(id);
+        Map<String, Object> health = new LinkedHashMap<>();
+        health.put("nodeId", node.getId());
+        health.put("nodeName", node.getName());
+        health.put("status", node.getStatus().name());
+        health.put("ipAddress", node.getIpAddress());
+        health.put("agentPort", node.getAgentPort());
+        health.put("lastHeartbeat", node.getLastHeartbeat() != null ? node.getLastHeartbeat().toString() : null);
+
+        // Calculate minutes since last heartbeat
+        if (node.getLastHeartbeat() != null) {
+            long minutes = Duration.between(node.getLastHeartbeat(), Instant.now()).toMinutes();
+            health.put("minutesSinceHeartbeat", minutes);
+            health.put("heartbeatHealthy", minutes < 5);
+        } else {
+            health.put("minutesSinceHeartbeat", -1);
+            health.put("heartbeatHealthy", false);
+        }
+
+        // Try to ping agent
+        boolean agentReachable = false;
+        if (node.getIpAddress() != null && node.getAgentPort() != null) {
+            String url = "http://" + node.getIpAddress() + ":" + node.getAgentPort() + "/status";
+            try {
+                org.springframework.http.client.SimpleClientHttpRequestFactory factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+                factory.setConnectTimeout(3000);
+                factory.setReadTimeout(3000);
+                org.springframework.web.client.RestTemplate rt = new org.springframework.web.client.RestTemplate(factory);
+                org.springframework.http.ResponseEntity<String> resp = rt.getForEntity(url, String.class);
+                agentReachable = resp.getStatusCode().is2xxSuccessful();
+            } catch (Exception e) {
+                agentReachable = false;
+            }
+        }
+        health.put("agentReachable", agentReachable);
+
+        // Overall health
+        boolean healthy = node.getStatus() == ComputeNode.Status.ONLINE
+                && (node.getLastHeartbeat() == null || Duration.between(node.getLastHeartbeat(), Instant.now()).toMinutes() < 5);
+        health.put("healthy", healthy);
+
+        return ApiResponse.ok(health);
+    }
+
     @GetMapping("/{id}")
     public ApiResponse<ComputeNode> getById(@PathVariable Long id) {
         return ApiResponse.ok(service.getById(id));

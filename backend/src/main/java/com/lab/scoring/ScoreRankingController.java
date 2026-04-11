@@ -84,7 +84,8 @@ public class ScoreRankingController {
     public ApiResponse<Object> getRankings(
             @RequestParam(required = false) String dimension) {
         List<Chip> chips = chipRepository.findAll();
-        List<Map<String, Object>> rankings = new ArrayList<>();
+        // #387: Group by chipName, take highest score to avoid duplicates
+        Map<String, Map<String, Object>> byName = new LinkedHashMap<>();
 
         for (Chip chip : chips) {
             List<ChipReport> reports = reportRepository.findByChipId(chip.getId());
@@ -95,11 +96,21 @@ public class ScoreRankingController {
 
             if (baseline == null || baseline.getOverallScore() == null) continue;
 
+            String chipName = chip.getName();
+            Map<String, Object> existing = byName.get(chipName);
+            double currentScore = baseline.getOverallScore();
+
+            // Keep the one with the highest overall score
+            if (existing != null) {
+                double existingScore = toDouble(existing.get("overallScore"));
+                if (currentScore <= existingScore) continue;
+            }
+
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("chipId", chip.getId());
-            item.put("chipName", chip.getName());
+            item.put("chipName", chipName);
             item.put("manufacturer", chip.getManufacturer());
-            item.put("overallScore", baseline.getOverallScore());
+            item.put("overallScore", currentScore);
             item.put("reportNo", baseline.getReportNo());
 
             if (dimension != null && baseline.getDimensionScores() != null) {
@@ -109,8 +120,9 @@ public class ScoreRankingController {
                 } catch (Exception ignored) {}
             }
 
-            rankings.add(item);
+            byName.put(chipName, item);
         }
+        List<Map<String, Object>> rankings = new ArrayList<>(byName.values());
 
         // Sort by overallScore descending
         if (dimension != null) {
