@@ -586,16 +586,25 @@ class TaskExecutor:
         """上报执行结果到平台
         #360: 最多重试 3 次，指数退避，4xx 立即停止
         """
-        url = "{}/tasks/{}/result".format(self.platform_url, task_id)
+        if status == "FAILED":
+            url = "{}/tasks/{}/failure".format(self.platform_url, task_id)
+        else:
+            url = "{}/tasks/{}/result".format(self.platform_url, task_id)
         headers = {
             "Content-Type": "application/json",
             "X-Agent-Token": self.token,
         }
-        payload = {
-            "status": status,
-            "result": result,
-            "logs": logs[-10000:] if logs else "",
-        }
+        if status == "FAILED":
+            payload = {
+                "error": result.get("error", "Unknown error") if isinstance(result, dict) else str(result),
+                "logs": logs[-10000:] if logs else "",
+            }
+        else:
+            payload = {
+                "status": status,
+                "result": result,
+                "logs": logs[-10000:] if logs else "",
+            }
 
         for attempt in range(self.MAX_REPORT_RETRIES):
             try:
