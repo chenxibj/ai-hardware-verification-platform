@@ -166,60 +166,60 @@ public class TaskDispatcher {
             return false;
         }
 
-        // 2. CAS 更新 Task 状态: PENDING/QUEUED → RUNNING
+        // 1.5 GPU Slot 预检查：节点有足够空闲 GPU 才 dispatch
+        RunSpec runSpec = resolveRunSpec(task);
+        int gpuNeeded = (runSpec != null && runSpec.getGpuPerNode() != null && runSpec.getGpuPerNode() > 0)
+                ? runSpec.getGpuPerNode() : 1;  // 默认需要 1 GPU
+        long freeSlots = gpuSlotService.countFreeSlots(node.getId());
+        long totalSlots = gpuSlotService.countTotalSlots(node.getId());
+        if (totalSlots > 0 && freeSlots < gpuNeeded) {
+            // 该节点有 GPU Slot 管理但空闲不足
+            String reason = String.format("等待 GPU 资源释放（节点 %s: %d/%d 空闲，需要 %d）",
+                    node.getName(), freeSlots, totalSlots, gpuNeeded);
+            task.setQueueReason(reason);
+            if (task.getStatus() != EvaluationTask.TaskStatus.QUEUED) {
+                task.setStatus(EvaluationTask.TaskStatus.QUEUED);
+            }
+            taskRepository.save(task);
+            log.info("GPU Slot insufficient for task {}: {}", task.getTaskNo(), reason);
+            return false;
+        }
+
+        // 2. CAS 检查（乐观锁保护）— 实际状态更新在 step 3
+        // 先检查任务是否已被其他调度器认领
         try {
-            task.setStatus(EvaluationTask.TaskStatus.RUNNING);
-            task.setAssignedNodeId(node.getId());
-            task.setStartedAt(Instant.now());
-            task.setLastHeartbeatAt(Instant.now());
-            task.setTimeoutSeconds(900); // 默认 15 分钟超时
             taskRepository.save(task); // @Version 乐观锁保护
         } catch (ObjectOptimisticLockingFailureException e) {
             log.warn("Task {} was already claimed by another dispatcher (optimistic lock)", task.getId());
             return false;
         }
 
-        // 3. HTTP POST 调用 Agent /execute 接口
+        // 3. Pull-based dispatch: 标记任务为 DISPATCHED，等待 Agent 心跳时拉取
+        //    不再 HTTP POST 推送到 Agent，而是 Agent 主动来拉
         try {
-            String agentUrl = buildAgentUrl(node);
-            Map<String, Object> payload = buildExecutePayload(task);
+            task.setStatus(EvaluationTask.TaskStatus.DISPATCHED);
+            task.setAssignedNodeId(node.getId());
+            task.setStartedAt(Instant.now());
+            task.setLastHeartbeatAt(Instant.now());
+            task.setTimeoutSeconds(900);
+            taskRepository.save(task);
 
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.set("X-Agent-Token", agentToken); // Agent 认证
-
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
-
-            log.info("Dispatching task {} to node {} ({})", task.getTaskNo(), node.getName(), agentUrl);
-            ResponseEntity<String> response = restTemplate.exchange(
-                    agentUrl + "/execute", HttpMethod.POST, request, String.class);
-
-            if (response.getStatusCode().is2xxSuccessful()) {
-                // 标记节点为 BUSY
-                node.setStatus(ComputeNode.Status.BUSY);
-                nodeRepository.save(node);
-
-                // #397: RunSpec GPU allocation
-                try {
-                    RunSpec runSpec = resolveRunSpec(task);
-                    if (runSpec != null && runSpec.getGpuPerNode() != null && runSpec.getGpuPerNode() > 0) {
-                        gpuSlotService.allocateGpuSlots(node.getId(), runSpec.getGpuPerNode(), task.getId());
-                    }
-                } catch (Exception e) {
-                    log.warn("GPU slot allocation failed for task {} (non-fatal): {}", task.getTaskNo(), e.getMessage());
+            // #397: GPU Slot already checked in pre-check. Allocate now.
+            try {
+                if (totalSlots > 0) {
+                    gpuSlotService.allocateGpuSlots(node.getId(), gpuNeeded, task.getId());
+                    log.info("Allocated {} GPU slot(s) on {} for task {}", gpuNeeded, node.getName(), task.getTaskNo());
                 }
-
-                log.info("Task {} dispatched successfully to node {}", task.getTaskNo(), node.getName());
-                return true;
-            } else {
-                log.error("Agent returned non-2xx for task {}: {} {}",
-                        task.getId(), response.getStatusCode(), response.getBody());
-                rollbackTask(task);
-                return false;
+            } catch (Exception e) {
+                log.warn("GPU slot allocation failed for task {} (non-fatal): {}", task.getTaskNo(), e.getMessage());
             }
+
+            log.info("Task {} dispatched (pull-mode) to node {} - waiting for agent to poll",
+                    task.getTaskNo(), node.getName());
+            return true;
         } catch (Exception e) {
-            log.error("HTTP call to agent failed for task {}: {}", task.getId(), e.getMessage());
-            rollbackTask(task);
+            log.error("Failed to mark task {} as DISPATCHED: {}", task.getTaskNo(), e.getMessage());
+            rollbackTask(task, "dispatch failed: " + e.getMessage());
             return false;
         }
     }
@@ -290,7 +290,7 @@ public class TaskDispatcher {
                 return null;
             }
             ComputeNode pn = preferredNode.get();
-            if (pn.getStatus() == ComputeNode.Status.ONLINE && isValidNodeIp(pn.getIpAddress()) && isAgentReachable(pn)) {
+            if ((pn.getStatus() == ComputeNode.Status.ONLINE || pn.getStatus() == ComputeNode.Status.BUSY) && isValidNodeIp(pn.getIpAddress()) && isAgentReachable(pn)) {
                 log.info("Task {} using Plan-specified node {} (id={})",
                         task.getTaskNo(), pn.getName(), pn.getId());
                 task.setQueueReason(null); // clear any previous reason
@@ -298,7 +298,7 @@ public class TaskDispatcher {
             } else {
                 // 硬约束：不 fallback，宁可排队
                 String reason;
-                if (pn.getStatus() == ComputeNode.Status.ONLINE && isValidNodeIp(pn.getIpAddress())) {
+                if ((pn.getStatus() == ComputeNode.Status.ONLINE || pn.getStatus() == ComputeNode.Status.BUSY) && isValidNodeIp(pn.getIpAddress())) {
                     reason = String.format("等待节点 %s 可达（当前状态: ONLINE 但无法连接）", pn.getName());
                 } else if (pn.getStatus() == ComputeNode.Status.ONLINE) {
                     reason = String.format("等待节点 %s 配置有效 IP（当前 IP 无效）", pn.getName());
@@ -319,7 +319,8 @@ public class TaskDispatcher {
                 String chipName = chipOpt.get().getName();
                 log.debug("Task {} looking for chip affinity: chipName={}", task.getTaskNo(), chipName);
 
-                List<ComputeNode> allOnline = nodeRepository.findByStatus(ComputeNode.Status.ONLINE);
+                List<ComputeNode> allOnline = new java.util.ArrayList<>(nodeRepository.findByStatus(ComputeNode.Status.ONLINE));
+                allOnline.addAll(nodeRepository.findByStatus(ComputeNode.Status.BUSY));
                 // Filter by chip model match
                 List<ComputeNode> chipMatchedNodes = allOnline.stream()
                         .filter(n -> isValidNodeIp(n.getIpAddress()))
@@ -374,7 +375,7 @@ public class TaskDispatcher {
         if (task.getResourcePoolId() != null) {
             List<ComputeNode> poolNodes = nodeRepository.findByResourcePoolId(task.getResourcePoolId());
             List<ComputeNode> onlinePoolNodes = poolNodes.stream()
-                    .filter(n -> n.getStatus() == ComputeNode.Status.ONLINE)
+                    .filter(n -> n.getStatus() == ComputeNode.Status.ONLINE || n.getStatus() == ComputeNode.Status.BUSY)
                     .filter(n -> isValidNodeIp(n.getIpAddress()))
                     .filter(n -> !"k8s-daemonset".equals(n.getSource()))
                     .filter(n -> isAgentReachable(n))
@@ -390,7 +391,8 @@ public class TaskDispatcher {
         }
 
         // 全局 ONLINE 节点
-        List<ComputeNode> onlineNodes = nodeRepository.findByStatus(ComputeNode.Status.ONLINE);
+        List<ComputeNode> onlineNodes = new java.util.ArrayList<>(nodeRepository.findByStatus(ComputeNode.Status.ONLINE));
+        onlineNodes.addAll(nodeRepository.findByStatus(ComputeNode.Status.BUSY));
         List<ComputeNode> validNodes = onlineNodes.stream()
                 .filter(n -> isValidNodeIp(n.getIpAddress()))
                 .filter(n -> !"k8s-daemonset".equals(n.getSource()))
@@ -439,7 +441,7 @@ public class TaskDispatcher {
     /**
      * 构建 /execute 请求体
      */
-    private Map<String, Object> buildExecutePayload(EvaluationTask task) {
+    public Map<String, Object> buildExecutePayload(EvaluationTask task) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("taskId", task.getId());
         payload.put("evalType", task.getEvalType().name());
@@ -511,6 +513,11 @@ public class TaskDispatcher {
     /**
      * 分发失败时回滚 Task 状态
      */
+    private void rollbackTask(EvaluationTask task, String reason) {
+        task.setQueueReason(reason);
+        rollbackTask(task);
+    }
+
     private void rollbackTask(EvaluationTask task) {
         try {
             task.setStatus(EvaluationTask.TaskStatus.QUEUED);
