@@ -133,6 +133,7 @@ public class EvaluationResultService {
         }
 
         task.setStatus(EvaluationTask.TaskStatus.FAILED);
+        task.setErrorMessage(errorMessage != null && errorMessage.length() > 500 ? errorMessage.substring(0, 500) : errorMessage);
         task.setCompletedAt(Instant.now());
         taskRepository.save(task);
 
