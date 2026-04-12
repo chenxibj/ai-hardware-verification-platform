@@ -481,16 +481,20 @@ export default function PlanMonitor({ planId, onBack }) {
             {formatDuration(task.startedAt, task.completedAt)}
           </Text>
           {task.status === "FAILED" && (
-            <Space size={4}>
+            <Space size={4} direction="vertical" style={{ width: "100%" }}>
               <Tooltip title={task.errorMessage || "执行失败，无详细错误信息"}>
-                <ExclamationCircleOutlined style={{ color: "#ff4d4f", cursor: "pointer" }} />
+                <Text type="danger" style={{ fontSize: 12, maxWidth: 400, display: "inline-block" }} ellipsis>
+                  <ExclamationCircleOutlined /> {task.errorMessage ? task.errorMessage.substring(0, 80) + (task.errorMessage.length > 80 ? "..." : "") : "执行失败，无详细错误信息"}
+                </Text>
               </Tooltip>
+              <Space size={4}>
               <Popconfirm title="确定重试该任务？" onConfirm={() => handleRetryTask(task.id)}>
                 <Button type="link" size="small" icon={<ReloadOutlined />}>重试</Button>
               </Popconfirm>
               <Popconfirm title="确定跳过该任务？跳过后不会再执行" onConfirm={() => handleSkipTask(task.id)}>
                 <Button type="link" size="small" icon={<ForwardOutlined />} style={{ color: "#faad14" }}>跳过</Button>
               </Popconfirm>
+              </Space>
             </Space>
           )}
           {["RUNNING", "QUEUED", "PENDING", "DISPATCHED"].includes(task.status) && (
