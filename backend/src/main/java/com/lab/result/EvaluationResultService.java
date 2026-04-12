@@ -9,6 +9,7 @@ import com.lab.task.EvaluationTaskRepository;
 import com.lab.node.ComputeNode;
 import com.lab.node.ComputeNodeRepository;
 import com.lab.chip.ChipRepository;
+import com.lab.gpu.GpuSlotService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,7 @@ public class EvaluationResultService {
     private final ApplicationEventPublisher eventPublisher;
     private final ComputeNodeRepository nodeRepository;
     private final ChipRepository chipRepository;
+    private final GpuSlotService gpuSlotService;
 
     /**
      * Agent 提交任务结果
@@ -95,6 +97,8 @@ public class EvaluationResultService {
 
         // #222: 释放节点
         releaseNode(task.getAssignedNodeId());
+        // #403: 释放 GPU Slot
+        try { gpuSlotService.releaseGpuSlots(task.getId()); } catch (Exception e) { log.warn("GPU slot release failed for task {}: {}", taskId, e.getMessage()); }
         log.info("Result submitted for task {} (score={}, metrics={})", taskId, score, metrics.keySet());
         return result;
     }
@@ -136,6 +140,8 @@ public class EvaluationResultService {
 
         // #222: 释放节点
         releaseNode(task.getAssignedNodeId());
+        // #403: 释放 GPU Slot
+        try { gpuSlotService.releaseGpuSlots(task.getId()); } catch (Exception e) { log.warn("GPU slot release failed for task {}: {}", taskId, e.getMessage()); }
         log.info("Failure reported for task {}: {}", taskId, errorMessage);
         return result;
     }
