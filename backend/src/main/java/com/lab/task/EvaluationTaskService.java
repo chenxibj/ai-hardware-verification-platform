@@ -16,6 +16,7 @@ import java.util.Optional;
 import com.lab.user.UserRepository;
 import com.lab.config.TaskLogWebSocketHandler;
 import org.springframework.context.ApplicationContext;
+import com.lab.gpu.GpuSlotService;
 
 /**
  * 评测任务服务
@@ -31,6 +32,7 @@ public class EvaluationTaskService {
     private final TaskLogWebSocketHandler webSocketHandler;
     private final ApplicationContext applicationContext;
     private final UserRepository userRepository;
+    private final GpuSlotService gpuSlotService;
 
     /**
      * 创建评测任务
@@ -183,6 +185,7 @@ public class EvaluationTaskService {
 
     /**
      * 取消任务
+     * #401: RUNNING 任务取消时释放 GPU Slot
      */
     @Transactional
     public EvaluationTask cancelTask(Long taskId, Long userId) {
@@ -197,6 +200,17 @@ public class EvaluationTaskService {
         if (task.getStatus() == EvaluationTask.TaskStatus.COMPLETED ||
             task.getStatus() == EvaluationTask.TaskStatus.CANCELLED) {
             throw new RuntimeException("Task cannot be cancelled: " + task.getStatus());
+        }
+
+        // #401: Release GPU slots immediately for RUNNING/DISPATCHED tasks
+        if (task.getStatus() == EvaluationTask.TaskStatus.RUNNING ||
+            task.getStatus() == EvaluationTask.TaskStatus.DISPATCHED) {
+            try {
+                gpuSlotService.releaseGpuSlots(taskId);
+                log.info("#401: Released GPU slots for cancelled task {}", taskId);
+            } catch (Exception e) {
+                log.warn("#401: Failed to release GPU slots for task {}: {}", taskId, e.getMessage());
+            }
         }
 
         return updateTaskStatus(taskId, EvaluationTask.TaskStatus.CANCELLED, "Cancelled by user");

@@ -290,7 +290,7 @@ public class TaskDispatcher {
                 return null;
             }
             ComputeNode pn = preferredNode.get();
-            if ((pn.getStatus() == ComputeNode.Status.ONLINE || pn.getStatus() == ComputeNode.Status.BUSY) && isValidNodeIp(pn.getIpAddress()) && isAgentReachable(pn)) {
+            if ((pn.getStatus() == ComputeNode.Status.ONLINE || pn.getStatus() == ComputeNode.Status.BUSY) && isValidNodeIp(pn.getIpAddress()) ) {
                 log.info("Task {} using Plan-specified node {} (id={})",
                         task.getTaskNo(), pn.getName(), pn.getId());
                 task.setQueueReason(null); // clear any previous reason
@@ -299,7 +299,7 @@ public class TaskDispatcher {
                 // 硬约束：不 fallback，宁可排队
                 String reason;
                 if ((pn.getStatus() == ComputeNode.Status.ONLINE || pn.getStatus() == ComputeNode.Status.BUSY) && isValidNodeIp(pn.getIpAddress())) {
-                    reason = String.format("等待节点 %s 可达（当前状态: ONLINE 但无法连接）", pn.getName());
+                    reason = String.format("等待节点 %s 可用", pn.getName());
                 } else if (pn.getStatus() == ComputeNode.Status.ONLINE) {
                     reason = String.format("等待节点 %s 配置有效 IP（当前 IP 无效）", pn.getName());
                 } else {
@@ -330,7 +330,7 @@ public class TaskDispatcher {
 
                 // Further filter by reachability
                 List<ComputeNode> reachableNodes = chipMatchedNodes.stream()
-                        .filter(this::isAgentReachable)
+                        
                         .toList();
 
                 if (!reachableNodes.isEmpty()) {
@@ -357,7 +357,7 @@ public class TaskDispatcher {
                     long onlineMatching = chipMatchedNodes.size();
                     String reason;
                     if (onlineMatching > 0) {
-                        reason = String.format("等待 %s 类型节点可达（%d 个节点注册但均不可达）",
+                        reason = String.format("等待 %s 类型节点可用（%d 个节点注册）",
                                 chipName, onlineMatching);
                     } else {
                         reason = String.format("等待 %s 类型节点上线（共 %d 个注册节点，0 个 ONLINE）",
@@ -378,7 +378,7 @@ public class TaskDispatcher {
                     .filter(n -> n.getStatus() == ComputeNode.Status.ONLINE || n.getStatus() == ComputeNode.Status.BUSY)
                     .filter(n -> isValidNodeIp(n.getIpAddress()))
                     .filter(n -> !"k8s-daemonset".equals(n.getSource()))
-                    .filter(n -> isAgentReachable(n))
+                    
                     .toList();
             if (!onlinePoolNodes.isEmpty()) {
                 task.setQueueReason(null);
@@ -396,7 +396,7 @@ public class TaskDispatcher {
         List<ComputeNode> validNodes = onlineNodes.stream()
                 .filter(n -> isValidNodeIp(n.getIpAddress()))
                 .filter(n -> !"k8s-daemonset".equals(n.getSource()))
-                .filter(n -> isAgentReachable(n))
+                
                 .toList();
         if (!validNodes.isEmpty()) {
             task.setQueueReason(null);

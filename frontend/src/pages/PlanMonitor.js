@@ -261,6 +261,26 @@ export default function PlanMonitor({ planId, onBack }) {
     }
   };
 
+  const handleCancelTask = (taskId) => {
+    Modal.confirm({
+      title: "确认取消任务",
+      content: "取消后该任务将停止执行，确认取消？",
+      okText: "确认取消",
+      okType: "danger",
+      cancelText: "返回",
+      onOk: async () => {
+        try {
+          await api.post("/tasks/" + taskId + "/cancel");
+          message.success("任务已取消");
+          fetchTasks();
+          fetchPlan();
+        } catch (e) {
+          message.error("取消失败: " + (e.response?.data?.message || e.message));
+        }
+      },
+    });
+  };
+
   /* ── 统计 ── */
   const statCounts = {
     completed: tasks.filter((t) => t.status === "COMPLETED").length,
@@ -435,6 +455,13 @@ export default function PlanMonitor({ planId, onBack }) {
           <Tag color={st.color} icon={st.icon}>
             {st.text}{queuePosition[task.id] ? (" (" + queuePosition[task.id] + "/" + pendingTasks.length + ")") : ""}
           </Tag>
+          {task.queueReason && ["QUEUED", "PENDING"].includes(task.status) && (
+            <Tooltip title={task.queueReason}>
+              <Text type="warning" style={{ fontSize: 11, cursor: "pointer" }}>
+                <ExclamationCircleOutlined /> {task.queueReason.length > 30 ? task.queueReason.substring(0, 30) + "..." : task.queueReason}
+              </Text>
+            </Tooltip>
+          )}
           {/* Anomaly hint: COMPLETED but metrics may be missing */}
           {task.status === "COMPLETED" && task.evaluationResults && (() => {
             const metrics = parseMetrics(task.evaluationResults);
@@ -465,6 +492,10 @@ export default function PlanMonitor({ planId, onBack }) {
                 <Button type="link" size="small" icon={<ForwardOutlined />} style={{ color: "#faad14" }}>跳过</Button>
               </Popconfirm>
             </Space>
+          )}
+          {["RUNNING", "QUEUED", "PENDING", "DISPATCHED"].includes(task.status) && (
+            <Button type="link" size="small" danger icon={<StopOutlined />}
+              onClick={() => handleCancelTask(task.id)}>取消</Button>
           )}
         </Space>
       </div>
@@ -602,7 +633,16 @@ export default function PlanMonitor({ planId, onBack }) {
       </Card>
 
       {/* ── 中部：分组任务列表 ── */}
-      <Card title="任务列表" style={{ marginBottom: 16 }}>
+      <Card title="任务列表" style={{ marginBottom: 16 }}
+        extra={
+          <Space>
+            {statCounts.failed > 0 && (
+              <Button size="small" icon={<ReloadOutlined />} onClick={handleRetryAllFailed}>
+                重试全部失败 ({statCounts.failed})
+              </Button>
+            )}
+          </Space>
+        }>
         {Object.keys(grouped).length === 0 ? (
           <Text type="secondary">暂无任务</Text>
         ) : (

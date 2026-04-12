@@ -490,11 +490,13 @@ public class ComputeNodeController {
      * Agent 在心跳时调用此接口，获取分配给自己的 DISPATCHED 状态任务
      * 返回任务列表后，任务状态从 DISPATCHED -> RUNNING
      * 
+     * #401: Also returns cancel instructions for tasks that have been CANCELLED
+     * 
      * Request body (optional): {"maxTasks": 1}
      * Response: {"code": 0, "data": [{"taskId": ..., "evalType": ..., "params": ..., "config": ...}]}
      */
     @PostMapping("/{id}/poll-tasks")
-    public ApiResponse<List<Map<String, Object>>> pollTasks(
+    public ApiResponse<Map<String, Object>> pollTasks(
             @PathVariable Long id,
             @RequestBody(required = false) Map<String, Object> body) {
         
@@ -510,7 +512,7 @@ public class ComputeNodeController {
                 .limit(maxTasks)
                 .collect(Collectors.toList());
         
-        List<Map<String, Object>> result = new java.util.ArrayList<>();
+        List<Map<String, Object>> newTasks = new java.util.ArrayList<>();
         for (EvaluationTask task : dispatched) {
             // 更新状态为 RUNNING
             task.setStatus(EvaluationTask.TaskStatus.RUNNING);
@@ -520,10 +522,31 @@ public class ComputeNodeController {
             
             // 构建任务执行载荷（复用 TaskDispatcher 的构建逻辑）
             Map<String, Object> payload = taskDispatcher.buildExecutePayload(task);
-            result.add(payload);
+            newTasks.add(payload);
             
             log.info("Agent {} polled task {} ({}), status -> RUNNING", id, task.getTaskNo(), task.getId());
         }
+
+        // #401: Check for tasks that should be cancelled (CANCELLED status but assigned to this node)
+        List<EvaluationTask> cancelledTasks = taskRepository.findByAssignedNodeId(id).stream()
+                .filter(t -> t.getStatus() == EvaluationTask.TaskStatus.CANCELLED)
+                .filter(t -> t.getCompletedAt() != null &&
+                        java.time.Duration.between(t.getCompletedAt(), java.time.Instant.now()).toMinutes() < 30)
+                .collect(Collectors.toList());
+        
+        List<Map<String, Object>> cancelInstructions = new java.util.ArrayList<>();
+        for (EvaluationTask task : cancelledTasks) {
+            Map<String, Object> cancelCmd = new java.util.LinkedHashMap<>();
+            cancelCmd.put("taskId", task.getId());
+            cancelCmd.put("taskNo", task.getTaskNo());
+            cancelCmd.put("action", "cancel");
+            cancelCmd.put("reason", "Task cancelled by user");
+            cancelInstructions.add(cancelCmd);
+        }
+
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("tasks", newTasks);
+        result.put("cancelTasks", cancelInstructions);
         
         return ApiResponse.ok(result);
     }

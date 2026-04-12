@@ -18,6 +18,7 @@ import com.lab.common.XssUtils;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import com.lab.gpu.GpuSlotService;
 
 /**
  * 评测任务服务 - CRUD + 状态流转
@@ -35,6 +36,7 @@ public class EvaluationPlanService {
     private final ChipReportRepository chipReportRepository;
     private final PlanTaskSplitter planTaskSplitter;
     private final TaskDispatcher taskDispatcher;
+    private final GpuSlotService gpuSlotService;
 
     // ============ CRUD ============
 
@@ -224,6 +226,10 @@ public class EvaluationPlanService {
         return saved;
     }
 
+    /**
+     * #401: Cancel plan and all its non-terminal child tasks
+     * Releases GPU slots for RUNNING/DISPATCHED tasks
+     */
     @Transactional
     public EvaluationPlan cancelPlan(Long id) {
         EvaluationPlan plan = getPlan(id);
@@ -234,7 +240,32 @@ public class EvaluationPlanService {
         plan.setStatus(EvaluationPlan.PlanStatus.CANCELLED);
         plan.setCompletedAt(Instant.now());
         EvaluationPlan saved = planRepository.save(plan);
-        log.info("Cancelled evaluation task: {}", saved.getPlanNo());
+
+        // #401: Cancel all non-terminal child tasks
+        int cancelled = 0;
+        for (EvaluationTask.TaskStatus st : List.of(
+                EvaluationTask.TaskStatus.RUNNING,
+                EvaluationTask.TaskStatus.DISPATCHED,
+                EvaluationTask.TaskStatus.QUEUED,
+                EvaluationTask.TaskStatus.PENDING,
+                EvaluationTask.TaskStatus.PAUSED)) {
+            List<EvaluationTask> tasks = taskRepository.findByPlanIdAndStatus(id, st);
+            for (EvaluationTask task : tasks) {
+                // Release GPU slots for RUNNING/DISPATCHED tasks
+                if (st == EvaluationTask.TaskStatus.RUNNING || st == EvaluationTask.TaskStatus.DISPATCHED) {
+                    try {
+                        gpuSlotService.releaseGpuSlots(task.getId());
+                    } catch (Exception e) {
+                        log.warn("Failed to release GPU slots for task {}: {}", task.getTaskNo(), e.getMessage());
+                    }
+                }
+                task.setStatus(EvaluationTask.TaskStatus.CANCELLED);
+                task.setCompletedAt(Instant.now());
+                taskRepository.save(task);
+                cancelled++;
+            }
+        }
+        log.info("Cancelled evaluation task: {} ({} child tasks cancelled)", saved.getPlanNo(), cancelled);
         return saved;
     }
 

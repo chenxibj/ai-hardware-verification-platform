@@ -339,8 +339,16 @@ public class ComputeNodeService {
                 repo.save(node);
                 log.debug("节点 {} 心跳超时，标记为 OFFLINE", node.getName());
             } else {
-                // #393: Agent 心跳正常但 Agent 不可达 → 累计不可达计数
-                if (!"k8s-daemonset".equals(node.getSource()) && isValidIp(node.getIpAddress())) {
+                // Pull-based dispatch: 心跳正常 = 节点在线
+                // 不再检查 Agent HTTP 端口可达性（Agent 通过心跳主动拉任务，Server 不需要推送）
+                if (node.getConsecutiveUnreachableCount() != null && node.getConsecutiveUnreachableCount() > 0) {
+                    node.setConsecutiveUnreachableCount(0);
+                    node.setErrorMessage(null);
+                    repo.save(node);
+                    log.debug("节点 {} 心跳正常，重置不可达计数", node.getName());
+                }
+                // 以下为旧代码（已禁用）: Agent 直连检查
+                if (false && !"k8s-daemonset".equals(node.getSource()) && isValidIp(node.getIpAddress())) {
                     if (!isAgentReachable(node)) {
                         int count = (node.getConsecutiveUnreachableCount() != null ? node.getConsecutiveUnreachableCount() : 0) + 1;
                         node.setConsecutiveUnreachableCount(count);
@@ -353,7 +361,6 @@ public class ComputeNodeService {
                         }
                         repo.save(node);
                     } else {
-                        // 可达 → 重置计数
                         if (node.getConsecutiveUnreachableCount() != null && node.getConsecutiveUnreachableCount() > 0) {
                             node.setConsecutiveUnreachableCount(0);
                             repo.save(node);

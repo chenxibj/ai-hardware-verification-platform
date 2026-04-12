@@ -6,7 +6,7 @@
 import React from "react";
 import {
   Card, Table, Tag, Space, Button, Input, Select, Tooltip, Typography,
-  Badge, Popover, Dropdown,
+  Badge, Popover, Dropdown, Popconfirm,
 } from "antd";
 import {
   SearchOutlined, PlusOutlined, ReloadOutlined,
@@ -21,6 +21,7 @@ const { Text } = Typography;
 const STATUS_MAP = {
   PENDING: { text: "等待中", color: "default", badge: "default" },
   QUEUED: { text: "排队中", color: "gold", badge: "warning" },
+  DISPATCHED: { text: "已分发", color: "cyan", badge: "processing" },
   RUNNING: { text: "执行中", color: "processing", badge: "processing" },
   COMPLETED: { text: "已完成", color: "success", badge: "success" },
   FAILED: { text: "失败", color: "error", badge: "error" },
@@ -139,7 +140,7 @@ export default function TaskTable({
           { key: "view", icon: <EyeOutlined />, label: "详情", onClick: () => onShowDetail(r) },
           { key: "clone", icon: <CopyOutlined />, label: "克隆", onClick: () => onClone(r.id) },
         ];
-        if (r.status === "PENDING" || r.status === "QUEUED" || r.status === "RUNNING") {
+        if (r.status === "PENDING" || r.status === "QUEUED" || r.status === "DISPATCHED" || r.status === "RUNNING") {
           items.push({ key: "cancel", icon: <CloseCircleOutlined />, label: "取消", danger: true, onClick: () => onCancel(r.id) });
         }
         if (r.status === "FAILED" || r.status === "TIMEOUT" || r.status === "CANCELLED") {

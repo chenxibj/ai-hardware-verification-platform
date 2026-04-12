@@ -598,4 +598,55 @@ public class EvaluationTaskController {
         }
     }
 
+
+    /**
+     * #401: GET /tasks/queue-info
+     */
+    @GetMapping("/queue-info")
+    @RequireRole(Role.VIEWER)
+    public ResponseEntity<Map<String, Object>> getQueueInfo() {
+        List<EvaluationTask> queuedTasks = taskRepository.findQueuedTasksOrderByPriorityAndCreatedAt();
+        
+        List<EvaluationTask> recentCompleted = taskRepository.findByStatus(EvaluationTask.TaskStatus.COMPLETED);
+        long avgDurationMs = 0;
+        if (!recentCompleted.isEmpty()) {
+            long totalMs = 0;
+            int count = 0;
+            for (EvaluationTask t : recentCompleted) {
+                if (t.getStartedAt() != null && t.getCompletedAt() != null) {
+                    totalMs += java.time.Duration.between(t.getStartedAt(), t.getCompletedAt()).toMillis();
+                    count++;
+                    if (count >= 20) break;
+                }
+            }
+            if (count > 0) avgDurationMs = totalMs / count;
+        }
+        
+        long runningCount = taskRepository.countByStatus(EvaluationTask.TaskStatus.RUNNING);
+        int concurrency = Math.max(1, (int) runningCount);
+        
+        List<Map<String, Object>> queueInfo = new java.util.ArrayList<>();
+        for (int i = 0; i < queuedTasks.size(); i++) {
+            EvaluationTask task = queuedTasks.get(i);
+            Map<String, Object> info = new java.util.LinkedHashMap<>();
+            info.put("taskId", task.getId());
+            info.put("taskNo", task.getTaskNo());
+            info.put("position", i + 1);
+            info.put("totalQueued", queuedTasks.size());
+            info.put("queueReason", task.getQueueReason());
+            if (avgDurationMs > 0 && concurrency > 0) {
+                long estimatedWaitMs = ((long)(i + 1) / concurrency) * avgDurationMs;
+                info.put("estimatedWaitMs", estimatedWaitMs);
+                info.put("estimatedWaitMinutes", estimatedWaitMs / 60000);
+            }
+            queueInfo.add(info);
+        }
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("code", 0);
+        response.put("message", "success");
+        response.put("data", queueInfo);
+        return ResponseEntity.ok(response);
+    }
+
 }
