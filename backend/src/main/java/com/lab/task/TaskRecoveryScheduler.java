@@ -238,7 +238,7 @@ public class TaskRecoveryScheduler {
         for (ComputeNode node : offlineNodes) {
             List<EvaluationTask> nodeTasks = taskRepository.findByAssignedNodeId(node.getId());
             for (EvaluationTask task : nodeTasks) {
-                if (task.getStatus() == EvaluationTask.TaskStatus.RUNNING) {
+                if ((task.getStatus() == EvaluationTask.TaskStatus.RUNNING || task.getStatus() == EvaluationTask.TaskStatus.DISPATCHED)) {
                     log.warn("Node {} is OFFLINE, resetting task {} to QUEUED for re-dispatch",
                             node.getName(), task.getTaskNo());
                     task.setStatus(EvaluationTask.TaskStatus.QUEUED);
