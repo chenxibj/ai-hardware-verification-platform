@@ -120,6 +120,9 @@ public class EvaluationTask {
     @Column(name = "queue_reason", length = 500)
     private String queueReason;
 
+    @Column(name = "error_message", columnDefinition = "TEXT")
+    private String errorMessage;
+
     @Column(name = "run_spec_id")
     private Long runSpecId;
 
