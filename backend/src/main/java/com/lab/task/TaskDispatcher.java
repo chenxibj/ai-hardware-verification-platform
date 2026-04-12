@@ -16,6 +16,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
+import com.lab.runspec.RunSpec;
+import com.lab.runspec.RunSpecRepository;
+import com.lab.gpu.GpuSlot;
+import com.lab.gpu.GpuSlotService;
 import java.util.*;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -37,6 +41,8 @@ public class TaskDispatcher {
     private final EvaluationPlanRepository planRepository;
     private final ChipRepository chipRepository;
     private final ObjectMapper objectMapper;
+    private final RunSpecRepository runSpecRepository;
+    private final GpuSlotService gpuSlotService;
 
     @Value("${agent.token:ahvp-agent-secret-2026}")
     private String agentToken;
@@ -54,12 +60,16 @@ public class TaskDispatcher {
                           ComputeNodeRepository nodeRepository,
                           EvaluationPlanRepository planRepository,
                           ChipRepository chipRepository,
-                          ObjectMapper objectMapper) {
+                          ObjectMapper objectMapper,
+                          RunSpecRepository runSpecRepository,
+                          GpuSlotService gpuSlotService) {
         this.taskRepository = taskRepository;
         this.nodeRepository = nodeRepository;
         this.planRepository = planRepository;
         this.chipRepository = chipRepository;
         this.objectMapper = objectMapper;
+        this.runSpecRepository = runSpecRepository;
+        this.gpuSlotService = gpuSlotService;
         this.restTemplate = createTimeoutRestTemplate();
     }
 
@@ -188,6 +198,17 @@ public class TaskDispatcher {
                 // 标记节点为 BUSY
                 node.setStatus(ComputeNode.Status.BUSY);
                 nodeRepository.save(node);
+
+                // #397: RunSpec GPU allocation
+                try {
+                    RunSpec runSpec = resolveRunSpec(task);
+                    if (runSpec != null && runSpec.getGpuPerNode() != null && runSpec.getGpuPerNode() > 0) {
+                        gpuSlotService.allocateGpuSlots(node.getId(), runSpec.getGpuPerNode(), task.getId());
+                    }
+                } catch (Exception e) {
+                    log.warn("GPU slot allocation failed for task {} (non-fatal): {}", task.getTaskNo(), e.getMessage());
+                }
+
                 log.info("Task {} dispatched successfully to node {}", task.getTaskNo(), node.getName());
                 return true;
             } else {
@@ -388,6 +409,25 @@ public class TaskDispatcher {
     }
 
     /**
+     * #397: 解析任务的 RunSpec
+     */
+    private RunSpec resolveRunSpec(EvaluationTask task) {
+        if (task.getRunSpecId() != null) {
+            return runSpecRepository.findById(task.getRunSpecId()).orElse(null);
+        }
+        if (task.getRunSpecCode() != null && !task.getRunSpecCode().isBlank()) {
+            return runSpecRepository.findByCode(task.getRunSpecCode()).orElse(null);
+        }
+        if (task.getPlanId() != null) {
+            var plan = planRepository.findById(task.getPlanId()).orElse(null);
+            if (plan != null && plan.getRunSpecId() != null) {
+                return runSpecRepository.findById(plan.getRunSpecId()).orElse(null);
+            }
+        }
+        return null;
+    }
+
+    /**
      * 构建 Agent URL: http://{ipAddress}:{agentPort}
      */
     private String buildAgentUrl(ComputeNode node) {
@@ -432,6 +472,39 @@ public class TaskDispatcher {
             }
         }
 
+        // #397: Include RunSpec in payload
+        RunSpec runSpec = resolveRunSpec(task);
+        if (runSpec != null) {
+            Map<String, Object> runSpecMap = new LinkedHashMap<>();
+            runSpecMap.put("code", runSpec.getCode());
+            runSpecMap.put("gpuPerNode", runSpec.getGpuPerNode());
+            runSpecMap.put("gpuExclusive", runSpec.getGpuExclusive());
+            runSpecMap.put("parallelMode", runSpec.getParallelMode());
+            runSpecMap.put("nodeCount", runSpec.getNodeCount());
+
+            // Include allocated GPU indices
+            if (task.getAssignedNodeId() != null) {
+                List<GpuSlot> slots = gpuSlotService.getNodeGpuSlots(task.getAssignedNodeId()).stream()
+                        .filter(s -> task.getId().equals(s.getAllocatedTaskId()))
+                        .toList();
+                if (!slots.isEmpty()) {
+                    runSpecMap.put("gpuIndices", slots.stream().map(GpuSlot::getGpuIndex).toList());
+                }
+            }
+
+            payload.put("runSpec", runSpecMap);
+
+            // Multi-node distributed config
+            if (runSpec.getNodeCount() != null && runSpec.getNodeCount() > 1) {
+                Map<String, Object> distributed = new LinkedHashMap<>();
+                distributed.put("worldSize", runSpec.getNodeCount() * runSpec.getGpuPerNode());
+                distributed.put("nprocPerNode", runSpec.getGpuPerNode());
+                distributed.put("parallelMode", runSpec.getParallelMode());
+                distributed.put("backend", "nccl");
+                payload.put("distributed", distributed);
+            }
+        }
+
         return payload;
     }
 
@@ -446,6 +519,8 @@ public class TaskDispatcher {
             task.setLastHeartbeatAt(null);
             task.setQueueReason("分发失败后回滚，等待重新调度");
             taskRepository.save(task);
+            // #397: Release GPU slots on rollback
+            try { gpuSlotService.releaseGpuSlots(task.getId()); } catch (Exception ignored) {}
             log.info("Task {} rolled back to QUEUED", task.getId());
         } catch (Exception e) {
             log.error("Failed to rollback task {}: {}", task.getId(), e.getMessage());
