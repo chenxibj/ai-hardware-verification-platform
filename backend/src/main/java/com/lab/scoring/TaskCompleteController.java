@@ -98,6 +98,7 @@ public class TaskCompleteController {
         // #222: 释放节点，让 recovery scheduler 可以分发新任务
         if (task.getAssignedNodeId() != null) {
             nodeRepository.findById(task.getAssignedNodeId()).ifPresent(node -> {
+                // 并发模式：不再强制重置 BUSY->ONLINE（节点始终保持 ONLINE）
                 if (node.getStatus() == ComputeNode.Status.BUSY) {
                     node.setStatus(ComputeNode.Status.ONLINE);
                     nodeRepository.save(node);
