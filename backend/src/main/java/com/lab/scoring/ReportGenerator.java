@@ -11,6 +11,7 @@ import com.lab.result.EvaluationResult;
 import com.lab.result.EvaluationResultRepository;
 import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
+import com.lab.node.ComputeNodeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -37,6 +38,7 @@ public class ReportGenerator {
     private final ChipReportRepository chipReportRepository;
     private final ChipRepository chipRepository;
     private final ObjectMapper objectMapper;
+    private final ComputeNodeRepository nodeRepository;
 
     /* 维度中英映射 */
     private static final Map<String, String> DIM_CN = new LinkedHashMap<>();
@@ -97,6 +99,22 @@ public class ReportGenerator {
         report.setOperatorRanking(operatorRanking);
         report.setStatus(ChipReport.ReportStatus.PUBLISHED);
         report.setCreatedBy(plan.getCreatedBy());
+
+        // #405: Fill execution environment info from tasks
+        try {
+            tasks.stream()
+                    .filter(t -> t.getAssignedNodeId() != null)
+                    .findFirst()
+                    .ifPresent(t -> {
+                        nodeRepository.findById(t.getAssignedNodeId()).ifPresent(node -> {
+                            report.setExecutionNodeName(node.getName());
+                            report.setExecutionNodeIp(node.getIpAddress());
+                            report.setActualChipModel(node.getChipModel());
+                        });
+                    });
+        } catch (Exception e) {
+            log.warn("#405: Failed to set execution environment for report: {}", e.getMessage());
+        }
 
         try {
             report.setDimensionScores(objectMapper.writeValueAsString(dimensionScores));

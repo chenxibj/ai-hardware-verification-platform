@@ -539,8 +539,10 @@ class TaskExecutor:
             except Exception:
                 pass
 
+            # #406: 增强错误上报，包含 error_message 字段
             self._report_result(task_id, "FAILED", {
                 "error": str(e),
+                "error_message": "Agent执行异常: " + str(e)[:500],
                 "duration_sec": round(elapsed, 2),
                 "node_id": self.node_id,
             })

@@ -205,7 +205,9 @@ public class TaskRecoveryScheduler {
             }
 
             result.setPassed(false);
-            result.setErrorMessage("Task timeout: " + reason);
+            // #406: 用户可读的中文超时信息
+            long timeoutMinutes = reason.contains("progress=0") ? 5 : 15;
+            result.setErrorMessage(String.format("任务超时：%d分钟内无进度更新，由系统自动终止（%s）", timeoutMinutes, reason));
             resultRepository.save(result);
             log.info("Created timeout EvaluationResult for task {} (planId={})", task.getId(), planId);
         } catch (Exception e) {

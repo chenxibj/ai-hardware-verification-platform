@@ -2,6 +2,7 @@ package com.lab.plan;
 
 import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
+import com.lab.runspec.RunSpecRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -24,6 +25,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public class PlanTaskSplitter {
 
     private final EvaluationTaskRepository taskRepository;
+    private final RunSpecRepository runSpecRepository;
 
     private static final AtomicLong TASK_SEQ = new AtomicLong(System.currentTimeMillis());
 
@@ -315,6 +317,17 @@ public class PlanTaskSplitter {
         task.setProgress(0);
         task.setCreatedBy(plan.getCreatedBy());
         task.setDimension(classifyDimension(testItem));
+        // #408: Copy runSpecId/runSpecCode from plan to task
+        if (plan.getRunSpecId() != null) {
+            task.setRunSpecId(plan.getRunSpecId());
+            try {
+                runSpecRepository.findById(plan.getRunSpecId()).ifPresent(spec -> {
+                    task.setRunSpecCode(spec.getCode());
+                });
+            } catch (Exception e) {
+                // Fallback: just set the ID, code can be resolved later
+            }
+        }
         return task;
     }
 

@@ -206,15 +206,24 @@ public class EvaluationPlanService {
         plan.setStatus(EvaluationPlan.PlanStatus.RUNNING);
         EvaluationPlan saved = planRepository.save(plan);
 
-        // #381: Resume PAUSED tasks back to QUEUED
+        // #381/#407: Resume PAUSED tasks — 方案A: 有 assignedNodeId 的设为 DISPATCHED，没有的设为 QUEUED
         List<EvaluationTask> pausedTasks = taskRepository.findByPlanIdAndStatus(id, EvaluationTask.TaskStatus.PAUSED);
-        int resumed = 0;
+        int resumedDispatched = 0;
+        int resumedQueued = 0;
         for (EvaluationTask task : pausedTasks) {
-            task.setStatus(EvaluationTask.TaskStatus.QUEUED);
+            if (task.getAssignedNodeId() != null) {
+                // #407: 有分配节点（可能有 GPU Slot），设为 DISPATCHED 让 Agent 重新拉取
+                task.setStatus(EvaluationTask.TaskStatus.DISPATCHED);
+                resumedDispatched++;
+            } else {
+                // 没有分配节点，回到 QUEUED 等待调度
+                task.setStatus(EvaluationTask.TaskStatus.QUEUED);
+                resumedQueued++;
+            }
             taskRepository.save(task);
-            resumed++;
         }
-        log.info("Resumed evaluation task: {} ({} tasks resumed to QUEUED)", saved.getPlanNo(), resumed);
+        log.info("Resumed evaluation task: {} ({} tasks->DISPATCHED, {} tasks->QUEUED)",
+                saved.getPlanNo(), resumedDispatched, resumedQueued);
 
         // #354: 异步分发
         try {
