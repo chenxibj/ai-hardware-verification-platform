@@ -14,19 +14,32 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import com.lab.task.EvaluationTask;
+import com.lab.task.EvaluationTaskRepository;
+import com.lab.task.TaskDispatcher;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/nodes")
 public class ComputeNodeController {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ComputeNodeController.class);
+
     private final ComputeNodeService service;
     private final ComputeNodeRepository repo;
     private final ObjectMapper objectMapper;
 
-    public ComputeNodeController(ComputeNodeService service, ComputeNodeRepository repo, ObjectMapper objectMapper) {
+    private final EvaluationTaskRepository taskRepository;
+    private final TaskDispatcher taskDispatcher;
+
+    public ComputeNodeController(ComputeNodeService service, ComputeNodeRepository repo, 
+                                  ObjectMapper objectMapper, EvaluationTaskRepository taskRepository,
+                                  TaskDispatcher taskDispatcher) {
         this.service = service;
         this.repo = repo;
         this.objectMapper = objectMapper;
+        this.taskRepository = taskRepository;
+        this.taskDispatcher = taskDispatcher;
     }
 
     @GetMapping
@@ -470,4 +483,49 @@ public class ComputeNodeController {
         result.put("actions", actions);
         return ApiResponse.ok(result);
     }
+
+
+    /**
+     * POST /api/nodes/{id}/poll-tasks — Agent 拉取待执行任务（Pull-based dispatch）
+     * Agent 在心跳时调用此接口，获取分配给自己的 DISPATCHED 状态任务
+     * 返回任务列表后，任务状态从 DISPATCHED -> RUNNING
+     * 
+     * Request body (optional): {"maxTasks": 1}
+     * Response: {"code": 0, "data": [{"taskId": ..., "evalType": ..., "params": ..., "config": ...}]}
+     */
+    @PostMapping("/{id}/poll-tasks")
+    public ApiResponse<List<Map<String, Object>>> pollTasks(
+            @PathVariable Long id,
+            @RequestBody(required = false) Map<String, Object> body) {
+        
+        int maxTasks = 1;
+        if (body != null && body.containsKey("maxTasks")) {
+            maxTasks = Math.min(((Number) body.get("maxTasks")).intValue(), 8);
+        }
+        
+        // 查找分配给此节点的 DISPATCHED 任务
+        List<EvaluationTask> dispatched = taskRepository.findAll().stream()
+                .filter(t -> t.getStatus() == EvaluationTask.TaskStatus.DISPATCHED)
+                .filter(t -> id.equals(t.getAssignedNodeId()))
+                .limit(maxTasks)
+                .collect(Collectors.toList());
+        
+        List<Map<String, Object>> result = new java.util.ArrayList<>();
+        for (EvaluationTask task : dispatched) {
+            // 更新状态为 RUNNING
+            task.setStatus(EvaluationTask.TaskStatus.RUNNING);
+            task.setStartedAt(java.time.Instant.now());
+            task.setLastHeartbeatAt(java.time.Instant.now());
+            taskRepository.save(task);
+            
+            // 构建任务执行载荷（复用 TaskDispatcher 的构建逻辑）
+            Map<String, Object> payload = taskDispatcher.buildExecutePayload(task);
+            result.add(payload);
+            
+            log.info("Agent {} polled task {} ({}), status -> RUNNING", id, task.getTaskNo(), task.getId());
+        }
+        
+        return ApiResponse.ok(result);
+    }
+
 }
