@@ -91,6 +91,11 @@ public class ComputeNode {
      */
     @Column(name = "source", length = 50)
     private String source = "manual";
+    /**
+     * 芯片型号（例如 "NVIDIA L40S", "Intel Xeon 8269CY"）
+     */
+    @Column(name = "chip_model", length = 200)
+    private String chipModel;
 
     public enum Status {
         ONLINE, OFFLINE, BUSY, ERROR, MAINTENANCE

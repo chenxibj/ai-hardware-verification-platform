@@ -11,6 +11,8 @@ import com.lab.result.EvaluationResultRepository;
 import com.lab.result.EvaluationResultService;
 import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
+import com.lab.node.ComputeNode;
+import com.lab.node.ComputeNodeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -41,6 +43,7 @@ public class ReportGeneratorService {
     private final EvaluationPlanRepository planRepository;
     private final EvaluationResultService resultService;
     private final ObjectMapper objectMapper;
+    private final ComputeNodeRepository nodeRepository;
 
     /* 六维度中文名称映射 */
     private static final Map<String, String> DIM_NAMES = new LinkedHashMap<>();
@@ -126,6 +129,24 @@ public class ReportGeneratorService {
         report.setOverallScore(Math.round(overallScore * 10.0) / 10.0);
         report.setStatus(ChipReport.ReportStatus.PUBLISHED);
         report.setCreatedBy(plan.getCreatedBy());
+
+        // Fill execution environment info from tasks
+        try {
+            List<EvaluationTask> planTasks = taskRepository.findByPlanId(planId);
+            // Find the first task with an assigned node
+            planTasks.stream()
+                    .filter(t -> t.getAssignedNodeId() != null)
+                    .findFirst()
+                    .ifPresent(t -> {
+                        nodeRepository.findById(t.getAssignedNodeId()).ifPresent(node -> {
+                            report.setExecutionNodeName(node.getName());
+                            report.setExecutionNodeIp(node.getIpAddress());
+                            report.setActualChipModel(node.getChipModel());
+                        });
+                    });
+        } catch (Exception e) {
+            log.warn("Failed to set execution environment for report: {}", e.getMessage());
+        }
 
         try {
             report.setDimensionScores(objectMapper.writeValueAsString(dimScores));

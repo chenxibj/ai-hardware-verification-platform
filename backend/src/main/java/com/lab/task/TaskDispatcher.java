@@ -141,15 +141,17 @@ public class TaskDispatcher {
         // 1. 找到一个可用节点 (ONLINE 且非 BUSY)，优先从资源池内查找
         ComputeNode node = findAvailableNode(task);
         if (node == null) {
-            // #346: 无可用节点 → 任务进入排队状态
+            // #346: 无可用节点 → 任务进入排队状态（含排队原因）
             if (task.getStatus() != EvaluationTask.TaskStatus.QUEUED) {
                 task.setStatus(EvaluationTask.TaskStatus.QUEUED);
                 taskRepository.save(task);
-                log.info("No available node for task {} ({}), status set to QUEUED",
-                        task.getId(), task.getTaskNo());
+                log.info("No available node for task {} ({}), status set to QUEUED, reason: {}",
+                        task.getId(), task.getTaskNo(), task.getQueueReason());
             } else {
-                log.debug("Task {} ({}) remains QUEUED, no available node yet",
-                        task.getId(), task.getTaskNo());
+                // Update queue reason even if already QUEUED
+                taskRepository.save(task);
+                log.debug("Task {} ({}) remains QUEUED, reason: {}",
+                        task.getId(), task.getTaskNo(), task.getQueueReason());
             }
             return false;
         }
@@ -231,65 +233,145 @@ public class TaskDispatcher {
     }
 
     /**
-     * 找到一个可用节点
-     * #346: 优先从任务关联的资源池中查找 ONLINE 节点，再 fallback 到全局
-     * #349: 过滤掉 IP 无效的节点
-     * #350: Plan 指定 nodeId 时优先分发到该节点
+     * 芯片型号匹配：大小写不敏感，包含匹配
+     */
+    private boolean chipModelMatches(ComputeNode node, String chipName) {
+        if (node.getChipModel() == null || node.getChipModel().isBlank()) return false;
+        if (chipName == null || chipName.isBlank()) return false;
+        return node.getChipModel().toLowerCase().contains(chipName.toLowerCase())
+                || chipName.toLowerCase().contains(node.getChipModel().toLowerCase());
+    }
+
+    /**
+     * 找到一个可用节点 — 三级调度优先级（芯片亲和性）
+     *
+     * 1. Plan 指定了具体 nodeId → 只用该节点（硬约束，不 fallback）
+     * 2. Plan 只指定了 chipId（未指定 nodeId）→ 在芯片匹配的节点中选最空闲的（硬约束）
+     * 3. 都没指定 → 现有逻辑（任意可用节点）
+     *
+     * 芯片亲和性是硬约束，宁可排队也不跑错节点
      */
     private ComputeNode findAvailableNode(EvaluationTask task) {
-        // #350: 如果任务关联 Plan 且 Plan 指定了 nodeId，优先使用
+        EvaluationPlan plan = null;
         if (task.getPlanId() != null) {
             Optional<EvaluationPlan> planOpt = planRepository.findById(task.getPlanId());
-            if (planOpt.isPresent() && planOpt.get().getNodeId() != null) {
-                Long preferredNodeId = planOpt.get().getNodeId();
-                Optional<ComputeNode> preferredNode = nodeRepository.findById(preferredNodeId);
-                if (preferredNode.isPresent()) {
-                    ComputeNode pn = preferredNode.get();
-                    if (pn.getStatus() == ComputeNode.Status.ONLINE && isValidNodeIp(pn.getIpAddress()) && isAgentReachable(pn)) {
-                        log.info("Task {} using Plan-preferred node {} (id={})",
-                                task.getTaskNo(), pn.getName(), pn.getId());
-                        return pn;
-                    } else {
-                        log.warn("Plan-preferred node {} (id={}) is not available (status={}, ip={}), falling back",
-                                pn.getName(), pn.getId(), pn.getStatus(), pn.getIpAddress());
-                    }
+            if (planOpt.isPresent()) plan = planOpt.get();
+        }
+
+        // ============ 优先级 1: Plan 指定了具体 nodeId ============
+        if (plan != null && plan.getNodeId() != null) {
+            Long preferredNodeId = plan.getNodeId();
+            Optional<ComputeNode> preferredNode = nodeRepository.findById(preferredNodeId);
+            if (preferredNode.isEmpty()) {
+                String reason = "指定节点 ID=" + preferredNodeId + " 不存在";
+                task.setQueueReason(reason);
+                log.warn("Task {} queue reason: {}", task.getTaskNo(), reason);
+                return null;
+            }
+            ComputeNode pn = preferredNode.get();
+            if (pn.getStatus() == ComputeNode.Status.ONLINE && isValidNodeIp(pn.getIpAddress()) && isAgentReachable(pn)) {
+                log.info("Task {} using Plan-specified node {} (id={})",
+                        task.getTaskNo(), pn.getName(), pn.getId());
+                task.setQueueReason(null); // clear any previous reason
+                return pn;
+            } else {
+                // 硬约束：不 fallback，宁可排队
+                String reason = String.format("等待节点 %s 上线（当前状态: %s）",
+                        pn.getName(), pn.getStatus());
+                task.setQueueReason(reason);
+                log.info("Task {} queue reason: {}", task.getTaskNo(), reason);
+                return null;
+            }
+        }
+
+        // ============ 优先级 2: Plan 指定了 chipId（未指定 nodeId）============
+        Long chipId = (plan != null) ? plan.getChipId() : task.getChipId();
+        if (plan != null && plan.getNodeId() == null && chipId != null) {
+            Optional<Chip> chipOpt = chipRepository.findById(chipId);
+            if (chipOpt.isPresent()) {
+                String chipName = chipOpt.get().getName();
+                log.debug("Task {} looking for chip affinity: chipName={}", task.getTaskNo(), chipName);
+
+                List<ComputeNode> allOnline = nodeRepository.findByStatus(ComputeNode.Status.ONLINE);
+                // Filter by chip model match
+                List<ComputeNode> chipMatchedNodes = allOnline.stream()
+                        .filter(n -> isValidNodeIp(n.getIpAddress()))
+                        .filter(n -> !"k8s-daemonset".equals(n.getSource()))
+                        .filter(n -> chipModelMatches(n, chipName))
+                        .toList();
+
+                // Further filter by reachability
+                List<ComputeNode> reachableNodes = chipMatchedNodes.stream()
+                        .filter(this::isAgentReachable)
+                        .toList();
+
+                if (!reachableNodes.isEmpty()) {
+                    // Pick the least busy (prefer ONLINE over BUSY)
+                    ComputeNode best = reachableNodes.stream()
+                            .sorted((a, b) -> {
+                                // ONLINE nodes first, then BUSY
+                                int statusOrder = Integer.compare(
+                                        a.getStatus() == ComputeNode.Status.ONLINE ? 0 : 1,
+                                        b.getStatus() == ComputeNode.Status.ONLINE ? 0 : 1);
+                                return statusOrder;
+                            })
+                            .findFirst().orElse(reachableNodes.get(0));
+                    log.info("Task {} chip affinity matched node {} (chipModel={}) for chip {}",
+                            task.getTaskNo(), best.getName(), best.getChipModel(), chipName);
+                    task.setQueueReason(null);
+                    return best;
                 } else {
-                    log.warn("Plan-preferred nodeId {} not found, falling back", preferredNodeId);
+                    // Count total chip-matching nodes (online + offline) for better message
+                    List<ComputeNode> allNodes = nodeRepository.findAll();
+                    long totalMatching = allNodes.stream()
+                            .filter(n -> chipModelMatches(n, chipName))
+                            .count();
+                    long onlineMatching = chipMatchedNodes.size();
+                    String reason = String.format("等待 %s 类型节点上线（当前 %d/%d 可用）",
+                            chipName, onlineMatching, totalMatching);
+                    task.setQueueReason(reason);
+                    log.info("Task {} queue reason: {}", task.getTaskNo(), reason);
+                    return null;  // 硬约束：不 fallback
                 }
             }
         }
 
+        // ============ 优先级 3: 都没指定 → 任意可用节点 ============
         // 如果任务指定了资源池，优先从资源池内找
         if (task.getResourcePoolId() != null) {
             List<ComputeNode> poolNodes = nodeRepository.findByResourcePoolId(task.getResourcePoolId());
             List<ComputeNode> onlinePoolNodes = poolNodes.stream()
                     .filter(n -> n.getStatus() == ComputeNode.Status.ONLINE)
-                    .filter(n -> isValidNodeIp(n.getIpAddress()))  // #349
-                    .filter(n -> !"k8s-daemonset".equals(n.getSource()))  // #355: K8s nodes use exec channel
-                    .filter(n -> isAgentReachable(n))  // #357: 实际连通性检测
+                    .filter(n -> isValidNodeIp(n.getIpAddress()))
+                    .filter(n -> !"k8s-daemonset".equals(n.getSource()))
+                    .filter(n -> isAgentReachable(n))
                     .toList();
             if (!onlinePoolNodes.isEmpty()) {
+                task.setQueueReason(null);
                 return onlinePoolNodes.get(0);
             }
-            // 资源池内无可用节点，不 fallback 到全局（资源隔离原则）
-            log.debug("No available ONLINE node with valid IP in resource pool {} for task {}",
-                    task.getResourcePoolId(), task.getId());
+            String reason = String.format("资源池内无可用节点（池 ID=%d）", task.getResourcePoolId());
+            task.setQueueReason(reason);
+            log.debug("Task {} queue reason: {}", task.getTaskNo(), reason);
             return null;
         }
 
-        // 未指定资源池，从全局 ONLINE 节点中查找（#349: 过滤无效 IP）
+        // 全局 ONLINE 节点
         List<ComputeNode> onlineNodes = nodeRepository.findByStatus(ComputeNode.Status.ONLINE);
         List<ComputeNode> validNodes = onlineNodes.stream()
                 .filter(n -> isValidNodeIp(n.getIpAddress()))
-                .filter(n -> !"k8s-daemonset".equals(n.getSource()))  // #355
-                .filter(n -> isAgentReachable(n))  // #357: 实际连通性检测
+                .filter(n -> !"k8s-daemonset".equals(n.getSource()))
+                .filter(n -> isAgentReachable(n))
                 .toList();
         if (!validNodes.isEmpty()) {
+            task.setQueueReason(null);
             return validNodes.get(0);
         }
         if (!onlineNodes.isEmpty()) {
-            log.warn("Found {} ONLINE nodes but all have invalid IPs, cannot dispatch", onlineNodes.size());
+            log.warn("Found {} ONLINE nodes but none reachable, cannot dispatch", onlineNodes.size());
         }
+        String reason = String.format("无可用节点（全局 %d 个 ONLINE 节点，0 个可达）", onlineNodes.size());
+        task.setQueueReason(reason);
         return null;
     }
 

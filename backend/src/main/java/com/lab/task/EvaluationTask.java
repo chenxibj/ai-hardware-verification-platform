@@ -117,6 +117,8 @@ public class EvaluationTask {
 
     @Column(name = "last_heartbeat_at")
     private Instant lastHeartbeatAt;
+    @Column(name = "queue_reason", length = 500)
+    private String queueReason;
 
     public enum TaskType {
         TEMPLATE, CUSTOM, EVALUATION

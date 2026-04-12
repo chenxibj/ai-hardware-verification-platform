@@ -58,6 +58,11 @@ export default function TaskDetailDrawer({
             <Text type="danger">{selected.errorMessage}</Text>
           </Descriptions.Item>
         )}
+        {selected.status === "QUEUED" && selected.queueReason && (
+          <Descriptions.Item label="排队原因" span={2}>
+            <Text type="warning">{selected.queueReason}</Text>
+          </Descriptions.Item>
+        )}
       </Descriptions>
 
       {selected.status === "COMPLETED" && (

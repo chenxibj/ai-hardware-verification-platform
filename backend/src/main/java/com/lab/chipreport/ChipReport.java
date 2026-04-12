@@ -63,6 +63,15 @@ public class ChipReport {
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
+    @Column(name = "execution_node_name", length = 200)
+    private String executionNodeName;
+
+    @Column(name = "execution_node_ip", length = 64)
+    private String executionNodeIp;
+
+    @Column(name = "actual_chip_model", length = 200)
+    private String actualChipModel;
+
     @Column(name = "created_by")
     private Long createdBy;
 

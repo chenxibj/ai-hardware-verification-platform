@@ -173,6 +173,9 @@ public class ComputeNodeController {
         if (body.containsKey("tags")) node.setTags(String.valueOf(body.get("tags")));
         if (body.containsKey("hardwareInfo")) node.setHardwareInfo(String.valueOf(body.get("hardwareInfo")));
         if (body.containsKey("hardware_info")) node.setHardwareInfo(String.valueOf(body.get("hardware_info")));
+        // chipModel field
+        if (body.containsKey("chipModel")) node.setChipModel(String.valueOf(body.get("chipModel")));
+        if (body.containsKey("chip_model")) node.setChipModel(String.valueOf(body.get("chip_model")));
 
         // K8s cluster association
         Long clusterId = null;
@@ -216,11 +219,15 @@ public class ComputeNodeController {
         Long clusterId = null;
         String clusterName = null;
 
+        String chipModel = null;
         if (body != null) {
             if (body.containsKey("hardwareInfo")) {
                 Object hw = body.get("hardwareInfo");
                 hardwareInfo = hw != null ? hw.toString() : null;
             }
+            // chipModel support
+            if (body.containsKey("chipModel")) chipModel = String.valueOf(body.get("chipModel"));
+            if (body.containsKey("chip_model")) chipModel = String.valueOf(body.get("chip_model"));
             // Support cluster association in heartbeat
             if (body.containsKey("clusterId")) clusterId = ((Number) body.get("clusterId")).longValue();
             if (body.containsKey("cluster_id")) clusterId = ((Number) body.get("cluster_id")).longValue();
@@ -229,6 +236,11 @@ public class ComputeNodeController {
         }
 
         ComputeNode node = service.heartbeatWithCluster(id, hardwareInfo, clusterId, clusterName);
+        // Update chipModel if provided
+        if (chipModel != null && !chipModel.isBlank()) {
+            node.setChipModel(chipModel);
+            // save is handled by caller or we save here
+        }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", node.getId());
         result.put("status", node.getStatus().name());

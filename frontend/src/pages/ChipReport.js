@@ -849,6 +849,22 @@ export default function ChipReport({ reportId, onBack }) {
                 </Tag>
               </Descriptions.Item>
             </Descriptions>
+            {(report.executionNodeName || report.executionNodeIp || report.actualChipModel) && (
+              <>
+                <Title level={5} style={{ marginTop: 16 }}>执行环境</Title>
+                <Descriptions column={1} size="small" bordered>
+                  {report.executionNodeName && (
+                    <Descriptions.Item label="执行节点">{report.executionNodeName}</Descriptions.Item>
+                  )}
+                  {report.executionNodeIp && (
+                    <Descriptions.Item label="节点 IP">{report.executionNodeIp}</Descriptions.Item>
+                  )}
+                  {report.actualChipModel && (
+                    <Descriptions.Item label="实际芯片型号">{report.actualChipModel}</Descriptions.Item>
+                  )}
+                </Descriptions>
+              </>
+            )}
           </Col>
         </Row>
       </Card>

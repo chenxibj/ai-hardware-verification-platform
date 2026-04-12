@@ -95,6 +95,14 @@ export default function TaskTable({
             {(v === "FAILED" || v === "TIMEOUT") && r.errorMessage && (
               <ErrorSummary errorMessage={r.errorMessage} />
             )}
+            {/* 排队中任务显示排队原因 */}
+            {v === "QUEUED" && r.queueReason && (
+              <Tooltip title={r.queueReason}>
+                <Text type="warning" style={{ fontSize: 12, cursor: "pointer" }}>
+                  <ExclamationCircleOutlined /> {r.queueReason.length > 40 ? r.queueReason.substring(0, 40) + "..." : r.queueReason}
+                </Text>
+              </Tooltip>
+            )}
           </Space>
         );
       },

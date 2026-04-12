@@ -4,6 +4,8 @@ import com.lab.common.BusinessException;
 import com.lab.common.ErrorCode;
 import com.lab.k8s.K8sCluster;
 import com.lab.k8s.K8sClusterRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Sort;
@@ -27,12 +29,46 @@ public class ComputeNodeService {
     private final ComputeNodeRepository repo;
     private final K8sClusterRepository clusterRepo;
     private final TaskDispatcher taskDispatcher;
+    private final ObjectMapper objectMapper;
 
     public ComputeNodeService(ComputeNodeRepository repo, K8sClusterRepository clusterRepo,
-                              @Lazy TaskDispatcher taskDispatcher) {
+                              @Lazy TaskDispatcher taskDispatcher, ObjectMapper objectMapper) {
         this.repo = repo;
         this.clusterRepo = clusterRepo;
         this.taskDispatcher = taskDispatcher;
+        this.objectMapper = objectMapper;
+    }
+
+    /**
+     * 从 hardwareInfo JSON 中解析 GPU 型号
+     */
+    private String extractGpuNameFromHardwareInfo(String hardwareInfo) {
+        if (hardwareInfo == null || hardwareInfo.isBlank()) return null;
+        try {
+            JsonNode root = objectMapper.readTree(hardwareInfo);
+            JsonNode gpuName = root.get("gpu_name");
+            if (gpuName != null && !gpuName.isNull() && !gpuName.asText().isBlank()) {
+                return gpuName.asText();
+            }
+        } catch (Exception e) {
+            log.debug("Failed to parse hardwareInfo for GPU name: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 更新节点的 chipModel：优先使用显式传入值，其次从 hardwareInfo 解析
+     */
+    private void updateChipModel(ComputeNode node, String explicitChipModel) {
+        if (explicitChipModel != null && !explicitChipModel.isBlank()) {
+            node.setChipModel(explicitChipModel);
+        } else if (node.getChipModel() == null || node.getChipModel().isBlank()) {
+            // Try to extract from hardwareInfo
+            String gpuName = extractGpuNameFromHardwareInfo(node.getHardwareInfo());
+            if (gpuName != null) {
+                node.setChipModel(gpuName);
+            }
+        }
     }
 
     /**
@@ -115,6 +151,8 @@ public class ComputeNodeService {
             if (node.getIpAddress() != null && !node.getIpAddress().isBlank()) ex.setIpAddress(node.getIpAddress());
             if (node.getClusterId() != null) ex.setClusterId(node.getClusterId());
             if (node.getSource() != null) ex.setSource(node.getSource());
+            // Update chipModel
+            updateChipModel(ex, node.getChipModel());
             // #351: 心跳更新时，只有 IP 有效才设为 ONLINE
             if (isValidIp(node.getIpAddress()) || isValidIp(ex.getIpAddress())) {
                 ex.setStatus(ComputeNode.Status.ONLINE);
@@ -134,6 +172,8 @@ public class ComputeNodeService {
         if (node.getSource() == null) {
             node.setSource("manual");
         }
+        // Set chipModel from hardwareInfo if not explicitly set
+        updateChipModel(node, node.getChipModel());
         return repo.save(node);
     }
 
@@ -223,6 +263,8 @@ public class ComputeNodeService {
         if (hardwareInfo != null && !hardwareInfo.isBlank()) {
             node.setHardwareInfo(hardwareInfo);
         }
+        // Update chipModel from hardwareInfo if not already set
+        updateChipModel(node, null);
         ComputeNode saved = repo.save(node);
 
         // 事件驱动：节点从 OFFLINE 恢复为 ONLINE 时，尝试分发排队任务
