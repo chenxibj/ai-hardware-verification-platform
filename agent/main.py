@@ -170,7 +170,7 @@ def main():
 
     # 3. 启动心跳线程（或后台重试注册线程）
     if node_id > 0:
-        heartbeat_thread = HeartbeatThread(node_id, config)
+        heartbeat_thread = HeartbeatThread(node_id, config, executor=executor)
         heartbeat_thread.start()
     else:
         # 后台持续重试注册，成功后自动启动心跳
@@ -188,7 +188,7 @@ def main():
                     new_node_id = result.get("id", 0)
                     if new_node_id > 0:
                         executor.node_id = new_node_id
-                        heartbeat_thread = HeartbeatThread(new_node_id, config)
+                        heartbeat_thread = HeartbeatThread(new_node_id, config, executor=executor)
                         heartbeat_thread.start()
                         logger.info("后台注册成功! 节点 ID=%s，心跳已启动", new_node_id)
                         return
