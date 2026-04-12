@@ -1,3 +1,4 @@
+import socket
 import json
 """节点注册模块 - 支持重试"""
 import logging
@@ -17,8 +18,18 @@ def register_node(config, max_retries=5, retry_interval=10):
     node_cfg = config["node"]
 
     hardware = get_hardware_info()
+    # Auto-detect local IP for registration
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        local_ip = "127.0.0.1"
+    
     payload = {
         "name": node_cfg["name"],
+        "ipAddress": local_ip,
         "description": node_cfg.get("description", ""),
         "tags": node_cfg.get("tags", ""),
         "agentPort": config["agent"]["port"],
