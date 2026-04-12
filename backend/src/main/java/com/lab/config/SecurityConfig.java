@@ -61,7 +61,7 @@ public class SecurityConfig {
                 .requestMatchers("/error").permitAll()
                 .requestMatchers("/dashboard/**").permitAll()
                 .requestMatchers("/community/**").permitAll()
-                .requestMatchers("/nodes/*/heartbeat").permitAll()
+                .requestMatchers("/nodes/*/heartbeat", "/nodes/*/poll-tasks").permitAll()
                 .requestMatchers("/nodes/register").permitAll()
                 .requestMatchers("/tasks/*/result").permitAll()
                 .requestMatchers("/tasks/*/failure").permitAll()
