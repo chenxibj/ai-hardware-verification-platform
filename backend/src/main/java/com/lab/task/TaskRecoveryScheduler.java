@@ -47,6 +47,7 @@ public class TaskRecoveryScheduler {
     private final EvaluationResultRepository resultRepository;
     private final TaskDispatcher taskDispatcher;
     private final com.lab.scoring.ReportGenerator reportGenerator;
+    private final com.lab.gpu.GpuSlotService gpuSlotService;
 
     private static final Set<EvaluationTask.TaskStatus> TERMINAL_STATUSES = Set.of(
             EvaluationTask.TaskStatus.COMPLETED,
@@ -136,6 +137,14 @@ public class TaskRecoveryScheduler {
             task.setStatus(EvaluationTask.TaskStatus.FAILED);
             task.setCompletedAt(Instant.now());
             taskRepository.save(task);
+
+            // #403: Release GPU slots for timed-out task
+            try {
+                gpuSlotService.releaseGpuSlots(task.getId());
+                log.info("#403: Released GPU slots for timed-out task {}", task.getId());
+            } catch (Exception e) {
+                log.warn("#403: Failed to release GPU slots for task {}: {}", task.getId(), e.getMessage());
+            }
 
             // #361: Create EvaluationResult for the timed-out task
             createTimeoutResult(task, reason);
@@ -275,6 +284,8 @@ public class TaskRecoveryScheduler {
             task.setStatus(EvaluationTask.TaskStatus.CANCELLED);
             task.setCompletedAt(Instant.now());
             taskRepository.save(task);
+            // #403: Release GPU slots if any
+            try { gpuSlotService.releaseGpuSlots(task.getId()); } catch (Exception ignored) {}
             if (task.getPlanId() != null) affectedPlanIds.add(task.getPlanId());
         }
         if (!staleTasks.isEmpty()) {

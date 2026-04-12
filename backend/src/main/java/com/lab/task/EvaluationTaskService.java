@@ -168,6 +168,29 @@ public class EvaluationTaskService {
         // #229: Broadcast status change via WebSocket
         try { webSocketHandler.broadcastTaskStatus(taskId, task.getPlanId(), status.name()); } catch (Exception e) { log.warn("WS broadcast failed: {}", e.getMessage()); }
         
+        // #403: 终态释放 GPU Slot
+        if (status == EvaluationTask.TaskStatus.COMPLETED || 
+            status == EvaluationTask.TaskStatus.FAILED ||
+            status == EvaluationTask.TaskStatus.CANCELLED) {
+            try {
+                gpuSlotService.releaseGpuSlots(taskId);
+                log.info("#403: Released GPU slots for task {} (status={})", taskId, status);
+            } catch (Exception e) {
+                log.warn("#403: Failed to release GPU slots for task {}: {}", taskId, e.getMessage());
+            }
+        }
+
+        // #404: 终态实时更新 Plan 进度
+        if ((status == EvaluationTask.TaskStatus.COMPLETED || 
+             status == EvaluationTask.TaskStatus.FAILED ||
+             status == EvaluationTask.TaskStatus.CANCELLED) && saved.getPlanId() != null) {
+            try {
+                updatePlanProgressRealtime(saved.getPlanId());
+            } catch (Exception e) {
+                log.warn("#404: Failed to update plan progress for task {}: {}", taskId, e.getMessage());
+            }
+        }
+
         // 事件驱动：任务完成/失败后尝试分发下一个排队任务
         if (status == EvaluationTask.TaskStatus.COMPLETED || 
             status == EvaluationTask.TaskStatus.FAILED ||
@@ -361,6 +384,28 @@ public class EvaluationTaskService {
             updatePlanProgressAfterSkip(task.getPlanId());
         }
         return saved;
+    }
+
+    /**
+     * #404: 实时更新 Plan 进度（每次任务到达终态时调用）
+     * 统计 COMPLETED + FAILED + CANCELLED + SKIPPED 作为已完成任务数
+     */
+    private void updatePlanProgressRealtime(Long planId) {
+        EvaluationPlan plan = planRepository.findById(planId).orElse(null);
+        if (plan == null) return;
+        List<EvaluationTask> tasks = taskRepository.findByPlanId(planId);
+        int total = plan.getTotalTasks() != null && plan.getTotalTasks() > 0
+                ? plan.getTotalTasks() : tasks.size();
+        long done = tasks.stream()
+                .filter(t -> t.getStatus() == EvaluationTask.TaskStatus.COMPLETED ||
+                             t.getStatus() == EvaluationTask.TaskStatus.FAILED ||
+                             t.getStatus() == EvaluationTask.TaskStatus.CANCELLED ||
+                             t.getStatus() == EvaluationTask.TaskStatus.SKIPPED)
+                .count();
+        plan.setCompletedTasks((int) done);
+        plan.setProgress(total > 0 ? (int) (done * 100 / total) : 0);
+        planRepository.save(plan);
+        log.info("#404: Plan {} progress updated: {}/{} ({}%)", plan.getPlanNo(), done, total, plan.getProgress());
     }
 
     private void updatePlanProgressAfterSkip(Long planId) {

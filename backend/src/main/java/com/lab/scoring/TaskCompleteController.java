@@ -38,6 +38,7 @@ public class TaskCompleteController {
     private final TaskLogRepository taskLogRepository;
     private final ObjectMapper objectMapper;
     private final ComputeNodeRepository nodeRepository;
+    private final com.lab.gpu.GpuSlotService gpuSlotService;
 
     @PostMapping("/{taskId}/complete")
     @Transactional
@@ -108,6 +109,14 @@ public class TaskCompleteController {
         }
         taskRepository.save(task);
 
+        // #403: Release GPU slots immediately on task completion
+        try {
+            gpuSlotService.releaseGpuSlots(taskId);
+            log.info("#403: Released GPU slots for completed task {}", taskId);
+        } catch (Exception e) {
+            log.warn("#403: Failed to release GPU slots for task {}: {}", taskId, e.getMessage());
+        }
+
         // 4.5 写入执行日志
         try {
             String logMsg = String.format("任务执行完成 - %s | passed=%s | latencyMean=%s | throughput=%s",
@@ -129,9 +138,12 @@ public class TaskCompleteController {
             EvaluationPlan plan = planRepository.findById(task.getPlanId()).orElse(null);
             if (plan != null) {
                 List<EvaluationTask> planTasks = taskRepository.findByPlanId(plan.getId());
+                // #404: Count all terminal states for accurate progress
                 long completedCount = planTasks.stream()
                         .filter(t -> t.getStatus() == EvaluationTask.TaskStatus.COMPLETED
-                                || t.getStatus() == EvaluationTask.TaskStatus.FAILED)
+                                || t.getStatus() == EvaluationTask.TaskStatus.FAILED
+                                || t.getStatus() == EvaluationTask.TaskStatus.CANCELLED
+                                || t.getStatus() == EvaluationTask.TaskStatus.SKIPPED)
                         .count();
 
                 plan.setCompletedTasks((int) completedCount);
