@@ -43,6 +43,12 @@ public class TaskTemplate {
     @Column(name = "version", length = 32)
     private String version;
 
+    @Column(name = "version_notes", length = 500)
+    private String versionNotes;
+
+    @Column(name = "changelog", columnDefinition = "TEXT")
+    private String changelog;
+
     @Column(name = "fork_from")
     private Long forkFrom;
 
