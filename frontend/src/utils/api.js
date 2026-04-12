@@ -116,3 +116,20 @@ export const nodeApi = {
   delete: (id) => api.delete("/nodes/" + id),
   update: (id, data) => api.put("/nodes/" + id, data),
 };
+
+export const runSpecApi = {
+  list: (category) => api.get("/run-specs", { params: category ? { category } : {} }),
+  get: (id) => api.get("/run-specs/" + id),
+};
+
+export const resourcePoolApi = {
+  list: (params) => api.get("/resource-pools", { params }),
+  get: (id) => api.get("/resource-pools/" + id),
+  availability: (id) => api.get("/resource-pools/" + id + "/availability"),
+  stats: (id) => api.get("/resource-pools/" + id + "/stats"),
+};
+
+export const gpuSlotApi = {
+  nodeSlots: (nodeId) => api.get("/gpu-slots/node/" + nodeId),
+  overview: () => api.get("/gpu-slots/overview"),
+};
