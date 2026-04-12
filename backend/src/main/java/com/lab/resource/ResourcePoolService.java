@@ -31,7 +31,28 @@ public class ResourcePoolService {
     }
 
     public List<Map<String, Object>> listWithStats() {
+        return listWithStats(null, null, null);
+    }
+
+    public List<Map<String, Object>> listWithStats(String chipModel, String provider, String type) {
         List<ResourcePool> pools = repo.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
+        // #395: Apply filters
+        if (chipModel != null && !chipModel.isBlank()) {
+            String lcChip = chipModel.toLowerCase();
+            pools = pools.stream()
+                    .filter(p -> p.getChipModel() != null && p.getChipModel().toLowerCase().contains(lcChip))
+                    .collect(Collectors.toList());
+        }
+        if (provider != null && !provider.isBlank()) {
+            pools = pools.stream()
+                    .filter(p -> provider.equalsIgnoreCase(p.getProvider()))
+                    .collect(Collectors.toList());
+        }
+        if (type != null && !type.isBlank()) {
+            pools = pools.stream()
+                    .filter(p -> type.equalsIgnoreCase(p.getType()))
+                    .collect(Collectors.toList());
+        }
         List<Map<String, Object>> result = new ArrayList<>();
         for (ResourcePool pool : pools) {
             Map<String, Object> item = new LinkedHashMap<>();
@@ -43,6 +64,14 @@ public class ResourcePoolService {
             item.put("status", pool.getStatus().name());
             item.put("createdAt", pool.getCreatedAt());
             item.put("updatedAt", pool.getUpdatedAt());
+            // #395: Extended fields
+            item.put("chipModel", pool.getChipModel());
+            item.put("provider", pool.getProvider());
+            item.put("clusterId", pool.getClusterId());
+            item.put("gpuPerNode", pool.getGpuPerNode());
+            item.put("schedulingPolicy", pool.getSchedulingPolicy());
+            item.put("maxConcurrentTasks", pool.getMaxConcurrentTasks());
+            item.put("priority", pool.getPriority());
 
             List<ComputeNode> nodes = nodeRepo.findByResourcePoolId(pool.getId());
             int nodeCount = nodes.size();
@@ -154,6 +183,14 @@ public class ResourcePoolService {
         result.put("status", pool.getStatus().name());
         result.put("createdAt", pool.getCreatedAt());
         result.put("updatedAt", pool.getUpdatedAt());
+        // #395: Extended fields
+        result.put("chipModel", pool.getChipModel());
+        result.put("provider", pool.getProvider());
+        result.put("clusterId", pool.getClusterId());
+        result.put("gpuPerNode", pool.getGpuPerNode());
+        result.put("schedulingPolicy", pool.getSchedulingPolicy());
+        result.put("maxConcurrentTasks", pool.getMaxConcurrentTasks());
+        result.put("priority", pool.getPriority());
         result.put("nodes", nodeRepo.findByResourcePoolId(id));
         return result;
     }
@@ -349,4 +386,31 @@ public class ResourcePoolService {
         return result;
     }
 
+
+    /**
+     * #395: 获取资源池实时可用资源（空闲 GPU 数等）
+     */
+    public Map<String, Object> getPoolAvailability(Long poolId) {
+        ResourcePool pool = repo.findById(poolId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "资源池不存在: " + poolId));
+
+        List<ComputeNode> nodes = nodeRepo.findByResourcePoolId(poolId);
+        int totalNodes = nodes.size();
+        long onlineNodes = nodes.stream().filter(n -> n.getStatus() == ComputeNode.Status.ONLINE).count();
+        long busyNodes = nodes.stream().filter(n -> n.getStatus() == ComputeNode.Status.BUSY).count();
+        int gpuPerNode = pool.getGpuPerNode() != null ? pool.getGpuPerNode() : 0;
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("poolId", pool.getId());
+        result.put("poolName", pool.getName());
+        result.put("chipModel", pool.getChipModel());
+        result.put("totalNodes", totalNodes);
+        result.put("onlineNodes", onlineNodes);
+        result.put("busyNodes", busyNodes);
+        result.put("offlineNodes", totalNodes - onlineNodes - busyNodes);
+        result.put("gpuPerNode", gpuPerNode);
+        result.put("totalGpus", totalNodes * gpuPerNode);
+        result.put("estimatedFreeGpus", onlineNodes * gpuPerNode);  // rough estimate without gpu_slots
+        return result;
+    }
 }

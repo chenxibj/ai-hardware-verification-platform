@@ -13,6 +13,7 @@ import java.time.Instant;
 
 /**
  * 资源池实体
+ * #395: 扩展 chipModel, provider, clusterId, gpuPerNode, schedulingPolicy 等字段
  */
 @Data
 @Entity
@@ -40,6 +41,27 @@ public class ResourcePool {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 32)
     private Status status = Status.ACTIVE;
+
+    @Column(name = "chip_model", length = 200)
+    private String chipModel;
+
+    @Column(name = "provider", length = 32)
+    private String provider = "bare-metal";
+
+    @Column(name = "cluster_id")
+    private Long clusterId;
+
+    @Column(name = "gpu_per_node")
+    private Integer gpuPerNode;
+
+    @Column(name = "scheduling_policy", length = 32)
+    private String schedulingPolicy = "least_loaded";
+
+    @Column(name = "max_concurrent_tasks")
+    private Integer maxConcurrentTasks = 0;
+
+    @Column(name = "priority")
+    private Integer priority = 0;
 
     @CreationTimestamp
     @Column(updatable = false)

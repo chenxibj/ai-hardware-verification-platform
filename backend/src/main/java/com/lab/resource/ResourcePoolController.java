@@ -19,8 +19,11 @@ public class ResourcePoolController {
     }
 
     @GetMapping
-    public ApiResponse<List<Map<String, Object>>> list() {
-        return ApiResponse.ok(service.listWithStats());
+    public ApiResponse<List<Map<String, Object>>> list(
+            @RequestParam(required = false) String chipModel,
+            @RequestParam(required = false) String provider,
+            @RequestParam(required = false) String type) {
+        return ApiResponse.ok(service.listWithStats(chipModel, provider, type));
     }
 
     @GetMapping("/{id}")
@@ -67,6 +70,14 @@ public class ResourcePoolController {
     @GetMapping("/{id}/stats")
     public ApiResponse<Map<String, Object>> getStats(@PathVariable Long id) {
         return ApiResponse.ok(service.getPoolStats(id));
+    }
+
+    /**
+     * #395: 获取资源池实时可用资源
+     */
+    @GetMapping("/{id}/availability")
+    public ApiResponse<Map<String, Object>> getAvailability(@PathVariable Long id) {
+        return ApiResponse.ok(service.getPoolAvailability(id));
     }
 
     /**
