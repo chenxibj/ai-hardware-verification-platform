@@ -17,7 +17,7 @@ PENDING_DIR = "/tmp/ahvp-pending-results"
 class HeartbeatThread(threading.Thread):
     """后台线程，定期发送心跳"""
 
-    def __init__(self, node_id, config):
+    def __init__(self, node_id, config, executor=None):
         super().__init__(daemon=True, name="heartbeat")
         self.node_id = node_id
         self.config = config
@@ -25,11 +25,14 @@ class HeartbeatThread(threading.Thread):
         self.token = config["platform"]["token"]
         self.interval = config["heartbeat"]["interval"]
         self._stop_event = threading.Event()
+        self.executor = executor  # TaskExecutor reference for pull-based dispatch
 
     def run(self):
-        logger.info("心跳线程启动, 间隔 %ss, 节点 ID=%s", self.interval, self.node_id)
+        logger.info("心跳线程启动, 间隔 %ss, 节点 ID=%s (pull-based dispatch)", self.interval, self.node_id)
         while not self._stop_event.is_set():
             self._send_heartbeat()
+            # Pull-based dispatch: 心跳后拉取待执行任务
+            self._poll_tasks()
             # #216: 每次心跳后尝试重传失败的结果
             self._retry_pending()
             self._stop_event.wait(self.interval)
@@ -65,6 +68,63 @@ class HeartbeatThread(threading.Thread):
                 logger.warning("心跳响应异常: %s %s", resp.status_code, resp.text)
         except Exception as e:
             logger.warning("心跳发送失败: %s", e)
+
+    def _poll_tasks(self):
+        """Pull-based dispatch: 从平台拉取分配给本节点的待执行任务"""
+        if self.executor is None:
+            return
+        try:
+            url = "{}/nodes/{}/poll-tasks".format(self.platform_url, self.node_id)
+            headers = {
+                "Content-Type": "application/json",
+                "X-Agent-Token": self.token,
+            }
+            # 拉取最多 1 个任务（单线程执行）
+            max_tasks = 1 if self.executor.is_busy else 1
+            resp = requests.post(url, json={"maxTasks": max_tasks}, headers=headers, timeout=10)
+            if resp.status_code != 200:
+                logger.debug("Poll-tasks returned %s", resp.status_code)
+                return
+            
+            data = resp.json()
+            tasks = data.get("data", [])
+            if not tasks:
+                return
+            
+            for task_payload in tasks:
+                task_id = task_payload.get("taskId")
+                eval_type = task_payload.get("evalType")
+                params = task_payload.get("params", {})
+                task_config = task_payload.get("config", {})
+                chip_info = task_payload.get("chip", {})
+                
+                if not task_id or not eval_type:
+                    logger.warning("Invalid task payload from poll: %s", task_payload)
+                    continue
+                
+                if self.executor.is_busy:
+                    logger.info("Agent busy, skipping polled task %s", task_id)
+                    break
+                
+                # 合并 config 到 params
+                merged_params = {}
+                if isinstance(task_config, dict):
+                    merged_params.update(task_config)
+                if isinstance(params, dict):
+                    merged_params.update(params)
+                
+                logger.info("Pull-dispatch: 接收任务 %s (type=%s) from server", task_id, eval_type)
+                try:
+                    self.executor.execute_async(task_id, eval_type, merged_params, chip_info=chip_info)
+                    logger.info("Pull-dispatch: 任务 %s 已提交执行", task_id)
+                except RuntimeError as e:
+                    logger.warning("Pull-dispatch: 任务 %s 执行失败: %s", task_id, e)
+                    break
+                    
+        except requests.exceptions.Timeout:
+            logger.debug("Poll-tasks timeout (non-fatal)")
+        except Exception as e:
+            logger.warning("Poll-tasks error: %s", e)
 
     # #360: 每个 pending 结果最多重试次数
     MAX_PENDING_RETRIES = 3
