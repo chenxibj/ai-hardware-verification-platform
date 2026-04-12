@@ -135,6 +135,7 @@ public class TaskRecoveryScheduler {
             log.warn("Task {} ({}) stale ({}), marking FAILED",
                     task.getId(), task.getTaskNo(), reason);
             task.setStatus(EvaluationTask.TaskStatus.FAILED);
+            task.setErrorMessage("任务超时: " + reason);
             task.setCompletedAt(Instant.now());
             taskRepository.save(task);
 
