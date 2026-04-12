@@ -261,6 +261,15 @@ def main():
     executor = TaskExecutor(config, node_id)
 
     # 3. 启动心跳线程 — #400: 带自愈能力
+    # #402: 任务完成后立即 re-poll
+    def _on_task_done():
+        if heartbeat_thread:
+            try:
+                heartbeat_thread._batch_poll_tasks()
+            except Exception as e:
+                logger.debug('Immediate re-poll failed: %s', e)
+    executor.set_on_task_complete(_on_task_done)
+
     if node_id > 0:
         heartbeat_thread = HeartbeatThread(node_id, config, executor=executor)
         heartbeat_thread.start()

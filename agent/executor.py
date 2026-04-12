@@ -73,6 +73,7 @@ class TaskExecutor:
         self._active_tasks = {}  # task_id -> Future
         self._task_info = {}     # task_id -> {eval_type, start_time}
         self._lock = threading.Lock()
+        self._on_task_complete = None  # #402: callback for immediate re-poll
 
     @property
     def is_busy(self):
@@ -127,6 +128,10 @@ class TaskExecutor:
                     "running_seconds": round(elapsed, 1),
                 })
             return result
+
+    def set_on_task_complete(self, callback):
+        """#402: 设置任务完成回调（用于任务完成后立即 re-poll）"""
+        self._on_task_complete = callback
 
     def shutdown(self):
         """#400: 关闭线程池"""
@@ -546,6 +551,12 @@ class TaskExecutor:
                 self._task_info.pop(task_id, None)
             logger.info("任务 %s 资源已释放 (%d/%d workers busy)",
                         task_id, len(self._active_tasks), self.max_workers)
+            # #402: 任务完成后立即触发 re-poll（不等下次心跳）
+            if self._on_task_complete:
+                try:
+                    self._on_task_complete()
+                except Exception as e:
+                    logger.debug("on_task_complete callback error: %s", e)
 
     def _save_task_log(self, task_id, eval_type, params, cmd_str, stdout_text, stderr_text):
         """#217: 保存任务执行日志到 logs/{taskId}.log"""
