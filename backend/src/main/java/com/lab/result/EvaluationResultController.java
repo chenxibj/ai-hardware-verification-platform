@@ -106,6 +106,20 @@ public class EvaluationResultController {
                 return ResponseEntity.status(org.springframework.http.HttpStatus.GONE).body(resp);
             }
 
+            // #409: If agent reports FAILED through /result endpoint, treat as failure
+            String agentStatus = body.containsKey("status") ? body.get("status").toString() : "COMPLETED";
+            if ("FAILED".equalsIgnoreCase(agentStatus)) {
+                String errorMsg = "Unknown error";
+                if (body.containsKey("result") && body.get("result") instanceof java.util.Map) {
+                    @SuppressWarnings("unchecked")
+                    java.util.Map<String, Object> resultMap = (java.util.Map<String, Object>) body.get("result");
+                    errorMsg = resultMap.getOrDefault("error", "Unknown error").toString();
+                }
+                log.info("Agent reported FAILED for task {} via /result endpoint, redirecting to submitFailure", taskId);
+                EvaluationResult result = resultService.submitFailure(taskId, errorMsg);
+                return ResponseEntity.ok(success(result));
+            }
+
             String rawData = body.containsKey("rawData")
                     ? body.get("rawData").toString()
                     : new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(body);
