@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -217,4 +218,67 @@ public class TemplateController {
         log.info("Deleted template: {} (id={})", existing.getName(), id);
         return ResponseEntity.ok(ApiResponse.ok());
     }
+
+
+    /**
+     * #409: 获取模板关联的评测脚本内容（公开透明）
+     */
+    @GetMapping("/{id}/scripts")
+    public ResponseEntity<Map<String, Object>> getTemplateScripts(@PathVariable Long id) {
+        TaskTemplate template = templateRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Template not found: " + id));
+
+        String configJson = template.getConfigJson();
+        java.util.List<Map<String, String>> scripts = new java.util.ArrayList<>();
+
+        // Script mapping based on task types in config
+        java.util.Map<String, String> scriptFiles = new java.util.LinkedHashMap<>();
+        scriptFiles.put("OPERATOR", "operator_benchmark.py");
+        scriptFiles.put("MODEL", "model_inference.py");
+        scriptFiles.put("TRAINING", "model_training_benchmark.py");
+
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            Map<String, Object> config = mapper.readValue(configJson, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+
+            if (config.containsKey("operators")) {
+                scripts.add(readScriptFile("OPERATOR", "operator_benchmark.py", "算子性能评测脚本"));
+            }
+            if (config.containsKey("models")) {
+                scripts.add(readScriptFile("MODEL", "model_inference.py", "模型推理评测脚本"));
+            }
+            if (config.containsKey("training")) {
+                scripts.add(readScriptFile("TRAINING", "model_training_benchmark.py", "模型训练评测脚本"));
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse template config: {}", e.getMessage());
+        }
+
+        Map<String, Object> result = new java.util.HashMap<>();
+        result.put("templateId", id);
+        result.put("templateName", template.getName());
+        result.put("scripts", scripts);
+        return ResponseEntity.ok(Map.of("code", 0, "data", result));
+    }
+
+    private java.util.Map<String, String> readScriptFile(String type, String filename, String description) {
+        Map<String, String> script = new java.util.HashMap<>();
+        script.put("type", type);
+        script.put("filename", filename);
+        script.put("description", description);
+        try {
+            // Read from eval-scripts directory (classpath or filesystem)
+            java.nio.file.Path scriptPath = java.nio.file.Paths.get("eval-scripts", filename);
+            if (java.nio.file.Files.exists(scriptPath)) {
+                script.put("content", java.nio.file.Files.readString(scriptPath));
+            } else {
+                // Try classpath
+                script.put("content", "// 脚本文件 " + filename + " 暂未部署到服务器");
+            }
+        } catch (Exception e) {
+            script.put("content", "// 读取脚本失败: " + e.getMessage());
+        }
+        return script;
+    }
+
 }
