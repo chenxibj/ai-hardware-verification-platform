@@ -120,6 +120,12 @@ public class EvaluationTask {
     @Column(name = "queue_reason", length = 500)
     private String queueReason;
 
+    @Column(name = "run_spec_id")
+    private Long runSpecId;
+
+    @Column(name = "run_spec_code", length = 64)
+    private String runSpecCode;
+
     public enum TaskType {
         TEMPLATE, CUSTOM, EVALUATION
     }

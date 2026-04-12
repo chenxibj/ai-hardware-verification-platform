@@ -85,6 +85,9 @@ public class EvaluationPlan {
     @Transient
     private String templateName;
 
+    @Column(name = "run_spec_id")
+    private Long runSpecId;
+
     public enum PlanStatus {
         DRAFT, RUNNING, PAUSED, COMPLETED, FAILED, CANCELLED
     }
