@@ -90,6 +90,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
     volumes:
       - /data/assets:/data/assets
+      - ./eval-scripts:/app/eval-scripts:ro
     depends_on:
       postgres:
         condition: service_healthy

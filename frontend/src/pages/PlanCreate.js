@@ -20,12 +20,14 @@ import {
   ClusterOutlined, SettingOutlined, UnorderedListOutlined,
   CloudServerOutlined, ThunderboltOutlined, ApiOutlined,
   DatabaseOutlined, BarChartOutlined, PlusOutlined,
-  HddOutlined, InfoCircleOutlined,
+  HddOutlined, InfoCircleOutlined, CodeOutlined, EyeOutlined,
 } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import api from "../utils/api";
 import { runSpecApi, resourcePoolApi } from "../utils/api";
 import AssetSelector, { savePlanAssets } from "../components/AssetSelector";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 const { Title, Text, Paragraph } = Typography;
 const { Panel } = Collapse;
@@ -147,6 +149,9 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState(null);
   const [templateTab, setTemplateTab] = useState("system");
+  const [scriptPreviewId, setScriptPreviewId] = useState(null);
+  const [scriptPreviewData, setScriptPreviewData] = useState([]);
+  const [scriptPreviewLoading, setScriptPreviewLoading] = useState(false);
 
   /* Step 3: 评测项 */
   const [checkedKeys, setCheckedKeys] = useState([]);
@@ -208,6 +213,18 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
     finally { setTemplatesLoading(false); }
   }, []);
 
+  /* ── #409: 获取模板脚本预览 ── */
+  const fetchScriptPreview = useCallback(async (tplId) => {
+    if (scriptPreviewId === tplId) { setScriptPreviewId(null); return; }
+    setScriptPreviewId(tplId);
+    setScriptPreviewLoading(true);
+    try {
+      const { data: resp } = await api.get(`/templates/${tplId}/scripts`);
+      if (resp.code === 0) setScriptPreviewData(resp.data?.scripts || []);
+    } catch (e) { message.error("获取脚本失败"); }
+    finally { setScriptPreviewLoading(false); }
+  }, [scriptPreviewId]);
+
   /* ── #398: 获取运行规格 ── */
   const fetchRunSpecs = useCallback(async (category) => {
     setRunSpecsLoading(true);
@@ -255,8 +272,8 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
   // When entering step 4 (RunSpec), fetch specs based on chip type
   useEffect(() => {
     if (current === 3 && selectedChip) {
-      const cat = selectedChip.chipType || "GPU";
-      fetchRunSpecs(cat);
+      // #398: Show all RunSpecs
+      fetchRunSpecs();
     }
   }, [current, selectedChipId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -389,7 +406,7 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
     if (current === 0) return selectedChipId !== null;
     if (current === 1) return selectedTemplateId !== null;
     if (current === 2) return true;
-    if (current === 3) return selectedRunSpecId !== null; // 运行规格必选
+    if (current === 3) return true; // 运行规格必选
     if (current === 4) return true; // 资源池可选
     if (current === 5) return selectedPreset !== null;
     if (current === 6) return true; // 关联资产可选
@@ -467,6 +484,7 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
     const isSelected = selectedTemplateId === t.id;
     const layer = t.evaluationLayer;
     const itemCount = config.itemCount || (config.operators?.length || 0) + (config.models?.length || 0);
+    const showingScripts = scriptPreviewId === t.id;
     return (
       <Col xs={24} sm={12} md={8} key={t.id}>
         <Card hoverable size="small" onClick={() => setSelectedTemplateId(t.id)}
@@ -478,6 +496,7 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
           <Space direction="vertical" size={4} style={{ width: "100%" }}>
             <Space>
               <Text strong>{t.name}</Text>
+              <Tag color="geekblue" style={{ fontSize: 10 }}>v{t.version || "1.0"}</Tag>
               {isSelected && <CheckCircleOutlined style={{ color: "#1890ff" }} />}
               {t.isSystem && <LockOutlined style={{ color: "#999", fontSize: 12 }} />}
             </Space>
@@ -487,8 +506,33 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
               <Tag color="blue">{EVAL_TYPE_LABELS[t.evalType] || t.evalType}</Tag>
               {itemCount > 0 && <Tag color="cyan">{itemCount} 评测项</Tag>}
             </Space>
+            <Button size="small" type="link" icon={<CodeOutlined />}
+              onClick={(e) => { e.stopPropagation(); fetchScriptPreview(t.id); }}
+              style={{ padding: 0, height: "auto", fontSize: 12 }}>
+              {showingScripts ? "收起脚本" : "预览评测脚本"}
+            </Button>
           </Space>
         </Card>
+        {showingScripts && (
+          <Card size="small" style={{ marginTop: 4, maxHeight: 300, overflow: "auto" }}>
+            <Spin spinning={scriptPreviewLoading}>
+              {scriptPreviewData.length === 0 ? <Empty description="暂无脚本" image={Empty.PRESENTED_IMAGE_SIMPLE} /> :
+                scriptPreviewData.map((s, i) => (
+                  <div key={i} style={{ marginBottom: 8 }}>
+                    <Space style={{ marginBottom: 4 }}>
+                      <CodeOutlined /><Text strong style={{ fontSize: 12 }}>{s.name}</Text>
+                      <Tag color="blue" style={{ fontSize: 10 }}>{s.filename}</Tag>
+                    </Space>
+                    <SyntaxHighlighter language="python" style={oneDark}
+                      showLineNumbers customStyle={{ maxHeight: 200, fontSize: 11, borderRadius: 6 }}>
+                      {(s.content || "").slice(0, 2000) + (s.content?.length > 2000 ? "\n# ... 更多内容请在模板详情页查看" : "")}
+                    </SyntaxHighlighter>
+                  </div>
+                ))
+              }
+            </Spin>
+          </Card>
+        )}
       </Col>
     );
   };
