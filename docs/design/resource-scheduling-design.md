@@ -1,6 +1,7 @@
 # 评测任务运行规格、资源池管理与多机多卡调度 — 完整设计
 
-> 版本：v1.0 | 作者：菜菜子（产品经理 + 架构设计）| 日期：2026-04-12
+> 版本：v1.1 | 作者：菜菜子（产品经理 + 架构设计）| 日期：2026-04-12
+> v1.1 更新：增加 GPU Slot 并发安全设计、多机错误处理、"修改规格"交互改进
 
 ---
 
@@ -353,6 +354,7 @@ CREATE TABLE gpu_slots (
     status          VARCHAR(16) NOT NULL DEFAULT 'FREE',  -- FREE / ALLOCATED / ERROR
     allocated_task_id BIGINT,               -- 当前分配给哪个任务
     allocated_at    TIMESTAMP,
+    version         BIGINT NOT NULL DEFAULT 0,  -- 乐观锁版本号（并发安全）
     
     UNIQUE(node_id, gpu_index)
 );
@@ -361,6 +363,156 @@ CREATE TABLE gpu_slots (
 INSERT INTO gpu_slots (node_id, gpu_index, gpu_model, gpu_memory_gb)
 SELECT 18, gs, 'NVIDIA L40S', 48
 FROM generate_series(0, 7) gs;
+```
+
+#### GPU Slot 并发安全设计
+
+多个调度实例（定时任务 + 手动触发 + API 调用）可能同时尝试分配 GPU，必须保证不会把同一张卡分给两个任务。
+
+**方案：乐观锁 + 原子 CAS 更新**
+
+```java
+@Entity @Table(name = "gpu_slots")
+public class GpuSlot {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    private Long nodeId;
+    private Integer gpuIndex;
+    private String gpuModel;
+    private Integer gpuMemoryGb;
+    private String status;        // FREE / ALLOCATED / ERROR
+    private Long allocatedTaskId;
+    private Instant allocatedAt;
+    
+    @Version
+    private Long version;         // JPA 乐观锁，UPDATE 时自动 +1
+}
+```
+
+**分配流程（原子操作）：**
+
+```java
+/**
+ * 分配 k 张 GPU 给任务，使用 SELECT FOR UPDATE 悲观锁
+ * 保证多调度实例并发安全
+ */
+@Transactional(isolation = Isolation.READ_COMMITTED)
+public List<GpuSlot> allocateGpuSlots(Long nodeId, int count, Long taskId) {
+    // 1. 悲观锁查询：锁住该节点所有 FREE 的 slot
+    List<GpuSlot> freeSlots = gpuSlotRepository.findFreeSlotsByNodeForUpdate(nodeId);
+    
+    if (freeSlots.size() < count) {
+        throw new InsufficientGpuException(
+            String.format("节点 %d 空闲 GPU 不足：需要 %d，可用 %d", nodeId, count, freeSlots.size()));
+    }
+    
+    // 2. 取前 k 个（优先连续编号，有利于 NVLink 通信）
+    List<GpuSlot> selected = selectOptimalSlots(freeSlots, count);
+    
+    // 3. 原子更新状态
+    for (GpuSlot slot : selected) {
+        slot.setStatus("ALLOCATED");
+        slot.setAllocatedTaskId(taskId);
+        slot.setAllocatedAt(Instant.now());
+    }
+    gpuSlotRepository.saveAll(selected);
+    
+    return selected;
+}
+
+// Repository 方法：SELECT ... FOR UPDATE
+@Query("SELECT g FROM GpuSlot g WHERE g.nodeId = :nodeId AND g.status = 'FREE' ORDER BY g.gpuIndex")
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+List<GpuSlot> findFreeSlotsByNodeForUpdate(@Param("nodeId") Long nodeId);
+```
+
+**释放流程（任务完成/失败时）：**
+
+```java
+@Transactional
+public void releaseGpuSlots(Long taskId) {
+    List<GpuSlot> allocated = gpuSlotRepository.findByAllocatedTaskId(taskId);
+    for (GpuSlot slot : allocated) {
+        slot.setStatus("FREE");
+        slot.setAllocatedTaskId(null);
+        slot.setAllocatedAt(null);
+    }
+    gpuSlotRepository.saveAll(allocated);
+    log.info("Released {} GPU slots for task {}", allocated.size(), taskId);
+}
+```
+
+**并发安全保障层次：**
+
+| 层次 | 机制 | 防护场景 |
+|------|------|---------|
+| DB 行锁 | `SELECT ... FOR UPDATE` | 两个调度线程同时分配同节点的 GPU |
+| JPA 乐观锁 | `@Version` | 检测到并发修改时抛异常并重试 |
+| 事务隔离 | `READ_COMMITTED` | 避免脏读已被其他事务分配的 slot |
+| 应用层幂等 | 任务已有 GPU 分配 → 跳过 | 重复调度同一任务时不重复分配 |
+| 定时回收 | 每 5 分钟扫描 | 孤儿 slot（任务已终态但 slot 未释放）|
+
+**GPU Slot 选择策略（`selectOptimalSlots`）：**
+
+```java
+/**
+ * 选择最优的 k 张 GPU
+ * 优先选连续编号（NVLink 拓扑邻近），其次选低编号
+ */
+private List<GpuSlot> selectOptimalSlots(List<GpuSlot> freeSlots, int count) {
+    // 尝试找连续的 k 张
+    for (int i = 0; i <= freeSlots.size() - count; i++) {
+        boolean consecutive = true;
+        for (int j = 1; j < count; j++) {
+            if (freeSlots.get(i + j).getGpuIndex() != freeSlots.get(i).getGpuIndex() + j) {
+                consecutive = false;
+                break;
+            }
+        }
+        if (consecutive) {
+            return freeSlots.subList(i, i + count);
+        }
+    }
+    // 没有连续的，取前 k 个（按编号排序）
+    return freeSlots.subList(0, count);
+}
+```
+
+---
+
+#### 多机任务错误处理
+
+多机任务（nodeCount > 1）中任意节点出问题时的处理策略：
+
+**错误分类与处理：**
+
+| 错误类型 | 触发条件 | 处理策略 |
+|---------|---------|---------|
+| Agent 不可达 | 分发时 HTTP 超时 | 该节点分配失败，整个任务不启动，QUEUED + 原因 |
+| 启动失败 | Agent 返回非 2xx | 回滚所有已分配节点的 GPU slot，任务 FAILED |
+| 执行中节点掉线 | 心跳超时 >3 分钟 | 整个多机任务标记 FAILED，回收全部 GPU slot |
+| Master 节点挂了 | master_addr 不可达 | 同上，整个任务 FAILED（分布式训练无法自愈）|
+| Worker 节点挂了 | 某个 rank 心跳丢失 | 整个任务 FAILED（NCCL 通信断裂不可恢复）|
+| 部分节点完成 | 某些 rank 完成但其他还在跑 | 等待全部完成或超时 |
+
+**设计原则：多机任务是原子性的 — 要么全部成功，要么全部失败。**
+
+理由：
+1. 分布式训练中各 rank 强耦合（NCCL AllReduce），一个挂了其他都会卡住
+2. 部分节点的结果没有统计意义（不完整的 gradient sync）
+3. 复杂的部分重试逻辑 ROI 很低，不如直接重跑
+
+**回收时序：**
+
+```
+任务 FAILED/COMPLETED
+    │
+    ├──1. 更新 task_node_allocations 状态
+    ├──2. 释放所有 GPU slot (releaseGpuSlots)
+    ├──3. 更新节点状态 BUSY → ONLINE（如果没有其他任务）
+    ├──4. 更新 task 状态
+    └──5. 触发队列中的 QUEUED 任务重调度
 ```
 
 #### 节点选择算法
@@ -709,7 +861,10 @@ Step 7: 确认提交        （新增显示运行规格摘要）
 │  运行规格: 单机 4 卡 (1N×4G)                   │
 │  已等待: 3 分 22 秒                            │
 │                                              │
-│  [取消任务]  [降级规格（改为 2 卡）]            │
+│  [取消任务]  [修改运行规格]                     │
+│                                              │
+│  ⚠️ 修改运行规格将导致评测条件变化，             │
+│     结果可能与原规格不可比                       │
 └────────────────────────────────────────────┘
 ```
 

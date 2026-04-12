@@ -97,6 +97,12 @@ public class ComputeNode {
     @Column(name = "chip_model", length = 200)
     private String chipModel;
 
+    /**
+     * #393: 连续不可达计数（达到阈值后自动标记 OFFLINE）
+     */
+    @Column(name = "consecutive_unreachable_count")
+    private Integer consecutiveUnreachableCount = 0;
+
     public enum Status {
         ONLINE, OFFLINE, BUSY, ERROR, MAINTENANCE
     }

@@ -85,6 +85,9 @@ public class TaskRecoveryScheduler {
         if (!pendingTasks.isEmpty()) {
             for (EvaluationTask task : pendingTasks) {
                 task.setStatus(EvaluationTask.TaskStatus.QUEUED);
+                if (task.getQueueReason() == null) {
+                    task.setQueueReason("从 PENDING 迁移至排队状态，等待可用节点");
+                }
                 taskRepository.save(task);
             }
             log.info("Migrated {} PENDING tasks to QUEUED", pendingTasks.size());
@@ -242,6 +245,7 @@ public class TaskRecoveryScheduler {
                     task.setAssignedNodeId(null);
                     task.setStartedAt(null);
                     task.setLastHeartbeatAt(null);
+                    task.setQueueReason(String.format("节点 %s 离线，等待重新调度", node.getName()));
                     taskRepository.save(task);
                     recovered++;
                 }

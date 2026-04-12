@@ -20,6 +20,9 @@ import java.util.Optional;
 import java.util.UUID;
 import com.lab.task.TaskDispatcher;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.web.client.RestTemplate;
 
 @Service
 public class ComputeNodeService {
@@ -260,6 +263,7 @@ public class ComputeNodeService {
                     node.getName(), node.getId(), node.getIpAddress());
         }
         node.setErrorMessage(null);
+        node.setConsecutiveUnreachableCount(0); // #393: 心跳正常，重置不可达计数
         if (hardwareInfo != null && !hardwareInfo.isBlank()) {
             node.setHardwareInfo(hardwareInfo);
         }
@@ -303,6 +307,26 @@ public class ComputeNodeService {
         return node;
     }
 
+    /**
+     * #393: 检测 Agent 是否可达（2秒超时）
+     */
+    private boolean isAgentReachable(ComputeNode node) {
+        if (node.getIpAddress() == null || node.getAgentPort() == null) return false;
+        String url = "http://" + node.getIpAddress() + ":" + node.getAgentPort() + "/status";
+        try {
+            var factory = new SimpleClientHttpRequestFactory();
+            factory.setConnectTimeout(2000);
+            factory.setReadTimeout(2000);
+            var rt = new RestTemplate(factory);
+            ResponseEntity<String> resp = rt.getForEntity(url, String.class);
+            return resp.getStatusCode().is2xxSuccessful();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static final int UNREACHABLE_THRESHOLD = 3;
+
     @Scheduled(fixedRate = 30000)
     @Transactional
     public void checkOfflineNodes() {
@@ -311,14 +335,38 @@ public class ComputeNodeService {
         for (ComputeNode node : onlineNodes) {
             if (node.getLastHeartbeat() == null || node.getLastHeartbeat().isBefore(threshold)) {
                 node.setStatus(ComputeNode.Status.OFFLINE);
+                node.setConsecutiveUnreachableCount(0);
                 repo.save(node);
                 log.debug("节点 {} 心跳超时，标记为 OFFLINE", node.getName());
+            } else {
+                // #393: Agent 心跳正常但 Agent 不可达 → 累计不可达计数
+                if (!"k8s-daemonset".equals(node.getSource()) && isValidIp(node.getIpAddress())) {
+                    if (!isAgentReachable(node)) {
+                        int count = (node.getConsecutiveUnreachableCount() != null ? node.getConsecutiveUnreachableCount() : 0) + 1;
+                        node.setConsecutiveUnreachableCount(count);
+                        if (count >= UNREACHABLE_THRESHOLD) {
+                            node.setStatus(ComputeNode.Status.OFFLINE);
+                            node.setErrorMessage(String.format("连续 %d 次不可达，自动标记 OFFLINE", count));
+                            log.warn("节点 {} 连续 {} 次不可达，自动标记为 OFFLINE", node.getName(), count);
+                        } else {
+                            log.debug("节点 {} 不可达（第 {}/{} 次）", node.getName(), count, UNREACHABLE_THRESHOLD);
+                        }
+                        repo.save(node);
+                    } else {
+                        // 可达 → 重置计数
+                        if (node.getConsecutiveUnreachableCount() != null && node.getConsecutiveUnreachableCount() > 0) {
+                            node.setConsecutiveUnreachableCount(0);
+                            repo.save(node);
+                        }
+                    }
+                }
             }
         }
         List<ComputeNode> busyNodes = repo.findByStatus(ComputeNode.Status.BUSY);
         for (ComputeNode node : busyNodes) {
             if (node.getLastHeartbeat() == null || node.getLastHeartbeat().isBefore(threshold)) {
                 node.setStatus(ComputeNode.Status.OFFLINE);
+                node.setConsecutiveUnreachableCount(0);
                 repo.save(node);
                 log.debug("节点 {} 心跳超时，标记为 OFFLINE", node.getName());
             }

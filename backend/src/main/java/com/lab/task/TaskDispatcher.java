@@ -276,8 +276,14 @@ public class TaskDispatcher {
                 return pn;
             } else {
                 // 硬约束：不 fallback，宁可排队
-                String reason = String.format("等待节点 %s 上线（当前状态: %s）",
-                        pn.getName(), pn.getStatus());
+                String reason;
+                if (pn.getStatus() == ComputeNode.Status.ONLINE && isValidNodeIp(pn.getIpAddress())) {
+                    reason = String.format("等待节点 %s 可达（当前状态: ONLINE 但无法连接）", pn.getName());
+                } else if (pn.getStatus() == ComputeNode.Status.ONLINE) {
+                    reason = String.format("等待节点 %s 配置有效 IP（当前 IP 无效）", pn.getName());
+                } else {
+                    reason = String.format("等待节点 %s 上线（当前状态: %s）", pn.getName(), pn.getStatus());
+                }
                 task.setQueueReason(reason);
                 log.info("Task {} queue reason: {}", task.getTaskNo(), reason);
                 return null;
@@ -327,8 +333,14 @@ public class TaskDispatcher {
                             .filter(n -> chipModelMatches(n, chipName))
                             .count();
                     long onlineMatching = chipMatchedNodes.size();
-                    String reason = String.format("等待 %s 类型节点上线（当前 %d/%d 可用）",
-                            chipName, onlineMatching, totalMatching);
+                    String reason;
+                    if (onlineMatching > 0) {
+                        reason = String.format("等待 %s 类型节点可达（%d 个节点注册但均不可达）",
+                                chipName, onlineMatching);
+                    } else {
+                        reason = String.format("等待 %s 类型节点上线（共 %d 个注册节点，0 个 ONLINE）",
+                                chipName, totalMatching);
+                    }
                     task.setQueueReason(reason);
                     log.info("Task {} queue reason: {}", task.getTaskNo(), reason);
                     return null;  // 硬约束：不 fallback
@@ -432,6 +444,7 @@ public class TaskDispatcher {
             task.setAssignedNodeId(null);
             task.setStartedAt(null);
             task.setLastHeartbeatAt(null);
+            task.setQueueReason("分发失败后回滚，等待重新调度");
             taskRepository.save(task);
             log.info("Task {} rolled back to QUEUED", task.getId());
         } catch (Exception e) {
