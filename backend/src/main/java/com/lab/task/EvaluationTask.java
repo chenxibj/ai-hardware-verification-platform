@@ -38,7 +38,7 @@ public class EvaluationTask {
 
     @Column(name = "eval_type", nullable = false, length = 32)
     @Enumerated(EnumType.STRING)
-    private EvalType evalType; // MODEL, CHIP, FRAMEWORK, OPERATOR, PERFORMANCE, ACCURACY, COMPATIBILITY, GENERAL, CLUSTER
+    private EvalType evalType; // MODEL, CHIP, FRAMEWORK, OPERATOR, PERFORMANCE, ACCURACY, COMPATIBILITY, GENERAL, CLUSTER, TRAINING
 
     @Column(name = "status", nullable = false, length = 32)
     @Enumerated(EnumType.STRING)
@@ -134,7 +134,7 @@ public class EvaluationTask {
     }
 
     public enum EvalType {
-        MODEL, CHIP, FRAMEWORK, OPERATOR, PERFORMANCE, ACCURACY, COMPATIBILITY, GENERAL, CLUSTER
+        MODEL, CHIP, FRAMEWORK, OPERATOR, PERFORMANCE, ACCURACY, COMPATIBILITY, GENERAL, CLUSTER, TRAINING
     }
 
     public enum TaskStatus {

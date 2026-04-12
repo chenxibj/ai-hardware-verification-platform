@@ -29,16 +29,21 @@ class TaskExecutor:
     """管理评测任务的执行 — #402: 支持并发执行多个任务"""
 
     SCRIPT_MAP = {
-        # 具体类型
-        "OPERATOR_BENCHMARK": "cpu_operator_benchmark.py",
-        "MODEL_INFERENCE": "cpu_model_inference.py",
-        "operator_benchmark": "cpu_operator_benchmark.py",
-        "model_inference": "cpu_model_inference.py",
+        # 具体类型 — 优先使用统一版本（自动 CPU/GPU）
+        "OPERATOR_BENCHMARK": "operator_benchmark.py",
+        "MODEL_INFERENCE": "model_inference.py",
+        "operator_benchmark": "operator_benchmark.py",
+        "model_inference": "model_inference.py",
         # 简写类型（后端 evalType 字段值）
-        "OPERATOR": "cpu_operator_benchmark.py",
-        "MODEL": "cpu_model_inference.py",
-        "operator": "cpu_operator_benchmark.py",
-        "model": "cpu_model_inference.py",
+        "OPERATOR": "operator_benchmark.py",
+        "MODEL": "model_inference.py",
+        "operator": "operator_benchmark.py",
+        "model": "model_inference.py",
+        # 训练类型
+        "TRAINING": "model_training_benchmark.py",
+        "training": "model_training_benchmark.py",
+        "MODEL_TRAINING": "model_training_benchmark.py",
+        "model_training": "model_training_benchmark.py",
         # 通用 PERFORMANCE 类型 — 运行时根据 config 动态路由
         "PERFORMANCE": None,
         "performance": None,
@@ -149,11 +154,11 @@ class TaskExecutor:
             has_operator = any(k in params for k in ("operator", "operators", "op"))
             has_model = any(k in params for k in ("model", "models", "batch_sizes", "batch_size"))
             if has_operator and not has_model:
-                script_name = "cpu_operator_benchmark.py"
+                script_name = "operator_benchmark.py"
             elif has_model and not has_operator:
-                script_name = "cpu_model_inference.py"
+                script_name = "model_inference.py"
             else:
-                script_name = "cpu_operator_benchmark.py"
+                script_name = "operator_benchmark.py"
             logger.info("PERFORMANCE 类型动态路由 -> %s (params keys: %s)", script_name, list(params.keys()))
 
         if script_name is None:

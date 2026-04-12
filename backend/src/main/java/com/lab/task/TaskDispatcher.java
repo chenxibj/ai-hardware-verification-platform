@@ -464,6 +464,7 @@ public class TaskDispatcher {
                     Map<String, Object> chipInfo = new LinkedHashMap<>();
                     chipInfo.put("chipId", chip.getId());
                     chipInfo.put("chipName", chip.getName());
+                    chipInfo.put("chipType", chip.getChipType().name());
                     if (chip.getPeakGflopsFp32() != null) chipInfo.put("peak_gflops_fp32", chip.getPeakGflopsFp32());
                     if (chip.getPeakGflopsFp16() != null) chipInfo.put("peak_gflops_fp16", chip.getPeakGflopsFp16());
                     if (chip.getPeakBandwidthGbps() != null) chipInfo.put("peak_bandwidth_gbps", chip.getPeakBandwidthGbps());
