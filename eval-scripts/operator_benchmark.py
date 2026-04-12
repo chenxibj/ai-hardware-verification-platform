@@ -525,6 +525,14 @@ def get_all_ops(size, iterations, device=None):
             ("ReLU", lambda: torch.relu(A), f"[{size},{size}]", "ReLU激活函数"),
             ("MatInverse", lambda: torch.linalg.inv(A @ A.T + torch.eye(size, device=device) * 0.1), f"[{size},{size}]", "矩阵求逆"),
             ("SVD", lambda: torch.linalg.svd(svd_m, full_matrices=False), "[64,64]", "奇异值分解"),
+            ("Add", lambda: torch.add(A, B), f"[{size},{size}]", "逐元素加法"),
+            ("Mul", lambda: torch.mul(A, B), f"[{size},{size}]", "逐元素乘法"),
+            ("SiLU", lambda: F.silu(A), f"[{size},{size}]", "SiLU/Swish激活函数"),
+            ("Embedding", lambda: torch.nn.functional.embedding(torch.randint(0, size, (32,), device=device), A), f"vocab={size}", "Embedding查找"),
+            ("Linear", lambda: F.linear(A[:32], A[:64], None), f"[32,{size}]x[64,{size}]", "线性变换"),
+            ("ScaledDotProduct", lambda: F.scaled_dot_product_attention(A[:8].unsqueeze(0), A[:8].unsqueeze(0), A[:8].unsqueeze(0)), f"[1,8,{size}]", "缩放点积注意力"),
+            ("Attention", lambda: F.scaled_dot_product_attention(A[:8].unsqueeze(0), A[:8].unsqueeze(0), A[:8].unsqueeze(0)), f"[1,8,{size}]", "多头注意力"),
+            ("Gather", lambda: torch.index_select(A, 0, torch.randint(0, size, (32,), device=device)), f"[{size},{size}]→[32,{size}]", "索引选择"),
         ]
     else:
         from scipy.signal import fftconvolve
@@ -541,6 +549,14 @@ def get_all_ops(size, iterations, device=None):
             ("ReLU", lambda: np.maximum(A, 0), f"[{size},{size}]", "ReLU激活函数"),
             ("MatInverse", lambda: np.linalg.inv(A@A.T+np.eye(size)*0.1), f"[{size},{size}]", "矩阵求逆"),
             ("SVD", lambda: np.linalg.svd(np.random.randn(64,64).astype(np.float32), full_matrices=False), "[64,64]", "奇异值分解"),
+            ("Add", lambda: np.add(A, B), f"[{size},{size}]", "逐元素加法"),
+            ("Mul", lambda: np.multiply(A, B), f"[{size},{size}]", "逐元素乘法"),
+            ("SiLU", lambda: A / (1 + np.exp(-A)), f"[{size},{size}]", "SiLU/Swish激活函数"),
+            ("Embedding", lambda: A[np.random.randint(0, size, 32)], f"vocab={size}", "Embedding查找"),
+            ("Linear", lambda: np.dot(A[:32], A[:64].T), f"[32,{size}]x[64,{size}]", "线性变换"),
+            ("ScaledDotProduct", lambda: (lambda q,k,v: np.dot((lambda s: s/np.sum(s,axis=-1,keepdims=True))(np.exp((np.dot(q,k.T)/np.sqrt(q.shape[-1]))-np.max(np.dot(q,k.T)/np.sqrt(q.shape[-1]),axis=-1,keepdims=True))),v))(A[:8],A[:8],A[:8]), f"[8,{size}]", "缩放点积注意力"),
+            ("Attention", lambda: (lambda q,k,v: np.dot((lambda s: s/np.sum(s,axis=-1,keepdims=True))(np.exp((np.dot(q,k.T)/np.sqrt(q.shape[-1]))-np.max(np.dot(q,k.T)/np.sqrt(q.shape[-1]),axis=-1,keepdims=True))),v))(A[:8],A[:8],A[:8]), f"[8,{size}]", "多头注意力"),
+            ("Gather", lambda: A[np.random.randint(0, size, 32)], f"[{size},{size}]→[32,{size}]", "索引选择"),
         ]
     return ops
 

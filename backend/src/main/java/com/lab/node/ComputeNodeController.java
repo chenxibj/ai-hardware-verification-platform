@@ -506,9 +506,9 @@ public class ComputeNodeController {
         }
         
         // 查找分配给此节点的 DISPATCHED 任务
-        List<EvaluationTask> dispatched = taskRepository.findAll().stream()
-                .filter(t -> t.getStatus() == EvaluationTask.TaskStatus.DISPATCHED)
-                .filter(t -> id.equals(t.getAssignedNodeId()))
+        List<EvaluationTask> allDispatched = taskRepository.findByStatusAndAssignedNodeId(
+                EvaluationTask.TaskStatus.DISPATCHED, id);
+        List<EvaluationTask> dispatched = allDispatched.stream()
                 .limit(maxTasks)
                 .collect(Collectors.toList());
         
@@ -528,8 +528,8 @@ public class ComputeNodeController {
         }
 
         // #401: Check for tasks that should be cancelled (CANCELLED status but assigned to this node)
-        List<EvaluationTask> cancelledTasks = taskRepository.findByAssignedNodeId(id).stream()
-                .filter(t -> t.getStatus() == EvaluationTask.TaskStatus.CANCELLED)
+        List<EvaluationTask> cancelledTasks = taskRepository.findByAssignedNodeIdAndStatus(id,
+                EvaluationTask.TaskStatus.CANCELLED).stream()
                 .filter(t -> t.getCompletedAt() != null &&
                         java.time.Duration.between(t.getCompletedAt(), java.time.Instant.now()).toMinutes() < 30)
                 .collect(Collectors.toList());

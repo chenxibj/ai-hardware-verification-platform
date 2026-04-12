@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
@@ -78,8 +79,9 @@ public class TaskDispatcher {
      * 事件驱动分发：尝试分发所有可分发的 QUEUED 任务（受可用节点限制）
      * #359: 批量分发，不再只取第一个
      * #360: 自动取消已终态方案的残留任务
+     * synchronized: 防止并发调度导致多个线程同时分发同一任务
      */
-    public void tryDispatchNext() {
+    public synchronized void tryDispatchNext() {
         List<ComputeNode> availableNodes = nodeRepository.findByStatus(ComputeNode.Status.ONLINE);
         if (availableNodes.isEmpty()) return;
 
@@ -146,7 +148,9 @@ public class TaskDispatcher {
     /**
      * 分发单个任务到可用节点
      * #346: 当无可用节点时，任务状态设为 QUEUED 而非保持 PENDING
+     * 优化：去掉冗余 save，一次 save 完成状态变更 + 乐观锁保护
      */
+    @Transactional
     public boolean dispatchSingleTask(EvaluationTask task) {
         // 1. 找到一个可用节点 (ONLINE 且非 BUSY)，优先从资源池内查找
         ComputeNode node = findAvailableNode(task);
@@ -166,7 +170,7 @@ public class TaskDispatcher {
             return false;
         }
 
-        // 1.5 GPU Slot 预检查：节点有足够空闲 GPU 才 dispatch
+        // 2. GPU Slot 预检查：节点有足够空闲 GPU 才 dispatch
         RunSpec runSpec = resolveRunSpec(task);
         int gpuNeeded = (runSpec != null && runSpec.getGpuPerNode() != null && runSpec.getGpuPerNode() > 0)
                 ? runSpec.getGpuPerNode() : 1;  // 默认需要 1 GPU
@@ -185,26 +189,17 @@ public class TaskDispatcher {
             return false;
         }
 
-        // 2. CAS 检查（乐观锁保护）— 实际状态更新在 step 3
-        // 先检查任务是否已被其他调度器认领
-        try {
-            taskRepository.save(task); // @Version 乐观锁保护
-        } catch (ObjectOptimisticLockingFailureException e) {
-            log.warn("Task {} was already claimed by another dispatcher (optimistic lock)", task.getId());
-            return false;
-        }
-
-        // 3. Pull-based dispatch: 标记任务为 DISPATCHED，等待 Agent 心跳时拉取
-        //    不再 HTTP POST 推送到 Agent，而是 Agent 主动来拉
+        // 3. 直接设 DISPATCHED + save（一次 save，乐观锁保护）
         try {
             task.setStatus(EvaluationTask.TaskStatus.DISPATCHED);
             task.setAssignedNodeId(node.getId());
             task.setStartedAt(Instant.now());
             task.setLastHeartbeatAt(Instant.now());
             task.setTimeoutSeconds(900);
-            taskRepository.save(task);
+            task.setQueueReason(null);
+            taskRepository.save(task); // @Version 乐观锁保护，冲突时抛异常
 
-            // #397: GPU Slot already checked in pre-check. Allocate now.
+            // 4. GPU Slot 分配（同事务内）
             try {
                 if (totalSlots > 0) {
                     gpuSlotService.allocateGpuSlots(node.getId(), gpuNeeded, task.getId());
@@ -217,6 +212,9 @@ public class TaskDispatcher {
             log.info("Task {} dispatched (pull-mode) to node {} - waiting for agent to poll",
                     task.getTaskNo(), node.getName());
             return true;
+        } catch (ObjectOptimisticLockingFailureException e) {
+            log.warn("Task {} was already claimed by another dispatcher (optimistic lock)", task.getId());
+            return false;
         } catch (Exception e) {
             log.error("Failed to mark task {} as DISPATCHED: {}", task.getTaskNo(), e.getMessage());
             rollbackTask(task, "dispatch failed: " + e.getMessage());
@@ -254,13 +252,28 @@ public class TaskDispatcher {
     }
 
     /**
-     * 芯片型号匹配：大小写不敏感，包含匹配
+     * 芯片型号匹配：
+     * - CPU 类型：按大类匹配（Intel/AMD/x86/Xeon/EPYC/Ryzen 关键词），不按精确型号
+     * - GPU/其他类型：大小写不敏感，包含匹配（L40S、A100 等性能差异大）
      */
-    private boolean chipModelMatches(ComputeNode node, String chipName) {
+    private boolean chipModelMatches(ComputeNode node, String chipName, Chip.ChipType chipType) {
         if (node.getChipModel() == null || node.getChipModel().isBlank()) return false;
         if (chipName == null || chipName.isBlank()) return false;
-        return node.getChipModel().toLowerCase().contains(chipName.toLowerCase())
-                || chipName.toLowerCase().contains(node.getChipModel().toLowerCase());
+
+        String nodeModel = node.getChipModel().toLowerCase();
+
+        // CPU 类型：只要节点包含 CPU 相关关键词即可，不按精确型号匹配
+        if (chipType == Chip.ChipType.CPU) {
+            List<String> cpuKeywords = List.of(
+                "intel", "amd", "x86", "xeon", "epyc", "ryzen",
+                "core", "i5", "i7", "i9", "cpu", "processor"
+            );
+            return cpuKeywords.stream().anyMatch(nodeModel::contains);
+        }
+
+        // GPU/NPU/其他类型：精确包含匹配（性能差异大）
+        return nodeModel.contains(chipName.toLowerCase())
+                || chipName.toLowerCase().contains(nodeModel);
     }
 
     /**
@@ -316,16 +329,18 @@ public class TaskDispatcher {
         if (plan != null && plan.getNodeId() == null && chipId != null) {
             Optional<Chip> chipOpt = chipRepository.findById(chipId);
             if (chipOpt.isPresent()) {
-                String chipName = chipOpt.get().getName();
-                log.debug("Task {} looking for chip affinity: chipName={}", task.getTaskNo(), chipName);
+                Chip chip = chipOpt.get();
+                String chipName = chip.getName();
+                Chip.ChipType chipType = chip.getChipType();
+                log.debug("Task {} looking for chip affinity: chipName={}, chipType={}", task.getTaskNo(), chipName, chipType);
 
                 List<ComputeNode> allOnline = new java.util.ArrayList<>(nodeRepository.findByStatus(ComputeNode.Status.ONLINE));
                 allOnline.addAll(nodeRepository.findByStatus(ComputeNode.Status.BUSY));
-                // Filter by chip model match
+                // Filter by chip model match (chipType-aware)
                 List<ComputeNode> chipMatchedNodes = allOnline.stream()
                         .filter(n -> isValidNodeIp(n.getIpAddress()))
                         .filter(n -> !"k8s-daemonset".equals(n.getSource()))
-                        .filter(n -> chipModelMatches(n, chipName))
+                        .filter(n -> chipModelMatches(n, chipName, chipType))
                         .toList();
 
                 // Further filter by reachability
@@ -344,24 +359,24 @@ public class TaskDispatcher {
                                 return statusOrder;
                             })
                             .findFirst().orElse(reachableNodes.get(0));
-                    log.info("Task {} chip affinity matched node {} (chipModel={}) for chip {}",
-                            task.getTaskNo(), best.getName(), best.getChipModel(), chipName);
+                    log.info("Task {} chip affinity matched node {} (chipModel={}) for chip {} (type={})",
+                            task.getTaskNo(), best.getName(), best.getChipModel(), chipName, chipType);
                     task.setQueueReason(null);
                     return best;
                 } else {
                     // Count total chip-matching nodes (online + offline) for better message
                     List<ComputeNode> allNodes = nodeRepository.findAll();
                     long totalMatching = allNodes.stream()
-                            .filter(n -> chipModelMatches(n, chipName))
+                            .filter(n -> chipModelMatches(n, chipName, chipType))
                             .count();
                     long onlineMatching = chipMatchedNodes.size();
                     String reason;
                     if (onlineMatching > 0) {
-                        reason = String.format("等待 %s 类型节点可用（%d 个节点注册）",
-                                chipName, onlineMatching);
+                        reason = String.format("等待 %s(%s) 类型节点可用（%d 个节点注册）",
+                                chipName, chipType, onlineMatching);
                     } else {
-                        reason = String.format("等待 %s 类型节点上线（共 %d 个注册节点，0 个 ONLINE）",
-                                chipName, totalMatching);
+                        reason = String.format("等待 %s(%s) 类型节点上线（共 %d 个注册节点，0 个 ONLINE）",
+                                chipName, chipType, totalMatching);
                     }
                     task.setQueueReason(reason);
                     log.info("Task {} queue reason: {}", task.getTaskNo(), reason);

@@ -47,7 +47,18 @@ public interface EvaluationTaskRepository extends JpaRepository<EvaluationTask, 
             @Param("status") EvaluationTask.TaskStatus status,
             @Param("threshold") Instant threshold);
 
+    // Heartbeat-based stale detection for recovery scheduler
+    @Query("SELECT t FROM EvaluationTask t WHERE t.status = :status AND t.lastHeartbeatAt < :threshold")
+    List<EvaluationTask> findByStatusAndLastHeartbeatAtBefore(
+            @Param("status") EvaluationTask.TaskStatus status,
+            @Param("threshold") Instant threshold);
+
     List<EvaluationTask> findByAssignedNodeId(Long nodeId);
+
+    // Indexed queries for pollTasks (avoid findAll + stream filter)
+    List<EvaluationTask> findByStatusAndAssignedNodeId(EvaluationTask.TaskStatus status, Long assignedNodeId);
+    List<EvaluationTask> findByAssignedNodeIdAndStatus(Long assignedNodeId, EvaluationTask.TaskStatus status);
+
     List<EvaluationTask> findByResourcePoolIdAndStatus(Long resourcePoolId, EvaluationTask.TaskStatus status);
     List<EvaluationTask> findByResourcePoolIdAndStatusIn(Long resourcePoolId, List<EvaluationTask.TaskStatus> statuses);
 

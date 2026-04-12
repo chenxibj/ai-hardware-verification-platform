@@ -58,10 +58,10 @@ public class TaskRecoveryScheduler {
 
     @PostConstruct
     public void init() {
-        log.info("TaskRecoveryScheduler initialized - scanning every 60s (progress=0 timeout: 5min, general timeout: 15min)");
+        log.info("TaskRecoveryScheduler initialized - scanning every 60s (fixedDelay, lastHeartbeatAt-based, progress=0 timeout: 5min, general timeout: 15min)");
     }
 
-    @Scheduled(fixedRate = 60000)
+    @Scheduled(fixedDelay = 60000)
     public void recoverTasks() {
         log.debug("TaskRecoveryScheduler scan cycle started");
         try {
@@ -112,12 +112,13 @@ public class TaskRecoveryScheduler {
         Instant threshold15 = Instant.now().minus(15, ChronoUnit.MINUTES);
         Instant threshold5 = Instant.now().minus(5, ChronoUnit.MINUTES);
 
+        // Use lastHeartbeatAt for stale detection (more accurate than updatedAt)
         List<EvaluationTask> staleTasks = new ArrayList<>(
-                taskRepository.findByStatusAndUpdatedAtBefore(
+                taskRepository.findByStatusAndLastHeartbeatAtBefore(
                         EvaluationTask.TaskStatus.RUNNING, threshold15));
 
-        // #382: Also catch RUNNING tasks with progress=0 after 5 minutes
-        List<EvaluationTask> stuckTasks = taskRepository.findByStatusAndUpdatedAtBefore(
+        // #382: Also catch RUNNING tasks with progress=0 after 5 minutes (using lastHeartbeatAt)
+        List<EvaluationTask> stuckTasks = taskRepository.findByStatusAndLastHeartbeatAtBefore(
                 EvaluationTask.TaskStatus.RUNNING, threshold5);
         for (EvaluationTask task : stuckTasks) {
             if (task.getProgress() != null && task.getProgress() == 0 && !staleTasks.contains(task)) {
