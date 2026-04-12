@@ -150,4 +150,18 @@ public class GpuSlotService {
             log.info("Reclaimed {} orphan GPU slots", reclaimed);
         }
     }
+
+    // ---- Slot counting methods for scheduler pre-check ----
+
+    public long countFreeSlots(Long nodeId) {
+        return gpuSlotRepository.findAll().stream()
+                .filter(s -> s.getNodeId().equals(nodeId) && "FREE".equals(s.getStatus()))
+                .count();
+    }
+
+    public long countTotalSlots(Long nodeId) {
+        return gpuSlotRepository.findAll().stream()
+                .filter(s -> s.getNodeId().equals(nodeId))
+                .count();
+    }
 }
