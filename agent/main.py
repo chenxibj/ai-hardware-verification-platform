@@ -2,6 +2,8 @@
 """
 AI 硬件验证平台 - 计算节点 Agent
 启动流程: 注册 -> 心跳线程 -> Flask HTTP 服务
+#400: 自愈能力提升 — systemd 服务化 + 优雅退出 + 健康检查
+#402: 批量拉取任务 — ThreadPoolExecutor 并发执行
 """
 import logging
 import logging.handlers
@@ -11,6 +13,7 @@ import signal
 import yaml
 import threading
 import time
+from datetime import datetime, timezone
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
@@ -27,12 +30,13 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.handlers.RotatingFileHandler(
+            os.path.join(log_dir, "agent.log"), maxBytes=10*1024*1024, backupCount=5
+        ),
+    ]
 )
-file_handler = logging.handlers.RotatingFileHandler(
-    os.path.join(log_dir, "agent.log"), maxBytes=10*1024*1024, backupCount=5
-)
-file_handler.setFormatter(logging.Formatter("%(asctime)s [%(name)s] %(levelname)s - %(message)s"))
-logging.getLogger().addHandler(file_handler)
 
 logger = logging.getLogger("agent")
 
@@ -60,12 +64,17 @@ app.register_blueprint(task_bp)
 node_info = None
 heartbeat_thread = None
 executor = None
+# #400: 启动时间 & 优雅退出标志
+BOOT_TIME = time.time()
+_shutting_down = threading.Event()
 
 
 @app.before_request
 def verify_token():
-    """请求认证中间件 (#213) - 平台→Agent 通信认证"""
-    if request.path == '/status' or request.path.startswith('/api/k8s/') or request.path.startswith('/api/tasks/'):
+    """请求认证中间件 (#213) - 平台->Agent 通信认证"""
+    # #400: /health 也不需要认证
+    if request.path in ('/status', '/health') or \
+       request.path.startswith('/api/k8s/') or request.path.startswith('/api/tasks/'):
         return  # 健康检查不需要认证
     token = request.headers.get('X-Agent-Token')
     if token != config['platform']['token']:
@@ -80,14 +89,71 @@ def status():
         "node_id": node_info.get("id") if node_info else None,
         "node_name": config["node"]["name"],
         "busy": executor.is_busy if executor else False,
-        "current_task": executor.current_task if executor else None,
+        "current_task": executor.current_tasks_info if executor else None,
         "metrics": get_system_metrics(),
     })
 
 
+@app.route("/health", methods=["GET"])
+def health():
+    """#400: 健康检查端点 — 返回详细的 Agent 状态"""
+    uptime_sec = time.time() - BOOT_TIME
+    hb_status = "unknown"
+    hb_last_success = None
+    hb_consecutive_failures = 0
+
+    if heartbeat_thread and hasattr(heartbeat_thread, 'get_health_info'):
+        hb_info = heartbeat_thread.get_health_info()
+        hb_status = hb_info.get("status", "unknown")
+        hb_last_success = hb_info.get("last_success_time")
+        hb_consecutive_failures = hb_info.get("consecutive_failures", 0)
+    elif heartbeat_thread and heartbeat_thread.is_alive():
+        hb_status = "running"
+
+    current_tasks = []
+    active_count = 0
+    max_workers = 4
+    if executor:
+        current_tasks = executor.current_tasks_info
+        active_count = executor.active_task_count
+        max_workers = executor.max_workers
+
+    return jsonify({
+        "status": "healthy" if not _shutting_down.is_set() else "shutting_down",
+        "uptime_seconds": round(uptime_sec, 1),
+        "uptime_human": _format_uptime(uptime_sec),
+        "node_id": node_info.get("id") if node_info else None,
+        "node_name": config["node"]["name"],
+        "heartbeat": {
+            "status": hb_status,
+            "last_success_time": hb_last_success,
+            "consecutive_failures": hb_consecutive_failures,
+        },
+        "tasks": {
+            "active_count": active_count,
+            "max_workers": max_workers,
+            "current_tasks": current_tasks,
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+def _format_uptime(seconds):
+    """格式化 uptime 为人类可读"""
+    days = int(seconds // 86400)
+    hours = int((seconds % 86400) // 3600)
+    minutes = int((seconds % 3600) // 60)
+    if days > 0:
+        return "{}d {}h {}m".format(days, hours, minutes)
+    elif hours > 0:
+        return "{}h {}m".format(hours, minutes)
+    else:
+        return "{}m".format(minutes)
+
+
 @app.route("/execute", methods=["POST"])
 def execute():
-    """接收并执行评测任务 — #226: 返回 202 Accepted"""
+    """接收并执行评测任务 — #226: 返回 202 Accepted, #402: 支持并发"""
     if executor is None:
         return jsonify({"code": -1, "message": "Agent 未就绪"}), 503
 
@@ -103,7 +169,7 @@ def execute():
     if not task_id or not eval_type:
         return jsonify({"code": -1, "message": "缺少 taskId 或 evalType"}), 400
 
-    # Bug #95 fix: 合并 config 到 params（config 为低优先级，params 覆盖 config）
+    # Bug #95 fix: 合并 config 到 params
     merged_params = {}
     if isinstance(task_config, dict):
         merged_params.update(task_config)
@@ -113,18 +179,18 @@ def execute():
     logger.info("接收任务 %s, evalType=%s, params=%s, config=%s, merged=%s",
                 task_id, eval_type, params, task_config, merged_params)
 
-    if executor.is_busy:
-        # #218: 节点忙时返回 409 Conflict
+    # #402: 检查线程池是否已满（替代原来的 is_busy 单任务检查）
+    if executor.is_full:
         return jsonify({
             "code": -1,
-            "message": "节点忙，正在执行任务 {}".format(executor.current_task),
+            "message": "节点任务已满 ({}/{})".format(
+                executor.active_task_count, executor.max_workers),
         }), 409
 
     try:
         # #240: Extract chip info from dispatch payload
         chip_info = data.get("chip", {})
         executor.execute_async(task_id, eval_type, merged_params, chip_info=chip_info)
-        # #226: 返回 202 Accepted（异步执行，结果通过回调上报）
         return jsonify({
             "code": 0,
             "message": "任务 {} 已接受，开始异步执行".format(task_id),
@@ -136,10 +202,35 @@ def execute():
 
 
 def shutdown_handler(sig, frame):
-    """优雅退出"""
-    logger.info("收到退出信号，正在关闭...")
+    """#400: 优雅退出 — 捕获 SIGTERM，等待当前任务完成再退出"""
+    sig_name = signal.Signals(sig).name if hasattr(signal, 'Signals') else str(sig)
+    logger.info("收到退出信号 %s，开始优雅关闭...", sig_name)
+    _shutting_down.set()
+
+    # 停止心跳线程
     if heartbeat_thread:
         heartbeat_thread.stop()
+        logger.info("心跳线程已停止")
+
+    # 等待当前正在执行的任务完成（最多等 300 秒）
+    if executor and executor.active_task_count > 0:
+        logger.info("等待 %d 个运行中任务完成...", executor.active_task_count)
+        deadline = time.time() + 300
+        while executor.active_task_count > 0 and time.time() < deadline:
+            remaining = executor.active_task_count
+            logger.info("仍有 %d 个任务运行中，等待... (剩余超时 %ds)",
+                        remaining, int(deadline - time.time()))
+            time.sleep(5)
+        if executor.active_task_count > 0:
+            logger.warning("超时！仍有 %d 个任务运行中，强制退出", executor.active_task_count)
+        else:
+            logger.info("所有任务已完成，安全退出")
+
+    # 关闭线程池
+    if executor:
+        executor.shutdown()
+
+    logger.info("Agent 已关闭")
     sys.exit(0)
 
 
@@ -148,12 +239,13 @@ def main():
 
     logger.info("=" * 60)
     logger.info("AI 硬件验证平台 - 计算节点 Agent 启动中...")
+    logger.info("#400: 自愈能力 + #402: 批量拉取 已启用")
     logger.info("平台地址: %s", config["platform"]["url"])
     logger.info("节点名称: %s", config["node"]["name"])
     logger.info("Agent 端口: %s", config["agent"]["port"])
     logger.info("=" * 60)
 
-    # 注册信号处理
+    # 注册信号处理 — #400: 优雅退出
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
 
@@ -165,23 +257,24 @@ def main():
 
     node_id = node_info.get("id", 0)
 
-    # 2. 初始化任务执行器
+    # 2. 初始化任务执行器 — #402: ThreadPoolExecutor (max_workers=4)
     executor = TaskExecutor(config, node_id)
 
-    # 3. 启动心跳线程（或后台重试注册线程）
+    # 3. 启动心跳线程 — #400: 带自愈能力
     if node_id > 0:
         heartbeat_thread = HeartbeatThread(node_id, config, executor=executor)
         heartbeat_thread.start()
     else:
-        # 后台持续重试注册，成功后自动启动心跳
         def background_register():
             global node_info, heartbeat_thread, executor
             retry_count = 0
-            while True:
+            while not _shutting_down.is_set():
                 retry_count += 1
-                wait_time = min(30 * retry_count, 300)  # 30s, 60s, 90s, ... 最大 5 分钟
+                wait_time = min(30 * retry_count, 300)
                 logger.info("后台注册重试将在 %d 秒后执行 (第 %d 次)", wait_time, retry_count)
-                time.sleep(wait_time)
+                _shutting_down.wait(wait_time)
+                if _shutting_down.is_set():
+                    return
                 result = register_node(config, max_retries=1, retry_interval=0)
                 if result:
                     node_info = result

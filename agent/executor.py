@@ -1,4 +1,5 @@
-"""任务执行模块 (#225 实时日志 + #226 async + #229 结构化日志 + #243 LogReporter)"""
+"""任务执行模块 (#225 实时日志 + #226 async + #229 结构化日志 + #243 LogReporter)
+#402: ThreadPoolExecutor 并发执行多任务"""
 import json
 import logging
 import os
@@ -7,6 +8,7 @@ import re
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor as _ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Optional, Dict, List
 import requests
@@ -24,7 +26,7 @@ PENDING_DIR = "/tmp/ahvp-pending-results"
 
 
 class TaskExecutor:
-    """管理评测任务的执行"""
+    """管理评测任务的执行 — #402: 支持并发执行多个任务"""
 
     SCRIPT_MAP = {
         # 具体类型
@@ -46,7 +48,10 @@ class TaskExecutor:
     LOG_FLUSH_INTERVAL = 5  # 秒
     LOG_FLUSH_LINES = 50    # 行
 
-    def __init__(self, config, node_id):
+    # #402: 默认最大并发 worker 数
+    DEFAULT_MAX_WORKERS = 4
+
+    def __init__(self, config, node_id, max_workers=None):
         self.config = config
         self.node_id = node_id
         self.platform_url = config["platform"]["url"]
@@ -61,12 +66,73 @@ class TaskExecutor:
         if not os.path.isabs(project_root):
             project_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), project_root)
         self.project_root = os.path.realpath(project_root)
-        self.current_task = None
+
+        # #402: ThreadPoolExecutor 替代单任务模式
+        self.max_workers = max_workers or self.DEFAULT_MAX_WORKERS
+        self._pool = _ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="task-worker")
+        self._active_tasks = {}  # task_id -> Future
+        self._task_info = {}     # task_id -> {eval_type, start_time}
         self._lock = threading.Lock()
 
     @property
     def is_busy(self):
-        return self.current_task is not None
+        """向后兼容：只要有任务就算 busy"""
+        return self.active_task_count > 0
+
+    @property
+    def is_full(self):
+        """#402: 所有 worker 都在忙"""
+        return self.active_task_count >= self.max_workers
+
+    @property
+    def active_task_count(self):
+        """当前正在执行的任务数"""
+        with self._lock:
+            # 清理已完成的任务
+            done_tasks = [tid for tid, fut in self._active_tasks.items() if fut.done()]
+            for tid in done_tasks:
+                del self._active_tasks[tid]
+                self._task_info.pop(tid, None)
+            return len(self._active_tasks)
+
+    @property
+    def available_workers(self):
+        """#402: 可用的 worker 数量"""
+        return max(0, self.max_workers - self.active_task_count)
+
+    @property
+    def current_task(self):
+        """向后兼容：返回第一个活跃任务的 ID"""
+        with self._lock:
+            if self._active_tasks:
+                return next(iter(self._active_tasks))
+            return None
+
+    @property
+    def current_tasks_info(self):
+        """#402: 返回所有活跃任务的信息列表"""
+        with self._lock:
+            # 清理已完成任务
+            done_tasks = [tid for tid, fut in self._active_tasks.items() if fut.done()]
+            for tid in done_tasks:
+                del self._active_tasks[tid]
+                self._task_info.pop(tid, None)
+
+            result = []
+            for tid, info in self._task_info.items():
+                elapsed = time.time() - info.get("start_time", time.time())
+                result.append({
+                    "task_id": tid,
+                    "eval_type": info.get("eval_type"),
+                    "running_seconds": round(elapsed, 1),
+                })
+            return result
+
+    def shutdown(self):
+        """#400: 关闭线程池"""
+        logger.info("正在关闭任务线程池...")
+        self._pool.shutdown(wait=False)
+        logger.info("任务线程池已关闭")
 
     def _resolve_script(self, eval_type, params):
         """根据 eval_type 和 params 解析实际要执行的脚本名"""
@@ -90,27 +156,30 @@ class TaskExecutor:
         return script_name
 
     def execute_async(self, task_id, eval_type, params=None, chip_info=None):
-        """异步执行评测任务"""
+        """#402: 异步执行评测任务（使用线程池）"""
         with self._lock:
-            if self.current_task is not None:
-                raise RuntimeError("节点正在执行任务 {}, 无法接受新任务".format(self.current_task))
-            self.current_task = task_id
+            if task_id in self._active_tasks:
+                raise RuntimeError("任务 {} 已在执行中".format(task_id))
 
-        # #240: Store chip_info for the task
-        self._chip_info = chip_info or {}
+            # 清理已完成任务
+            done_tasks = [tid for tid, fut in self._active_tasks.items() if fut.done()]
+            for tid in done_tasks:
+                del self._active_tasks[tid]
+                self._task_info.pop(tid, None)
 
-        try:
-            thread = threading.Thread(
-                target=self._run_task,
-                args=(task_id, eval_type, params or {}),
-                daemon=True,
-                name="task-{}".format(task_id),
-            )
-            thread.start()
-        except Exception:
-            with self._lock:
-                self.current_task = None
-            raise
+            if len(self._active_tasks) >= self.max_workers:
+                raise RuntimeError("Worker 已满 ({}/{}), 无法接受新任务".format(
+                    len(self._active_tasks), self.max_workers))
+
+            # 提交到线程池
+            future = self._pool.submit(self._run_task, task_id, eval_type, params or {}, chip_info or {})
+            self._active_tasks[task_id] = future
+            self._task_info[task_id] = {
+                "eval_type": eval_type,
+                "start_time": time.time(),
+            }
+            logger.info("#402: 任务 %s 已提交线程池 (%d/%d workers busy)",
+                        task_id, len(self._active_tasks), self.max_workers)
 
     @staticmethod
     def _classify_log_line(line):
@@ -233,7 +302,7 @@ class TaskExecutor:
         except Exception as e:
             logger.warning("Batch log upload error for task %s: %s", task_id, e)
 
-    def _run_task(self, task_id, eval_type, params):
+    def _run_task(self, task_id, eval_type, params, chip_info=None):
         start_time = time.time()
         logger.info("开始执行任务 %s, 类型=%s, 参数=%s", task_id, eval_type, params)
         try:
@@ -247,8 +316,8 @@ class TaskExecutor:
 
             script_params = dict(params)
             # #240: Inject chip info for GFLOPS utilization calculation
-            if self._chip_info:
-                script_params["_chip_info"] = self._chip_info
+            if chip_info:
+                script_params["_chip_info"] = chip_info
             cmd = ["python3", script_path]
             if script_params:
                 cmd.append(json.dumps(script_params))
@@ -320,7 +389,7 @@ class TaskExecutor:
                     }
                     if metrics:
                         entry["metrics"] = metrics
-                    
+
                     with log_entries_lock:
                         log_entries.append(entry)
                         should_flush = len(log_entries) >= self.LOG_FLUSH_LINES
@@ -392,8 +461,6 @@ class TaskExecutor:
                 pass
 
             if eval_result is None:
-                # Eval scripts may print [EVAL] log lines before the JSON output.
-                # Find the last JSON object in stdout (the benchmark result).
                 last_json = None
                 for line in reversed(stdout_text.strip().splitlines()):
                     line = line.strip()
@@ -473,9 +540,12 @@ class TaskExecutor:
                 "node_id": self.node_id,
             })
         finally:
+            # #402: 从活跃任务列表中移除
             with self._lock:
-                self.current_task = None
-            logger.info("任务 %s 资源已释放, current_task=None", task_id)
+                self._active_tasks.pop(task_id, None)
+                self._task_info.pop(task_id, None)
+            logger.info("任务 %s 资源已释放 (%d/%d workers busy)",
+                        task_id, len(self._active_tasks), self.max_workers)
 
     def _save_task_log(self, task_id, eval_type, params, cmd_str, stdout_text, stderr_text):
         """#217: 保存任务执行日志到 logs/{taskId}.log"""
@@ -519,17 +589,14 @@ class TaskExecutor:
                 resp = requests.post(url, json=payload, headers=headers, timeout=30)
                 if resp.status_code == 200:
                     logger.info("任务 %s 结果上报成功, status=%s", task_id, status)
-                    # 上报成功，清理本地持久化文件（如果有）
                     self._remove_pending_result(task_id)
                     return
                 elif 400 <= resp.status_code < 500:
-                    # #360: 4xx 客户端错误（含 410 Gone），不重试
                     logger.warning("任务 %s 结果上报被拒绝 (HTTP %s): %s，停止重试",
                                    task_id, resp.status_code, resp.text[:200])
                     self._remove_pending_result(task_id)
                     return
                 else:
-                    # 5xx 服务器错误，可重试
                     logger.error("任务 %s 结果上报失败 (attempt %d/%d): %s %s",
                                  task_id, attempt + 1, self.MAX_REPORT_RETRIES,
                                  resp.status_code, resp.text[:200])
@@ -537,14 +604,12 @@ class TaskExecutor:
                 logger.error("任务 %s 结果上报异常 (attempt %d/%d): %s",
                              task_id, attempt + 1, self.MAX_REPORT_RETRIES, e)
 
-            # 指数退避：30s, 60s, 120s
             if attempt < self.MAX_REPORT_RETRIES - 1:
                 backoff = self.REPORT_BACKOFF_BASE * (2 ** attempt)
                 logger.info("任务 %s 将在 %ds 后重试上报 (attempt %d/%d)",
                             task_id, backoff, attempt + 2, self.MAX_REPORT_RETRIES)
                 time.sleep(backoff)
 
-        # 所有重试用尽，持久化到本地
         logger.error("任务 %s 结果上报 %d 次均失败，持久化到本地", task_id, self.MAX_REPORT_RETRIES)
         self._save_pending_result(task_id, payload)
 

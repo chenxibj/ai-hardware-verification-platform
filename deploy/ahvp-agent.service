@@ -1,0 +1,32 @@
+[Unit]
+Description=AHVP Agent - AI Hardware Verification Platform Compute Node
+Documentation=https://github.com/chenxibj/ai-hardware-verification-platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/ai-hardware-verification-platform/agent
+ExecStart=/usr/bin/python3 main.py
+Restart=always
+RestartSec=5
+
+# #400: OOM 保护 — 限制内存使用
+MemoryMax=512M
+MemoryHigh=450M
+
+# #400: 优雅退出 — 给 Agent 时间完成当前任务
+KillSignal=SIGTERM
+TimeoutStopSec=310
+
+# 日志输出到 journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ahvp-agent
+
+# 环境变量
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
