@@ -13,7 +13,9 @@ public class HealthController {
     public ApiResponse<?> health() {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("status", "UP");
-        data.put("version", System.getenv("GIT_COMMIT"));
+        data.put("version", System.getenv("APP_VERSION"));
+        data.put("commit", System.getenv("GIT_COMMIT"));
+        data.put("buildTime", System.getenv("BUILD_TIME"));
         data.put("timestamp", Instant.now().toString());
         data.put("components", Map.of(
             "database", "UP",

@@ -151,7 +151,7 @@ export default function MainLayout({ children }) {
           {children}
         </Content>
         <Footer style={{ textAlign: "center", padding: "12px 50px", color: "#999" }}>
-          人工智能软硬件验证平台 v1.0.0 ©2026 上海人工智能实验室
+          人工智能软硬件验证平台 {process.env.REACT_APP_VERSION || "dev"} ©2026 上海人工智能实验室
         </Footer>
       </Layout>
     </Layout>

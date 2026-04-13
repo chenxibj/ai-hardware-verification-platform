@@ -38,8 +38,10 @@ echo
 echo "--- Version Info ---"
 GIT_VER=$(cd /root/ai-hardware-verification-platform && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BACKEND_ENV_VER=$(docker inspect ahvp-backend --format='{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep GIT_COMMIT | cut -d= -f2 | head -c8 || echo "N/A")
+BACKEND_APP_VER=$(docker inspect ahvp-backend --format={{range .Config.Env}}{{println .}}{{end}} 2>/dev/null | grep APP_VERSION | cut -d= -f2 || echo "N/A")
 echo "  Git HEAD:     $GIT_VER"
-echo "  Backend env:  $BACKEND_ENV_VER"
+echo "  Backend commit: $BACKEND_ENV_VER"
+  echo "  APP_VERSION:   $BACKEND_APP_VER"
 
 HEALTH_RESP=$(curl -sf http://localhost:8080/api/health 2>/dev/null || echo "{}")
 HEALTH_VER=$(echo "$HEALTH_RESP" | grep -oP '"version"\s*:\s*"\K[^"]+' 2>/dev/null || echo "N/A")
