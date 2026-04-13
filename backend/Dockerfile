@@ -15,8 +15,9 @@ ENV GIT_COMMIT=$GIT_COMMIT
 ENV APP_VERSION=$APP_VERSION
 ENV BUILD_TIME=$BUILD_TIME
 
-ARG KUBECTL_VERSION=v1.28.0
-RUN apk add --no-cache curl &&     curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" &&     chmod +x kubectl && mv kubectl /usr/local/bin/ &&     apk del curl
+# kubectl — COPY pre-downloaded binary (avoids slow dl.k8s.io from China)
+COPY kubectl /usr/local/bin/kubectl
+RUN chmod +x /usr/local/bin/kubectl
 
 COPY --from=builder /build/target/*.jar app.jar
 
