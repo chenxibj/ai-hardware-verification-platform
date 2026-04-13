@@ -339,6 +339,34 @@ export default function TemplateList() {
                         {itemCount > 0 && <Tag color="cyan" style={{ fontSize: 11 }}>{itemCount} 评测项</Tag>}
                         {hfModels.length > 0 && <Tag color="blue" style={{ fontSize: 11 }}>🤗 {hfModels.length} HF模型</Tag>}
                       </Space>
+                      {/* #421: 配置详情预览 */}
+                      <div style={{ marginTop: 6, fontSize: 11, color: "#888", lineHeight: "18px" }}>
+                        {config.iterations && <span>迭代: {config.iterations} &nbsp;</span>}
+                        {ensureArray(config.batchSizes).length > 0 && <span>批次: [{ensureArray(config.batchSizes).join(",")}] &nbsp;</span>}
+                        {ensureArray(config.dataTypes).length > 0 && <span>类型: {ensureArray(config.dataTypes).join("/")} &nbsp;</span>}
+                      </div>
+                      {ensureArray(config.operators).length > 0 && (
+                        <div style={{ marginTop: 4 }}>
+                          <Text type="secondary" style={{ fontSize: 11 }}>算子: </Text>
+                          {ensureArray(config.operators).slice(0, 4).map(op => (
+                            <Tag key={op} style={{ fontSize: 10, padding: "0 4px", margin: "1px" }}>{op}</Tag>
+                          ))}
+                          {ensureArray(config.operators).length > 4 && (
+                            <Tag style={{ fontSize: 10, padding: "0 4px", margin: "1px" }}>+{ensureArray(config.operators).length - 4}</Tag>
+                          )}
+                        </div>
+                      )}
+                      {(ensureArray(config.models).length > 0 || hfModels.length > 0) && (
+                        <div style={{ marginTop: 2 }}>
+                          <Text type="secondary" style={{ fontSize: 11 }}>模型: </Text>
+                          {[...ensureArray(config.models), ...hfModels].slice(0, 3).map(m => (
+                            <Tag key={m} color="blue" style={{ fontSize: 10, padding: "0 4px", margin: "1px" }}>{m}</Tag>
+                          ))}
+                          {[...ensureArray(config.models), ...hfModels].length > 3 && (
+                            <Tag style={{ fontSize: 10, padding: "0 4px", margin: "1px" }}>+{[...ensureArray(config.models), ...hfModels].length - 3}</Tag>
+                          )}
+                        </div>
+                      )}
                     </Space>
                   </Card>
                 </Col>
