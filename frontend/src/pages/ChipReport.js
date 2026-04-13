@@ -1,9 +1,6 @@
 /**
-import { useParams, useNavigate } from "react-router-dom";
  * @file ChipReport.js
-import { useParams, useNavigate } from "react-router-dom";
  * @description 完整芯片评价报告页面 — 7 板块
-import { useParams, useNavigate } from "react-router-dom";
  * Issue: #141, #165 增强
  *
  * 1. 能力总览（综合评分 + 评级星星 + 雷达图）
@@ -30,6 +27,7 @@ import {
 import RadarChart from "../components/RadarChart";
 import api from "../utils/api";
 import { exportToPdf, generateReportFilename } from "../utils/exportPdf";
+import { useParams, useNavigate } from "react-router-dom";
 
 const { Title, Text } = Typography;
 
@@ -446,7 +444,7 @@ export default function ChipReport() {
       {/* 操作栏 */}
       <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }} data-html2canvas-ignore>
         <div>
-          {true {onBack &&{onBack && (
+          {true && (
             <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate("/reports")} style={{ paddingLeft: 0 }}>返回</Button>
           )}
         </div>

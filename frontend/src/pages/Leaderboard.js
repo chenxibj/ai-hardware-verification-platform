@@ -1,9 +1,6 @@
 /**
-import { useNavigate } from "react-router-dom";
  * @file Leaderboard.js
-import { useNavigate } from "react-router-dom";
  * @description 评测榜单页面 (#177) — 排行榜表格+筛选+排序+Top3特殊样式
-import { useNavigate } from "react-router-dom";
  */
 import React, { useState, useEffect } from "react";
 import {
@@ -16,6 +13,7 @@ import {
   FilterOutlined,
 } from "@ant-design/icons";
 import api from "../utils/api";
+import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 
 const { Text, Title } = Typography;

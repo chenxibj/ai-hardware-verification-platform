@@ -1,9 +1,6 @@
 /**
-import { useSearchParams, useNavigate } from "react-router-dom";
  * @file ChipCompare.js
-import { useSearchParams, useNavigate } from "react-router-dom";
  * @description 芯片对比页面 — 多报告对比分析增强
-import { useSearchParams, useNavigate } from "react-router-dom";
  * Issue: #140 基础, #170 增强 (US-2.2)
  *
  * 增强功能：
@@ -22,6 +19,7 @@ import {
 } from "@ant-design/icons";
 import api from "../utils/api";
 import { exportToPdf, generateReportFilename } from "../utils/exportPdf";
+import { useSearchParams, useNavigate } from "react-router-dom";
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -338,7 +336,7 @@ export default function ChipCompare() {
 
   return (
     <div>
-      {true {onBack &&{onBack && (
+      {true && (
         <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate("/chips")} style={{ marginBottom: 16, paddingLeft: 0 }}>
           返回芯片列表
         </Button>

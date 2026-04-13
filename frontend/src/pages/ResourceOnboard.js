@@ -1,9 +1,6 @@
 /**
-import { useNavigate } from "react-router-dom";
  * @file ResourceOnboard.js
-import { useNavigate } from "react-router-dom";
  * @description 资源纳管页面 — Tabs 布局（节点注册 + 集群纳管）
-import { useNavigate } from "react-router-dom";
  * @feat 资源管理模块重设计
  */
 import React, { useState } from "react";
@@ -11,6 +8,7 @@ import { Card, Tabs, Typography, Space } from "antd";
 import { RocketOutlined, CloudServerOutlined, ClusterOutlined } from "@ant-design/icons";
 import NodeRegisterTab from "../components/resource/NodeRegisterTab";
 import ClusterOnboardTab from "../components/resource/ClusterOnboardTab";
+import { useNavigate } from "react-router-dom";
 
 const { Title } = Typography;
 

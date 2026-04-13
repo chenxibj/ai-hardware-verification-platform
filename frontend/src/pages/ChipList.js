@@ -1,9 +1,6 @@
 /**
-import { useNavigate } from "react-router-dom";
  * @file ChipList.js
-import { useNavigate } from "react-router-dom";
  * @description 芯片管理页面 — 列表 + 注册弹窗(增强版) + 详情抽屉
-import { useNavigate } from "react-router-dom";
  * Issues: #129 芯片注册, #130 芯片列表, #159 芯片注册增强
  */
 import React, { useState, useEffect, useCallback } from "react";
@@ -18,6 +15,7 @@ import {
   ThunderboltOutlined, AppstoreOutlined,
 } from "@ant-design/icons";
 import api from "../utils/api";
+import { useNavigate } from "react-router-dom";
 
 const { Option } = Select;
 const { TextArea } = Input;

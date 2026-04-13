@@ -1,9 +1,6 @@
 /**
-import { useParams, useNavigate } from "react-router-dom";
  * @file NodeDetail.js
-import { useParams, useNavigate } from "react-router-dom";
  * @description 计算节点详情页 — 基本信息 + 指标折线图(ECharts) + 告警面板
-import { useParams, useNavigate } from "react-router-dom";
  * @feat #167, #176 资源监控与运维 (US-5.3)
  */
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -17,6 +14,7 @@ import {
 } from "@ant-design/icons";
 import ReactECharts from "echarts-for-react";
 import api from "../utils/api";
+import { useParams, useNavigate } from "react-router-dom";
 import AlertPanel from "./AlertPanel";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";

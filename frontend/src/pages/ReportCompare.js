@@ -1,9 +1,6 @@
 /**
-import { useSearchParams, useNavigate } from "react-router-dom";
  * @file ReportCompare.js
-import { useSearchParams, useNavigate } from "react-router-dom";
  * @description 报告对比结果展示 — 综合评分 + 维度对比表 + 雷达图 + 关键指标
-import { useSearchParams, useNavigate } from "react-router-dom";
  *
  * 接收 reportIds 数组，调用 /api/chip-reports/compare?ids=x,y 获取数据并渲染。
  * 雷达图使用公共组件 OverlayRadarChart，维度常量从其中导入。
@@ -21,6 +18,7 @@ import api from "../utils/api";
 import OverlayRadarChart, {
   COMPARE_COLORS, DIMENSION_MAP, DIMENSION_KEYS, DIMENSION_LABELS,
 } from "../components/OverlayRadarChart";
+import { useSearchParams, useNavigate } from "react-router-dom";
 
 const { Title, Text } = Typography;
 
@@ -102,7 +100,7 @@ export default function ReportCompare() {
     return (
       <div style={{ textAlign: "center", padding: 100 }}>
         <Empty description="对比数据不足" />
-        {true {onBack &&{onBack && (
+        {true && (
           <Button onClick={() => navigate("/reports")} style={{ marginTop: 16 }} icon={<ArrowLeftOutlined />}>
             返回
           </Button>
@@ -178,7 +176,7 @@ export default function ReportCompare() {
       <Card style={{ marginBottom: 16 }}>
         <Row align="middle" gutter={16}>
           <Col>
-            {true {onBack &&{onBack && <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/reports")}>返回</Button>}
+            {true && <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/reports")}>返回</Button>}
           </Col>
           <Col flex="auto">
             <Title level={4} style={{ margin: 0 }}>

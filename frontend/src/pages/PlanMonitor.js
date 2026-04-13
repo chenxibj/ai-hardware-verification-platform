@@ -1,9 +1,6 @@
 /**
-import { useParams, useNavigate } from "react-router-dom";
  * @file PlanMonitor.js
-import { useParams, useNavigate } from "react-router-dom";
  * @description 执行监控页面 — 资源仪表盘 + 任务列表(含重试/跳过) + 实时日志
-import { useParams, useNavigate } from "react-router-dom";
  * Issue: #134, #163, #229-#234, #244, #245
  */
 import React, { useState, useEffect, useCallback, useRef } from "react";
@@ -21,6 +18,7 @@ import {
   UpOutlined,
 } from "@ant-design/icons";
 import api from "../utils/api";
+import { useParams, useNavigate } from "react-router-dom";
 import useLogWebSocket from "../hooks/useLogWebSocket";
 
 const { Title, Text } = Typography;

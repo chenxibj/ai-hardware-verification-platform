@@ -1,9 +1,6 @@
 /**
-import { useParams, useNavigate } from "react-router-dom";
  * @file ChipProfile.js
-import { useParams, useNavigate } from "react-router-dom";
  * @description 芯片档案页 — 4 Tab 完整版（增强版）
-import { useParams, useNavigate } from "react-router-dom";
  * Issues: #138 MVP-1, #160 芯片档案页增强
  *
  * Tab 1: 能力画像（默认 Tab）— 雷达图 + 维度评分 + 综合评分 + 场景推荐
@@ -28,6 +25,7 @@ import {
 import ReactECharts from "echarts-for-react";
 import RadarChart, { DIMENSIONS } from "../components/RadarChart";
 import api from "../utils/api";
+import { useParams, useNavigate } from "react-router-dom";
 
 const { Title, Text, Paragraph } = Typography;
 const { Option } = Select;
@@ -650,7 +648,7 @@ export default function ChipProfile() {
                     icon={<EyeOutlined />}
                     onClick={() => {
                       const plan = plans.find(p => p.id === completedReport.planId);
-                      if (plan && onOpenReport) onOpenReport(plan.id);
+                      if (plan) navigate(`/reports/${plan.id}`);
                       else { setActiveTab("report"); }
                     }}
                   >

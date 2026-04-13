@@ -1,9 +1,6 @@
 /**
-import { useNavigate } from "react-router-dom";
  * @file ReportList.js
-import { useNavigate } from "react-router-dom";
  * @description 评测报告查看与管理 — 列表 + 筛选 + 搜索 + 多选对比
-import { useNavigate } from "react-router-dom";
  * Issue: #169
  */
 import React, { useState, useEffect, useCallback } from "react";
@@ -17,6 +14,7 @@ import {
   StarFilled, FileTextOutlined, ReloadOutlined,
 } from "@ant-design/icons";
 import api from "../utils/api";
+import { useNavigate } from "react-router-dom";
 
 const { Title, Text } = Typography;
 const { Option } = Select;

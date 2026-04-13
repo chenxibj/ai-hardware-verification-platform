@@ -1,9 +1,6 @@
 /**
-import { useParams, useNavigate } from "react-router-dom";
  * @file TaskResult.js
-import { useParams, useNavigate } from "react-router-dom";
  * @description 评测结果详情页面 — 4个Tab：执行信息/结果数据/原因分析/执行日志
-import { useParams, useNavigate } from "react-router-dom";
  * Issue: #164, #173 (日志增强), 算子结果展示增强 + 错误原因分析
  */
 import React, { useState, useEffect, useMemo } from "react";
@@ -22,6 +19,7 @@ import {
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import api from "../utils/api";
+import { useParams, useNavigate } from "react-router-dom";
 
 const { Title, Text, Paragraph } = Typography;
 const { Panel } = Collapse;
@@ -802,7 +800,7 @@ export default function TaskResult() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <Space>
-          {true {onBack &&{onBack && <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)} style={{ paddingLeft: 0 }}>返回</Button>}
+          {true && <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)} style={{ paddingLeft: 0 }}>返回</Button>}
           <Title level={4} style={{ margin: 0 }}>{task.testItem || task.name} — 评测结果</Title>
           <Badge status={statusInfo.color} text={statusInfo.text} />
         </Space>
