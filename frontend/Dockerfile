@@ -4,6 +4,9 @@ WORKDIR /app
 
 RUN apk add --no-cache bash git
 
+ARG GIT_COMMIT=unknown
+ENV REACT_APP_GIT_COMMIT=$GIT_COMMIT
+
 COPY package*.json ./
 COPY scripts/ scripts/
 RUN npm ci
