@@ -88,6 +88,8 @@ public class EvaluationPlanService {
         saved = planRepository.save(saved);
         log.info("Evaluation task {} auto-split into {} sub-tasks", saved.getPlanNo(), tasks.size());
 
+        // #420: 填充 @Transient 字段
+        enrichPlan(saved);
         return saved;
     }
 
@@ -330,6 +332,8 @@ public class EvaluationPlanService {
         saved = planRepository.save(saved);
         log.info("Copied evaluation task {} auto-split into {} sub-tasks", saved.getPlanNo(), tasks.size());
 
+        // #420: 填充 @Transient 字段
+        enrichPlan(saved);
         return saved;
     }
 
