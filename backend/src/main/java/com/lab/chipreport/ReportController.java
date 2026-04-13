@@ -2,7 +2,9 @@ package com.lab.chipreport;
 
 import com.lab.auth.RequireRole;
 import com.lab.auth.Role;
+import com.lab.chip.ChipRepository;
 import com.lab.common.ApiResponse;
+import com.lab.plan.EvaluationPlanRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -19,6 +21,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 /**
  * 报告独立入口 — GET /reports, GET /reports/{id}
  * 复用 ChipReportRepository，提供顶层 /reports 路由 (#319)
+ * #428: enrichReport 填充 chipName/planName
  */
 @RestController
 @RequestMapping("/reports")
@@ -26,6 +29,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class ReportController {
 
     private final ChipReportRepository reportRepository;
+    private final ChipRepository chipRepository;
+    private final EvaluationPlanRepository planRepository;
     private final ObjectMapper objectMapper;
 
     @GetMapping
@@ -46,6 +51,8 @@ public class ReportController {
         Page<ChipReport> result = reportRepository.findAll(
                 ChipReportSpec.filtered(chipId, statusEnum, null, null, null), pageable);
 
+        enrichReports(result.getContent());
+
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("records", result.getContent());
         data.put("total", result.getTotalElements());
@@ -59,6 +66,7 @@ public class ReportController {
     public ApiResponse<ChipReport> getReport(@PathVariable Long id) {
         ChipReport report = reportRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Report not found: " + id));
+        enrichReport(report);
         return ApiResponse.ok(report);
     }
 
@@ -109,10 +117,13 @@ public class ReportController {
             for (Long rid : idList) {
                 ChipReport r = reportRepository.findById(rid).orElse(null);
                 if (r == null) continue;
+                enrichReport(r);
 
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("id", r.getId());
                 item.put("reportNo", r.getReportNo());
+                item.put("chipName", r.getChipName());
+                item.put("planName", r.getPlanName());
                 item.put("createdAt", r.getCreatedAt() != null ? r.getCreatedAt().toString() : "");
                 item.put("overallScore", r.getOverallScore());
                 item.put("status", r.getStatus());
@@ -135,4 +146,17 @@ public class ReportController {
         }
     }
 
+    /** #428: 填充 @Transient 字段 chipName/planName */
+    private void enrichReport(ChipReport report) {
+        if (report.getChipId() != null) {
+            chipRepository.findById(report.getChipId()).ifPresent(c -> report.setChipName(c.getName()));
+        }
+        if (report.getPlanId() != null) {
+            planRepository.findById(report.getPlanId()).ifPresent(p -> report.setPlanName(p.getName()));
+        }
+    }
+
+    private void enrichReports(List<ChipReport> reports) {
+        reports.forEach(this::enrichReport);
+    }
 }
