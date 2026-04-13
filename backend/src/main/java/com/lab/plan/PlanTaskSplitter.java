@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 
 /**
  * 评测任务→任务自动拆分服务
@@ -131,9 +132,55 @@ public class PlanTaskSplitter {
                 tasks.addAll(createComprehensiveTasks(plan));
                 break;
             default:
-                log.warn("Unknown preset '{}' for plan {}, defaulting to STANDARD", preset, plan.getPlanNo());
+                log.warn("Unknown preset \'{}\' for plan {}, defaulting to STANDARD", preset, plan.getPlanNo());
                 tasks.addAll(createStandardTasks(plan));
                 break;
+        }
+
+        // #412: Filter tasks by selectedItems from evalConfig
+        List<String> selectedItems = extractSelectedItems(plan.getEvalConfig());
+        if (selectedItems != null && !selectedItems.isEmpty()) {
+            int beforeCount = tasks.size();
+
+            // Check for "root" items — these mean "select ALL items of that category"
+            boolean hasOpRoot = selectedItems.stream().anyMatch(si -> si.startsWith("op-root-"));
+            boolean hasModelRoot = selectedItems.stream().anyMatch(si -> si.startsWith("model-root-"));
+
+            tasks = tasks.stream()
+                .filter(t -> {
+                    String testItem = t.getTestItem();
+                    String subject = t.getTestSubject().name().toLowerCase();
+                    boolean isOperator = subject.equals("operator");
+                    boolean isModel = subject.equals("model");
+
+                    // If root item exists for this category, keep all tasks of that category
+                    if (isOperator && hasOpRoot) return true;
+                    if (isModel && hasModelRoot) return true;
+
+                    return selectedItems.stream().anyMatch(si -> {
+                        int firstDash = si.indexOf('-');
+                        if (firstDash < 0) return false;
+                        String prefix = si.substring(0, firstDash); // "op" or "model"
+                        // Skip root items in per-item matching
+                        if (si.contains("-root-")) return false;
+
+                        // Extract item name: everything between first dash and last dash
+                        int lastDash = si.lastIndexOf('-');
+                        if (lastDash <= firstDash) return false;
+                        String itemName = si.substring(firstDash + 1, lastDash);
+
+                        boolean prefixMatch = (prefix.equals("op") && isOperator)
+                            || (prefix.equals("model") && isModel);
+
+                        // testItem may have suffix like "MLP-Medium/batch=4", match base name
+                        String baseTestItem = testItem.contains("/") ? testItem.substring(0, testItem.indexOf('/')) : testItem;
+                        return prefixMatch && baseTestItem.equals(itemName);
+                    });
+                })
+                .collect(Collectors.toList());
+
+            log.info("#412: selectedItems filter applied: {} -> {} tasks (selectedItems={})",
+                     beforeCount, tasks.size(), selectedItems);
         }
 
         List<EvaluationTask> saved = taskRepository.saveAll(tasks);
@@ -227,6 +274,44 @@ public class PlanTaskSplitter {
     }
 
     // ============ 辅助方法 ============
+
+    /**
+     * #412: Extract selectedItems array from evalConfig JSON string.
+     * Format: {"selectedItems": ["op-MatMul-1", "model-MLP-Small-18", "op-root-0", ...]}
+     */
+    private List<String> extractSelectedItems(String evalConfig) {
+        if (evalConfig == null || evalConfig.isBlank()) {
+            return null;
+        }
+        int idx = evalConfig.indexOf("\"selectedItems\"");
+        if (idx < 0) {
+            return null;
+        }
+        int bracketStart = evalConfig.indexOf('[', idx);
+        if (bracketStart < 0) {
+            return null;
+        }
+        int bracketEnd = evalConfig.indexOf(']', bracketStart);
+        if (bracketEnd < 0) {
+            return null;
+        }
+        String arrayStr = evalConfig.substring(bracketStart + 1, bracketEnd);
+        if (arrayStr.isBlank()) {
+            return null;
+        }
+        List<String> items = new ArrayList<>();
+        // Simple JSON array parser for string values
+        int pos = 0;
+        while (pos < arrayStr.length()) {
+            int q1 = arrayStr.indexOf('"', pos);
+            if (q1 < 0) break;
+            int q2 = arrayStr.indexOf('"', q1 + 1);
+            if (q2 < 0) break;
+            items.add(arrayStr.substring(q1 + 1, q2));
+            pos = q2 + 1;
+        }
+        return items.isEmpty() ? null : items;
+    }
 
     private String extractPreset(String evalConfig) {
         if (evalConfig == null || evalConfig.isBlank()) {
