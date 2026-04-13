@@ -247,7 +247,7 @@ export default function PlanList() {
         const chipType = getChipType(record);
         return (
           <Space>
-            <Link to="/chips" style={{ color: "#1890ff" }}>{getChipName(record)}</Link>
+            <Link to={`/chips/${record.chipId}`} style={{ color: "#1890ff" }}>{getChipName(record)}</Link>
             {chipType && <Tag color={CHIP_TYPE_COLORS[chipType]} style={{ marginLeft: 0 }}>{chipType}</Tag>}
           </Space>
         );
@@ -442,7 +442,7 @@ export default function PlanList() {
               </Descriptions.Item>
               <Descriptions.Item label="任务名称">{detailRecord.name}</Descriptions.Item>
               <Descriptions.Item label="关联芯片">
-                <Link to="/chips">{getChipName(detailRecord)}</Link>
+                <Link to={`/chips/${detailRecord.chipId}`}>{getChipName(detailRecord)}</Link>
               </Descriptions.Item>
               <Descriptions.Item label="状态">
                 <Badge status={st.badge} text={st.text} />
