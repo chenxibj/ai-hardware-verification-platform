@@ -177,9 +177,6 @@ export default function Login() {
               <Link onClick={() => setPage("forgot")}>忘记密码？</Link>
             </div>
 
-            <div style={{ textAlign: "center", color: "#999", fontSize: 12, marginTop: 16 }}>
-              测试账号：test@ahvp.com / test123
-            </div>
           </Card>
         </Col>
       </Row>

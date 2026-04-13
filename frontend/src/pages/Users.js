@@ -16,7 +16,7 @@ export default function Users() {
     setLoading(true);
     try {
       const res = await userApi.list({ size: 100 });
-      if (res.data.code === 0) setUsers(res.data.data || []);
+      if (res.data.code === 0) { const d = res.data.data; setUsers(Array.isArray(d) ? d : (d?.list || [])); }
     } catch(e) {
       if (e.response?.status === 403) {
         message.warning("权限不足，无法查看用户列表");
