@@ -14,7 +14,7 @@ import {
   FileTextOutlined, CheckCircleOutlined, CloseCircleOutlined,
   ExclamationCircleOutlined, CopyOutlined, BugOutlined, BarChartOutlined,
 } from "@ant-design/icons";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import DebugPanel from "../components/tasks/DebugPanel";
 import api from "../utils/api";
 
@@ -56,7 +56,8 @@ const getProgressStatus = (status) => {
   }
 };
 
-export default function PlanList({ onOpenMonitor, onCreatePlan, onViewReport }) {
+export default function PlanList() {
+  const navigate = useNavigate();
 
   /* 列表 state */
   const [plans, setPlans] = useState([]);
@@ -108,8 +109,8 @@ export default function PlanList({ onOpenMonitor, onCreatePlan, onViewReport }) 
       const { data: resp } = await api.get(`/chip-reports/plan/${record.id}`);
       if (resp.code === 0 && resp.data && resp.data.length > 0) {
         const reportId = resp.data[0].id;
-        if (onViewReport) {
-          onViewReport(reportId);
+        if (true) {
+          navigate(`/reports/${reportId}`);
         } else {
           message.info("报告ID: " + reportId);
         }
@@ -284,7 +285,7 @@ export default function PlanList({ onOpenMonitor, onCreatePlan, onViewReport }) 
         return (
           <Space size="small">
             <Tooltip title={"执行监控"}>
-              <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => onOpenMonitor ? onOpenMonitor(record.id) : openDetail(record)} />
+              <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/plans/${record.id}`)} />
             </Tooltip>
 
             <Tooltip title={"克隆"}>
@@ -397,7 +398,7 @@ export default function PlanList({ onOpenMonitor, onCreatePlan, onViewReport }) 
               {Object.entries(PLAN_STATUS_MAP).map(([k, v]) => <Option key={k} value={k}>{v.text}</Option>)}
             </Select>
             <Button icon={<ReloadOutlined />} onClick={() => { fetchPlans(); }}>刷新</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => onCreatePlan && onCreatePlan()}>创建任务</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate("/plans/create")}>创建任务</Button>
           </Space>
         }
       >

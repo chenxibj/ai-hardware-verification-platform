@@ -1,6 +1,9 @@
 /**
+import { useParams, useNavigate } from "react-router-dom";
  * @file PlanMonitor.js
+import { useParams, useNavigate } from "react-router-dom";
  * @description 执行监控页面 — 资源仪表盘 + 任务列表(含重试/跳过) + 实时日志
+import { useParams, useNavigate } from "react-router-dom";
  * Issue: #134, #163, #229-#234, #244, #245
  */
 import React, { useState, useEffect, useCallback, useRef } from "react";
@@ -95,7 +98,10 @@ function parseMetrics(metricsStr) {
   }
 }
 
-export default function PlanMonitor({ planId, onBack }) {
+export default function PlanMonitor() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const planId = Number(id);
   const [plan, setPlan] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -528,7 +534,7 @@ export default function PlanMonitor({ planId, onBack }) {
   return (
     <div>
       {/* 返回按钮 */}
-      <Button type="link" icon={<ArrowLeftOutlined />} onClick={onBack}
+      <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate("/plans")}
         style={{ marginBottom: 12, paddingLeft: 0 }}>
         返回任务列表
       </Button>

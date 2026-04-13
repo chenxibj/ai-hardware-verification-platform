@@ -1,6 +1,9 @@
 /**
+import { useNavigate } from "react-router-dom";
  * @file ResourceOnboard.js
+import { useNavigate } from "react-router-dom";
  * @description 资源纳管页面 — Tabs 布局（节点注册 + 集群纳管）
+import { useNavigate } from "react-router-dom";
  * @feat 资源管理模块重设计
  */
 import React, { useState } from "react";
@@ -11,7 +14,8 @@ import ClusterOnboardTab from "../components/resource/ClusterOnboardTab";
 
 const { Title } = Typography;
 
-export default function ResourceOnboard({ onBack }) {
+export default function ResourceOnboard() {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("node-register");
 
   const tabItems = [
@@ -27,7 +31,7 @@ export default function ResourceOnboard({ onBack }) {
       label: (
         <Space><ClusterOutlined />集群纳管</Space>
       ),
-      children: <ClusterOnboardTab onNavigateToNodes={() => onBack && onBack()} />,
+      children: <ClusterOnboardTab onNavigateToNodes={() => navigate("/nodes")} />,
     },
   ];
 

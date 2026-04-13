@@ -110,7 +110,7 @@ export default function ShareModal({ visible, onClose, assetId, assetName }) {
   };
 
   const handleCopyLink = () => {
-    const link = `${window.location.origin}?asset=${assetId}`;
+    const link = `${window.location.origin}/assets/${assetId}`;
     navigator.clipboard.writeText(link).then(
       () => message.success("链接已复制到剪贴板"),
       () => message.error("复制失败")

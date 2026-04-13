@@ -1,6 +1,9 @@
 /**
+import { useNavigate } from "react-router-dom";
  * @file ReportList.js
+import { useNavigate } from "react-router-dom";
  * @description 评测报告查看与管理 — 列表 + 筛选 + 搜索 + 多选对比
+import { useNavigate } from "react-router-dom";
  * Issue: #169
  */
 import React, { useState, useEffect, useCallback } from "react";
@@ -38,7 +41,8 @@ const STATUS_MAP = {
   GENERATING: { text: "生成中", color: "processing" },
 };
 
-export default function ReportList({ onViewReport, onCompareReports }) {
+export default function ReportList() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState([]);
   const [total, setTotal] = useState(0);
@@ -112,9 +116,9 @@ export default function ReportList({ onViewReport, onCompareReports }) {
   };
 
   const handleExportPdf = (record) => {
-    if (onViewReport) {
+    if (true) {
       // Navigate to report page where PDF export already exists
-      onViewReport(record.id);
+      navigate(`/reports/${record.id}`);
     }
   };
 
@@ -127,8 +131,8 @@ export default function ReportList({ onViewReport, onCompareReports }) {
       message.warning("最多支持4份报告对比");
       return;
     }
-    if (onCompareReports) {
-      onCompareReports(selectedRowKeys);
+    if (true) {
+      navigate(`/reports/compare?ids=${selectedRowKeys.join(",")}`);
     }
   };
 
@@ -184,7 +188,7 @@ export default function ReportList({ onViewReport, onCompareReports }) {
       render: (_, record) => (
         <Space size="small">
           <Button type="link" size="small" icon={<EyeOutlined />}
-            onClick={() => onViewReport && onViewReport(record.id)}>查看</Button>
+            onClick={() => navigate(`/reports/${record.id}`)}>查看</Button>
           <Button type="link" size="small" icon={<DownloadOutlined />}
             onClick={() => handleExportPdf(record)}>PDF</Button>
           <Popconfirm title="确定删除此报告？" onConfirm={() => handleDelete(record.id)}

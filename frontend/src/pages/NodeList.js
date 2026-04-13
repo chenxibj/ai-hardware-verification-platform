@@ -31,7 +31,7 @@ dayjs.locale("zh-cn");
 
 const { Text } = Typography;
 
-export default function NodeList({ onOpenDetail, onOpenOnboard }) {
+export default function NodeList() {
   const [activeTab, setActiveTab] = useState("direct");
   const [nodes, setNodes] = useState([]);
   const [loading, setLoading] = useState(false);

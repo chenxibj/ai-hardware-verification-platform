@@ -1,6 +1,9 @@
 /**
+import { useParams, useNavigate } from "react-router-dom";
  * @file ChipReport.js
+import { useParams, useNavigate } from "react-router-dom";
  * @description 完整芯片评价报告页面 — 7 板块
+import { useParams, useNavigate } from "react-router-dom";
  * Issue: #141, #165 增强
  *
  * 1. 能力总览（综合评分 + 评级星星 + 雷达图）
@@ -130,7 +133,10 @@ function extractModelData(operators) {
     }));
 }
 
-export default function ChipReport({ reportId, onBack }) {
+export default function ChipReport() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const reportId = Number(id);
   const [loading, setLoading] = useState(true);
   const [report, setReport] = useState(null);
   const [chip, setChip] = useState(null);
@@ -192,7 +198,7 @@ export default function ChipReport({ reportId, onBack }) {
     return (
       <div style={{ textAlign: "center", padding: 100 }}>
         <Empty description="报告不存在或尚未生成" />
-        {onBack && <Button onClick={onBack} style={{ marginTop: 16 }} icon={<ArrowLeftOutlined />}>返回</Button>}
+        {<Button onClick={() => navigate("/reports")} style={{ marginTop: 16 }} icon={<ArrowLeftOutlined />}>返回</Button>}
       </div>
     );
   }
@@ -363,7 +369,7 @@ export default function ChipReport({ reportId, onBack }) {
 
   /* #171 share link */
   const handleShareLink = async () => {
-    const shareUrl = window.location.origin + "/?report=" + (report.id || reportId);
+    const shareUrl = window.location.origin + "/reports/" + (report.id || reportId);
     try {
       await navigator.clipboard.writeText(shareUrl);
       message.success("报告链接已复制到剪贴板");
@@ -440,8 +446,8 @@ export default function ChipReport({ reportId, onBack }) {
       {/* 操作栏 */}
       <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }} data-html2canvas-ignore>
         <div>
-          {onBack && (
-            <Button type="link" icon={<ArrowLeftOutlined />} onClick={onBack} style={{ paddingLeft: 0 }}>返回</Button>
+          {true {onBack &&{onBack && (
+            <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate("/reports")} style={{ paddingLeft: 0 }}>返回</Button>
           )}
         </div>
         <Space>

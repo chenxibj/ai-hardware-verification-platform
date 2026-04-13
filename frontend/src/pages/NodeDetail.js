@@ -1,6 +1,9 @@
 /**
+import { useParams, useNavigate } from "react-router-dom";
  * @file NodeDetail.js
+import { useParams, useNavigate } from "react-router-dom";
  * @description 计算节点详情页 — 基本信息 + 指标折线图(ECharts) + 告警面板
+import { useParams, useNavigate } from "react-router-dom";
  * @feat #167, #176 资源监控与运维 (US-5.3)
  */
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -32,7 +35,10 @@ const NODE_STATUS_MAP = {
   ERROR: { text: "异常", color: "#ff4d4f", badge: "error" },
 };
 
-export default function NodeDetail({ nodeId, onBack }) {
+export default function NodeDetail() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const nodeId = Number(id);
   const [node, setNode] = useState(null);
   const [envInfo, setEnvInfo] = useState(null);
   const [metrics, setMetrics] = useState(null);
@@ -166,7 +172,7 @@ export default function NodeDetail({ nodeId, onBack }) {
   return (
     <div>
       <div style={{ marginBottom: 16 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={onBack} style={{ marginRight: 12 }}>返回</Button>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/nodes")} style={{ marginRight: 12 }}>返回</Button>
         <Title level={4} style={{ display: "inline", verticalAlign: "middle" }}>
           <ClusterOutlined style={{ marginRight: 8 }} />{node.name}
         </Title>

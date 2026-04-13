@@ -1,6 +1,9 @@
 /**
+import { useNavigate } from "react-router-dom";
  * @file Leaderboard.js
+import { useNavigate } from "react-router-dom";
  * @description 评测榜单页面 (#177) — 排行榜表格+筛选+排序+Top3特殊样式
+import { useNavigate } from "react-router-dom";
  */
 import React, { useState, useEffect } from "react";
 import {
@@ -55,7 +58,8 @@ function renderStars(count) {
   ));
 }
 
-export default function Leaderboard({ onViewReport }) {
+export default function Leaderboard() {
+  const navigate = useNavigate();
   const [sortType, setSortType] = useState("overall");
   const [chipTypeFilter, setChipTypeFilter] = useState("ALL");
   const [data, setData] = useState([]);
@@ -166,7 +170,7 @@ export default function Leaderboard({ onViewReport }) {
           type="link"
           size="small"
           icon={<EyeOutlined />}
-          onClick={() => onViewReport && onViewReport(record.reportId)}
+          onClick={() => navigate(`/reports/${record.reportId}`)}
         >
           查看报告
         </Button>

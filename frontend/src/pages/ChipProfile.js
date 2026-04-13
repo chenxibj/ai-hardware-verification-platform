@@ -1,6 +1,9 @@
 /**
+import { useParams, useNavigate } from "react-router-dom";
  * @file ChipProfile.js
+import { useParams, useNavigate } from "react-router-dom";
  * @description 芯片档案页 — 4 Tab 完整版（增强版）
+import { useParams, useNavigate } from "react-router-dom";
  * Issues: #138 MVP-1, #160 芯片档案页增强
  *
  * Tab 1: 能力画像（默认 Tab）— 雷达图 + 维度评分 + 综合评分 + 场景推荐
@@ -75,7 +78,10 @@ const getScoreGrade = (score) => {
 };
 
 /* ── 主组件 ── */
-export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenReport, onCreatePlan }) {
+export default function ChipProfile() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const chipId = Number(id);
   const [chip, setChip] = useState(null);
   const [loading, setLoading] = useState(true);
   const [plans, setPlans] = useState([]);
@@ -321,13 +327,13 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
         <Space size="small">
           <Tooltip title="查看监控">
             <Button type="link" size="small" icon={<EyeOutlined />}
-              onClick={() => onOpenMonitor && onOpenMonitor(record.id)} />
+              onClick={() => navigate(`/plans/${record.id}`)} />
           </Tooltip>
           {record.status === "COMPLETED" && (
             <Tooltip title="查看报告">
               <Button type="link" size="small" icon={<FileTextOutlined />}
                 style={{ color: "#52c41a" }}
-                onClick={() => onOpenReport && onOpenReport(record.id)} />
+                onClick={() => navigate(`/reports/${record.id}`)} />
             </Tooltip>
           )}
         </Space>
@@ -411,7 +417,7 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
     return (
       <div style={{ textAlign: "center", padding: 100 }}>
         <Empty description="未找到芯片信息" />
-        <Button type="primary" icon={<ArrowLeftOutlined />} onClick={onBack} style={{ marginTop: 16 }}>返回列表</Button>
+        <Button type="primary" icon={<ArrowLeftOutlined />} onClick={() => navigate("/chips")} style={{ marginTop: 16 }}>返回列表</Button>
       </div>
     );
   }
@@ -612,7 +618,7 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
           {!overallScore && radarData.length === 0 && (
             <Empty description="暂无评测数据，请先创建评测任务" style={{ padding: 60 }}>
               <Button type="primary" icon={<PlusOutlined />}
-                onClick={() => onCreatePlan && onCreatePlan(chipId)}>创建评测任务</Button>
+                onClick={() => navigate("/plans/create")}>创建评测任务</Button>
             </Empty>
           )}
         </div>
@@ -659,7 +665,7 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
             title={<Space><FileTextOutlined /> 评测任务列表</Space>}
             extra={
               <Button type="primary" size="small" icon={<PlusOutlined />}
-                onClick={() => onCreatePlan && onCreatePlan(chipId)}>
+                onClick={() => navigate("/plans/create")}>
                 创建评测任务
               </Button>
             }
@@ -670,7 +676,7 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
                 description={<span style={{ color: "#666" }}>该芯片暂无评测记录</span>}
               >
                 <Button type="primary" icon={<PlusOutlined />}
-                  onClick={() => onCreatePlan && onCreatePlan(chipId)}>创建评测任务</Button>
+                  onClick={() => navigate("/plans/create")}>创建评测任务</Button>
               </Empty>
             ) : (
               <Table rowKey="id" columns={planColumns} dataSource={plans}
@@ -1075,7 +1081,7 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
           ) : (
             <Empty description="暂无评价报告" style={{ padding: 60 }}>
               <Button type="primary" icon={<PlusOutlined />}
-                onClick={() => onCreatePlan && onCreatePlan(chipId)}>创建评测任务</Button>
+                onClick={() => navigate("/plans/create")}>创建评测任务</Button>
             </Empty>
           )}
         </div>
@@ -1090,7 +1096,7 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
         <Row justify="space-between" align="top">
           <Col flex="auto">
             <Space align="start">
-              <Button type="text" icon={<ArrowLeftOutlined />} onClick={onBack} style={{ marginRight: 8, marginTop: 4 }} />
+              <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate("/chips")} style={{ marginRight: 8, marginTop: 4 }} />
               <div>
                 <Space align="center" style={{ marginBottom: 8 }}>
                   <Title level={3} style={{ margin: 0 }}>{chip.name}</Title>
@@ -1166,7 +1172,7 @@ export default function ChipProfile({ chipId, onBack, onOpenMonitor, onOpenRepor
                 </div>
               )}
               <Button type="primary" icon={<PlusOutlined />}
-                onClick={() => onCreatePlan && onCreatePlan(chipId)}>创建评测任务</Button>
+                onClick={() => navigate("/plans/create")}>创建评测任务</Button>
             </Space>
           </Col>
         </Row>

@@ -1,6 +1,9 @@
 /**
+import { useNavigate } from "react-router-dom";
  * @file ChipList.js
+import { useNavigate } from "react-router-dom";
  * @description 芯片管理页面 — 列表 + 注册弹窗(增强版) + 详情抽屉
+import { useNavigate } from "react-router-dom";
  * Issues: #129 芯片注册, #130 芯片列表, #159 芯片注册增强
  */
 import React, { useState, useEffect, useCallback } from "react";
@@ -40,7 +43,8 @@ const FRAMEWORK_COLORS = {
 };
 
 /* ── 主组件 ── */
-export default function ChipList({ onOpenProfile, onCompare }) {
+export default function ChipList() {
+  const navigate = useNavigate();
   /* #305: 权限控制 — 仅 admin/super_admin 可删除芯片 */
   const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
   const isAdmin = ["admin","super_admin","ADMIN","SUPER_ADMIN"].includes(currentUser.role);
@@ -236,7 +240,7 @@ export default function ChipList({ onOpenProfile, onCompare }) {
       render: (_, record) => (
         <Space size="small">
           <Tooltip title="查看详情">
-            <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => onOpenProfile ? onOpenProfile(record.id) : openDetail(record)} />
+            <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/chips/${record.id}`)} />
           </Tooltip>
           <Tooltip title="编辑">
             <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)} />
@@ -293,7 +297,7 @@ export default function ChipList({ onOpenProfile, onCompare }) {
               {Object.entries(STATUS_MAP).map(([k, v]) => <Option key={k} value={k}>{v.text}</Option>)}
             </Select>
             {selectedRowKeys.length >= 2 && selectedRowKeys.length <= 4 && (
-              <Button type="primary" icon={<SwapOutlined />} onClick={() => onCompare && onCompare(selectedRowKeys)}>
+              <Button type="primary" icon={<SwapOutlined />} onClick={() => navigate(`/chips/compare?ids=${selectedRowKeys.join(",")}`)}>
                 芯片对比 ({selectedRowKeys.length})
               </Button>
             )}

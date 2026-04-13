@@ -1,6 +1,9 @@
 /**
+import { useSearchParams, useNavigate } from "react-router-dom";
  * @file ChipCompare.js
+import { useSearchParams, useNavigate } from "react-router-dom";
  * @description 芯片对比页面 — 多报告对比分析增强
+import { useSearchParams, useNavigate } from "react-router-dom";
  * Issue: #140 基础, #170 增强 (US-2.2)
  *
  * 增强功能：
@@ -156,7 +159,10 @@ function BarChart({ data, chipNames, width = 700, height = 340 }) {
 }
 
 /* ── 主组件 ── */
-export default function ChipCompare({ selectedChipIds = [], onBack }) {
+export default function ChipCompare() {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const selectedChipIds = searchParams.get("ids")?.split(",").map(Number).filter(Boolean) || [];
   const [allChips, setAllChips] = useState([]);
   const [chipIds, setChipIds] = useState(selectedChipIds);
   const [chipReports, setChipReports] = useState({});
@@ -332,8 +338,8 @@ export default function ChipCompare({ selectedChipIds = [], onBack }) {
 
   return (
     <div>
-      {onBack && (
-        <Button type="link" icon={<ArrowLeftOutlined />} onClick={onBack} style={{ marginBottom: 16, paddingLeft: 0 }}>
+      {true {onBack &&{onBack && (
+        <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate("/chips")} style={{ marginBottom: 16, paddingLeft: 0 }}>
           返回芯片列表
         </Button>
       )}

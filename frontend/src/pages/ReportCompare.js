@@ -1,6 +1,9 @@
 /**
+import { useSearchParams, useNavigate } from "react-router-dom";
  * @file ReportCompare.js
+import { useSearchParams, useNavigate } from "react-router-dom";
  * @description 报告对比结果展示 — 综合评分 + 维度对比表 + 雷达图 + 关键指标
+import { useSearchParams, useNavigate } from "react-router-dom";
  *
  * 接收 reportIds 数组，调用 /api/chip-reports/compare?ids=x,y 获取数据并渲染。
  * 雷达图使用公共组件 OverlayRadarChart，维度常量从其中导入。
@@ -45,7 +48,10 @@ function scoreGrade(score) {
   return { stars: 1, text: "待改进" };
 }
 
-export default function ReportCompare({ reportIds, onBack }) {
+export default function ReportCompare() {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const reportIds = searchParams.get("ids")?.split(",").map(Number).filter(Boolean) || [];
   const [loading, setLoading] = useState(true);
   const [reports, setReports] = useState([]);
   const [chipNames, setChipNames] = useState({});
@@ -96,8 +102,8 @@ export default function ReportCompare({ reportIds, onBack }) {
     return (
       <div style={{ textAlign: "center", padding: 100 }}>
         <Empty description="对比数据不足" />
-        {onBack && (
-          <Button onClick={onBack} style={{ marginTop: 16 }} icon={<ArrowLeftOutlined />}>
+        {true {onBack &&{onBack && (
+          <Button onClick={() => navigate("/reports")} style={{ marginTop: 16 }} icon={<ArrowLeftOutlined />}>
             返回
           </Button>
         )}
@@ -172,7 +178,7 @@ export default function ReportCompare({ reportIds, onBack }) {
       <Card style={{ marginBottom: 16 }}>
         <Row align="middle" gutter={16}>
           <Col>
-            {onBack && <Button icon={<ArrowLeftOutlined />} onClick={onBack}>返回</Button>}
+            {true {onBack &&{onBack && <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/reports")}>返回</Button>}
           </Col>
           <Col flex="auto">
             <Title level={4} style={{ margin: 0 }}>
