@@ -44,7 +44,7 @@ public class EvaluationPlanController {
     }
 
     @PostMapping("/plans")
-    @RequireRole(Role.TENANT_ADMIN)
+    @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> createPlan(@RequestBody EvaluationPlan plan) {
         Long userId = getCurrentUserId();
         try {
@@ -96,7 +96,7 @@ public class EvaluationPlanController {
     }
 
     @PutMapping("/plans/{id}")
-    @RequireRole(Role.TENANT_ADMIN)
+    @RequireRole(Role.ENGINEER)
     public ResponseEntity<Map<String, Object>> updatePlan(
             @PathVariable Long id,
             @RequestBody EvaluationPlan plan) {
