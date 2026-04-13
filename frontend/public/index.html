@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#1890ff" />
     <meta name="description" content="人工智能软硬件验证平台" />
+    <!-- #418: Explicit CSP without upgrade-insecure-requests to prevent Chromium 131+ HTTPS auto-upgrade -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' http: https: ws: wss: data: blob: 'unsafe-inline' 'unsafe-eval'">
     <title>人工智能软硬件验证平台</title>
   </head>
   <body>
