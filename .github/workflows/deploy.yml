@@ -10,76 +10,62 @@ jobs:
   deploy:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: self-hosted
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
-      - name: Backup current deployment
+      - name: Acquire deploy lock
         run: |
-          echo "Backing up current frontend files..."
-          rm -rf /tmp/ahvp-html-backup
-          docker cp ahvp-frontend:/usr/share/nginx/html /tmp/ahvp-html-backup
-          echo "Backup saved to /tmp/ahvp-html-backup ($(du -sh /tmp/ahvp-html-backup | cut -f1))"
+          LOCKFILE=/tmp/ahvp-deploy.lock
+          if [ -f "$LOCKFILE" ]; then
+            LOCK_AGE=$(( $(date +%s) - $(stat -c %Y "$LOCKFILE") ))
+            if [ "$LOCK_AGE" -gt 1800 ]; then
+              rm -f "$LOCKFILE"
+            else
+              echo "Deploy in progress, waiting..."
+              for i in $(seq 1 60); do [ ! -f "$LOCKFILE" ] && break; sleep 5; done
+              [ -f "$LOCKFILE" ] && { echo "Lock timeout"; exit 1; }
+            fi
+          fi
+          echo "$$@$(date +%s)" > "$LOCKFILE"
 
-      - name: Deploy frontend
+      - name: Build, Tag & Deploy
         env:
-          CI: "false"
+          GIT_COMMIT: ${{ github.sha }}
         run: |
-          cd frontend
-          npm ci
-          npm run build
-          docker cp build/. ahvp-frontend:/usr/share/nginx/html/
-          docker exec ahvp-frontend nginx -s reload
-          echo "Frontend deployed ✅"
+          cd /root/ai-hardware-verification-platform
+          git pull origin main
 
-      - name: Deploy backend (if changed)
-        run: |
-          BACKEND_CHANGED=$(git diff HEAD~1 --name-only -- backend/ 2>/dev/null | wc -l)
-          if [ "$BACKEND_CHANGED" -gt 0 ]; then
-            cd /opt/ai-hardware-verification-platform
-            docker compose up -d --build backend
-            echo "Backend rebuilt and restarted ✅"
-          else
-            echo "No backend changes, skipping"
-          fi
+          VER=$(echo "$GIT_COMMIT" | head -c8)
+          PREV_VER=$(docker inspect ahvp-backend --format='{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep GIT_COMMIT | cut -d= -f2 | head -c8 || echo "none")
+          echo "PREV_VER=$PREV_VER" >> $GITHUB_ENV
+          echo "VER=$VER" >> $GITHUB_ENV
 
-      - name: Ensure puppeteer is installed
-        run: |
-          if [ ! -d "node_modules/puppeteer" ]; then
-            npm init -y 2>/dev/null
-            PUPPETEER_SKIP_DOWNLOAD=true npm install puppeteer
-          fi
+          export GIT_COMMIT="$VER"
+          docker compose build backend frontend
+          docker tag ahvp-backend:latest ahvp-backend:$VER
+          docker tag ahvp-frontend:latest ahvp-frontend:$VER
+          docker compose up -d backend frontend
 
       - name: Smoke test
-        id: smoke
         run: |
-          sleep 5
-          chmod +x deploy/smoke-test.sh
+          sleep 15
+          cd /root/ai-hardware-verification-platform
           bash deploy/smoke-test.sh
-        continue-on-error: true
 
       - name: Rollback on failure
-        if: steps.smoke.outcome == 'failure'
+        if: failure()
         run: |
-          echo "❌ Smoke test failed! Rolling back deployment..."
-          if [ -d "/tmp/ahvp-html-backup" ]; then
-            docker cp /tmp/ahvp-html-backup/. ahvp-frontend:/usr/share/nginx/html/
-            docker exec ahvp-frontend nginx -s reload
-            echo "✅ Rollback completed. Running smoke test on rolled-back version..."
-            bash deploy/smoke-test.sh || echo "⚠️ Warning: Rolled-back version also failed smoke test"
-          else
-            echo "⚠️ No backup found! Cannot rollback."
+          if [ -n "$PREV_VER" ] && [ "$PREV_VER" != "none" ]; then
+            docker tag ahvp-backend:$PREV_VER ahvp-backend:latest
+            docker tag ahvp-frontend:$PREV_VER ahvp-frontend:latest
+            docker compose -f /root/ai-hardware-verification-platform/docker-compose.yml up -d backend frontend
+            echo "Rolled back to $PREV_VER"
           fi
 
-      - name: Fail workflow if smoke test failed
-        if: steps.smoke.outcome == 'failure'
-        run: |
-          echo "Deployment was rolled back due to smoke test failure."
-          exit 1
-
-      - name: Cleanup backup on success
-        if: steps.smoke.outcome == 'success'
-        run: |
-          echo "🎉 Smoke tests passed. Cleaning up backup..."
-          rm -rf /tmp/ahvp-html-backup
+      - name: Release deploy lock
+        if: always()
+        run: rm -f /tmp/ahvp-deploy.lock
