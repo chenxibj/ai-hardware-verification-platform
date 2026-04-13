@@ -67,6 +67,7 @@ export default function ChipList() {
   const [submitLoading, setSubmitLoading] = useState(false);
 
   const [selectedRowKeys, setSelectedRowKeys] = useState([]);
+  const [chipSearch, setChipSearch] = useState("");
 
   const [form] = Form.useForm();
 
@@ -282,6 +283,13 @@ export default function ChipList() {
         title="芯片列表"
         extra={
           <Space>
+<Input.Search
+              placeholder="搜索名称/编号/厂商"
+              allowClear
+              value={chipSearch}
+              onChange={(e) => setChipSearch(e.target.value)}
+              style={{ width: 200 }}
+            />
             <Select
               placeholder="按类型筛选" allowClear style={{ width: 140 }}
               value={typeFilter} onChange={(v) => { setTypeFilter(v); setPage(0); }}
@@ -317,7 +325,13 @@ export default function ChipList() {
             }),
           }}
           columns={columns}
-          dataSource={chips}
+          dataSource={chips.filter(c => {
+            if (!chipSearch) return true;
+            const q = chipSearch.toLowerCase();
+            return (c.name || "").toLowerCase().includes(q) ||
+                   (c.chipNo || "").toLowerCase().includes(q) ||
+                   (c.manufacturer || "").toLowerCase().includes(q);
+          })}
           loading={loading}
           scroll={{ x: 1000 }}
           pagination={{
