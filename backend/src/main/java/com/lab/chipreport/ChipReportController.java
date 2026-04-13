@@ -4,6 +4,7 @@ import com.lab.chip.Chip;
 import com.lab.chip.ChipRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lab.auth.RequireRole;
+import com.lab.plan.EvaluationPlanRepository;
 import com.lab.auth.Role;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +37,7 @@ public class ChipReportController {
 
     private final ChipReportRepository reportRepository;
     private final ChipRepository chipRepository;
+    private final EvaluationPlanRepository planRepository;
     private final ObjectMapper objectMapper;
     private final ReportGeneratorService reportGeneratorService;
 
@@ -80,6 +82,7 @@ public class ChipReportController {
         try { if (endTime != null) end = Instant.parse(endTime); } catch (Exception ignored) {}
 
         Page<ChipReport> reports = reportRepository.findAll(ChipReportSpec.filtered(chipId, statusEnum, archived, start, end), pageable);
+        enrichReports(reports.getContent());
         Map<String, Object> resp = success(reports.getContent());
         resp.put("total", reports.getTotalElements());
         resp.put("page", page);
@@ -178,6 +181,7 @@ public class ChipReportController {
     @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getChipTrend(@PathVariable Long chipId) {
         List<ChipReport> reports = reportRepository.findByChipIdOrderByCreatedAtAsc(chipId);
+        enrichReports(reports);
         return ResponseEntity.ok(success(reports));
     }
 
@@ -338,6 +342,19 @@ public class ChipReportController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(error(e.getMessage()));
         }
+    }
+
+    private void enrichReport(ChipReport report) {
+        if (report.getChipId() != null) {
+            chipRepository.findById(report.getChipId()).ifPresent(c -> report.setChipName(c.getName()));
+        }
+        if (report.getPlanId() != null) {
+            planRepository.findById(report.getPlanId()).ifPresent(p -> report.setPlanName(p.getName()));
+        }
+    }
+
+    private void enrichReports(java.util.List<ChipReport> reports) {
+        reports.forEach(this::enrichReport);
     }
 
     private String generateReportNo() {

@@ -80,5 +80,11 @@ public class ChipReport {
     @UpdateTimestamp
     private Instant updatedAt;
 
+    @Transient
+    private String chipName;
+
+    @Transient
+    private String planName;
+
     public enum ReportStatus { DRAFT, PUBLISHED }
 }
