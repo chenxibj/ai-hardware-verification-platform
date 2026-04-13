@@ -69,6 +69,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     container_name: ahvp-backend
     environment:
       SPRING_PROFILES_ACTIVE: dev
@@ -132,6 +134,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     container_name: ahvp-frontend
     ports:
       - "80:80"
