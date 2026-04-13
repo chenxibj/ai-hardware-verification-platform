@@ -15,7 +15,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Acquire deploy lock
         run: |
@@ -33,21 +33,25 @@ jobs:
           echo "$$@$(date +%s)" > "$LOCKFILE"
 
       - name: Build, Tag & Deploy
-        env:
-          GIT_COMMIT: ${{ github.sha }}
         run: |
           cd /root/ai-hardware-verification-platform
           git pull origin main
 
-          VER=$(echo "$GIT_COMMIT" | head -c8)
-          PREV_VER=$(docker inspect ahvp-backend --format='{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep GIT_COMMIT | cut -d= -f2 | head -c8 || echo "none")
-          echo "PREV_VER=$PREV_VER" >> $GITHUB_ENV
-          echo "VER=$VER" >> $GITHUB_ENV
+          export GIT_COMMIT=$(git rev-parse --short HEAD)
+          export APP_VERSION=$(git describe --tags --always 2>/dev/null || echo "v0.0.0-dev.$(git rev-list --count HEAD).$(git rev-parse --short HEAD)")
+          export BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          export GIT_COMMIT="$VER"
+          PREV_VER=$(docker inspect ahvp-backend --format='{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep APP_VERSION | cut -d= -f2 || echo "none")
+          PREV_COMMIT=$(docker inspect ahvp-backend --format='{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep GIT_COMMIT | cut -d= -f2 | head -c8 || echo "none")
+          echo "PREV_VER=$PREV_VER" >> $GITHUB_ENV
+          echo "PREV_COMMIT=$PREV_COMMIT" >> $GITHUB_ENV
+          echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
+
           docker compose build backend frontend
-          docker tag ahvp-backend:latest ahvp-backend:$VER
-          docker tag ahvp-frontend:latest ahvp-frontend:$VER
+          docker tag ahvp-backend:latest "ahvp-backend:$APP_VERSION"
+          docker tag ahvp-frontend:latest "ahvp-frontend:$APP_VERSION"
+          docker tag ahvp-backend:latest "ahvp-backend:$GIT_COMMIT"
+          docker tag ahvp-frontend:latest "ahvp-frontend:$GIT_COMMIT"
           docker compose up -d backend frontend
 
       - name: Smoke test
@@ -59,11 +63,11 @@ jobs:
       - name: Rollback on failure
         if: failure()
         run: |
-          if [ -n "$PREV_VER" ] && [ "$PREV_VER" != "none" ]; then
-            docker tag ahvp-backend:$PREV_VER ahvp-backend:latest
-            docker tag ahvp-frontend:$PREV_VER ahvp-frontend:latest
+          if [ -n "$PREV_COMMIT" ] && [ "$PREV_COMMIT" != "none" ]; then
+            docker tag "ahvp-backend:$PREV_COMMIT" ahvp-backend:latest
+            docker tag "ahvp-frontend:$PREV_COMMIT" ahvp-frontend:latest
             docker compose -f /root/ai-hardware-verification-platform/docker-compose.yml up -d backend frontend
-            echo "Rolled back to $PREV_VER"
+            echo "Rolled back to $PREV_VER ($PREV_COMMIT)"
           fi
 
       - name: Release deploy lock

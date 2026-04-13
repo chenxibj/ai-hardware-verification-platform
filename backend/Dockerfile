@@ -9,7 +9,11 @@ FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 
 ARG GIT_COMMIT=unknown
+ARG APP_VERSION=unknown
+ARG BUILD_TIME=unknown
 ENV GIT_COMMIT=$GIT_COMMIT
+ENV APP_VERSION=$APP_VERSION
+ENV BUILD_TIME=$BUILD_TIME
 
 ARG KUBECTL_VERSION=v1.28.0
 RUN apk add --no-cache curl &&     curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" &&     chmod +x kubectl && mv kubectl /usr/local/bin/ &&     apk del curl

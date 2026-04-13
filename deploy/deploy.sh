@@ -22,11 +22,16 @@ cd "$PROJECT_DIR"
 
 # Get versions
 export GIT_COMMIT=$(git rev-parse --short HEAD)
-PREV_VER=$(docker inspect ahvp-backend --format='{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep GIT_COMMIT | cut -d= -f2 | head -c8 || echo "none")
-echo "Deploying: $GIT_COMMIT (prev: $PREV_VER)"
+export APP_VERSION=$(git describe --tags --always 2>/dev/null || echo "v0.0.0-dev.$(git rev-list --count HEAD).$(git rev-parse --short HEAD)")
+export BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+PREV_VER=$(docker inspect ahvp-backend --format='{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep APP_VERSION | cut -d= -f2 || echo "none")
+PREV_COMMIT=$(docker inspect ahvp-backend --format='{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep GIT_COMMIT | cut -d= -f2 | head -c8 || echo "none")
+echo "Deploying: $APP_VERSION ($GIT_COMMIT) — prev: $PREV_VER ($PREV_COMMIT)"
 
 # Build + tag
 docker compose build backend frontend
+docker tag ahvp-backend:latest "ahvp-backend:$APP_VERSION"
+docker tag ahvp-frontend:latest "ahvp-frontend:$APP_VERSION"
 docker tag ahvp-backend:latest "ahvp-backend:$GIT_COMMIT"
 docker tag ahvp-frontend:latest "ahvp-frontend:$GIT_COMMIT"
 
@@ -43,14 +48,14 @@ done
 # Smoke test
 echo "Running smoke test..."
 if bash deploy/smoke-test.sh; then
-  echo "🎉 Deploy successful: $GIT_COMMIT"
+  echo "🎉 Deploy successful: $APP_VERSION ($GIT_COMMIT)"
 else
-  echo "❌ Smoke test failed! Rolling back to $PREV_VER..."
-  if [ "$PREV_VER" != "none" ]; then
-    docker tag "ahvp-backend:$PREV_VER" ahvp-backend:latest
-    docker tag "ahvp-frontend:$PREV_VER" ahvp-frontend:latest
+  echo "❌ Smoke test failed! Rolling back to $PREV_COMMIT..."
+  if [ "$PREV_COMMIT" != "none" ]; then
+    docker tag "ahvp-backend:$PREV_COMMIT" ahvp-backend:latest
+    docker tag "ahvp-frontend:$PREV_COMMIT" ahvp-frontend:latest
     docker compose up -d backend frontend
-    echo "Rolled back to $PREV_VER"
+    echo "Rolled back to $PREV_VER ($PREV_COMMIT)"
   fi
   exit 1
 fi

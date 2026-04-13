@@ -144,13 +144,15 @@ check "All frontend routes return 200" $ROUTES_OK
 
 # Test 8: Version consistency
 echo "[8/8] Checking version consistency..."
-EXPECTED_VER=$(cd /root/ai-hardware-verification-platform && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-BACKEND_VER=$(docker inspect ahvp-backend --format='{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep GIT_COMMIT | cut -d= -f2 | head -c8 || echo "")
-echo "  Expected: $EXPECTED_VER, Backend: $BACKEND_VER"
-if [ -n "$BACKEND_VER" ] && [ "$BACKEND_VER" = "$EXPECTED_VER" ]; then
+EXPECTED_COMMIT=$(cd /root/ai-hardware-verification-platform && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BACKEND_COMMIT=$(docker inspect ahvp-backend --format='{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep GIT_COMMIT | cut -d= -f2 | head -c8 || echo "")
+BACKEND_APP_VER=$(docker inspect ahvp-backend --format='{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep APP_VERSION | cut -d= -f2 || echo "")
+echo "  Expected commit: $EXPECTED_COMMIT, Backend commit: $BACKEND_COMMIT"
+echo "  APP_VERSION: $BACKEND_APP_VER"
+if [ -n "$BACKEND_COMMIT" ] && [ "$BACKEND_COMMIT" = "$EXPECTED_COMMIT" ]; then
   check "Version consistency" 0
 else
-  check "Version consistency (expected $EXPECTED_VER, got $BACKEND_VER)" 1
+  check "Version consistency (expected $EXPECTED_COMMIT, got $BACKEND_COMMIT)" 1
 fi
 
 # Summary
