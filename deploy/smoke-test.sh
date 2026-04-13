@@ -26,7 +26,7 @@ echo "========================================"
 echo
 
 # Test 1: Homepage returns 200 and contains .js reference
-echo "[1/5] Checking homepage..."
+echo "[1/8] Checking homepage..."
 HOMEPAGE=$(curl -s -o /tmp/smoke_home.html -w "%{http_code}" http://localhost/ 2>/dev/null || echo "000")
 if [ "$HOMEPAGE" = "200" ] && grep -q '\.js' /tmp/smoke_home.html 2>/dev/null; then
   check "Homepage returns 200 with .js references" 0
@@ -37,7 +37,7 @@ else
 fi
 
 # Test 2: JS bundle is downloadable and > 500KB
-echo "[2/5] Checking JS bundle size..."
+echo "[2/8] Checking JS bundle size..."
 JS_FILE=$(grep -oP '(?<=src=")[^"]*\.js' /tmp/smoke_home.html 2>/dev/null | head -1 || echo "")
 if [ -n "$JS_FILE" ]; then
   # Handle relative paths
@@ -58,10 +58,10 @@ else
 fi
 
 # Test 3: Backend login API returns code=0
-echo "[3/5] Checking backend login API..."
+echo "[3/8] Checking backend login API..."
 LOGIN_RESP=$(curl -s -X POST http://localhost:8080/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"test@ahvp.com","password":"test123"}' 2>/dev/null || echo "{}")
+  -d '{"email":"test@ahvp.com","password":"Test1234"}' 2>/dev/null || echo "{}")
 LOGIN_CODE=$(echo "$LOGIN_RESP" | grep -oP '"code"\s*:\s*\K[0-9]+' 2>/dev/null || echo "-1")
 echo "  Response: $LOGIN_RESP"
 echo "  Code: $LOGIN_CODE"
@@ -72,7 +72,7 @@ else
 fi
 
 # Test 4: All containers are running
-echo "[4/5] Checking container status..."
+echo "[4/8] Checking container status..."
 EXPECTED="ahvp-frontend ahvp-backend ahvp-postgres ahvp-redis ahvp-minio"
 ALL_UP=0
 for c in $EXPECTED; do
@@ -85,7 +85,7 @@ done
 check "All containers running" $ALL_UP
 
 # Test 5: Browser render verification (Puppeteer)
-echo "[5/5] Running browser render check..."
+echo "[5/8] Running browser render check..."
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RENDER_SCRIPT="$SCRIPT_DIR/render-check.js"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -109,6 +109,48 @@ else
       check "Browser render check (full)" 1
     fi
   fi
+fi
+
+# Test 6: Business APIs return data
+echo "[6/8] Checking business APIs..."
+TOKEN=$(echo "$LOGIN_RESP" | grep -oP '"token"\s*:\s*"\K[^"]+' 2>/dev/null || echo "")
+if [ -n "$TOKEN" ]; then
+  CHIPS=$(curl -s http://localhost:8080/api/chips -H "Authorization: Bearer $TOKEN" 2>/dev/null)
+  CHIPS_TOTAL=$(echo "$CHIPS" | grep -oP '"total"\s*:\s*\K[0-9]+' 2>/dev/null || echo "0")
+  TEMPLATES=$(curl -s http://localhost:8080/api/templates 2>/dev/null)
+  TEMPLATES_TOTAL=$(echo "$TEMPLATES" | grep -oP '"total"\s*:\s*\K[0-9]+' 2>/dev/null || echo "0")
+  echo "  Chips: $CHIPS_TOTAL, Templates: $TEMPLATES_TOTAL"
+  if [ "${CHIPS_TOTAL:-0}" -gt 0 ] && [ "${TEMPLATES_TOTAL:-0}" -gt 0 ]; then
+    check "Business APIs return data" 0
+  else
+    check "Business APIs return data (chips=$CHIPS_TOTAL, templates=$TEMPLATES_TOTAL)" 1
+  fi
+else
+  echo "  No token available, skipping business API check"
+  check "Business APIs return data (no token)" 1
+fi
+
+# Test 7: Frontend routes all return 200
+echo "[7/8] Checking frontend routes..."
+ROUTES_OK=0
+for route in / /chips /plans /templates /reports /nodes; do
+  HTTP=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost${route}" 2>/dev/null || echo "000")
+  if [ "$HTTP" != "200" ]; then
+    echo "  Route ${route} returned $HTTP"
+    ROUTES_OK=1
+  fi
+done
+check "All frontend routes return 200" $ROUTES_OK
+
+# Test 8: Version consistency
+echo "[8/8] Checking version consistency..."
+EXPECTED_VER=$(cd /root/ai-hardware-verification-platform && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BACKEND_VER=$(docker inspect ahvp-backend --format='{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep GIT_COMMIT | cut -d= -f2 | head -c8 || echo "")
+echo "  Expected: $EXPECTED_VER, Backend: $BACKEND_VER"
+if [ -n "$BACKEND_VER" ] && [ "$BACKEND_VER" = "$EXPECTED_VER" ]; then
+  check "Version consistency" 0
+else
+  check "Version consistency (expected $EXPECTED_VER, got $BACKEND_VER)" 1
 fi
 
 # Summary
