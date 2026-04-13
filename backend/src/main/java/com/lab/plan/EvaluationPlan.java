@@ -10,6 +10,8 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.lab.common.FlexibleStringDeserializer;
 
 /**
  * 评测任务实体类
@@ -41,6 +43,7 @@ public class EvaluationPlan {
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "eval_config", columnDefinition = "jsonb")
+    @JsonDeserialize(using = FlexibleStringDeserializer.class)
     private String evalConfig;
 
     @Column(name = "node_id")

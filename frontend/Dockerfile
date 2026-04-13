@@ -5,6 +5,7 @@ WORKDIR /app
 RUN apk add --no-cache bash git
 
 COPY package*.json ./
+COPY scripts/ scripts/
 RUN npm ci
 
 COPY . .
