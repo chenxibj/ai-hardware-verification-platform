@@ -2,6 +2,7 @@ package com.lab.health;
 
 import com.lab.common.ApiResponse;
 import org.springframework.web.bind.annotation.*;
+import java.time.Instant;
 import java.util.*;
 
 @RestController
@@ -10,15 +11,15 @@ public class HealthController {
 
     @GetMapping
     public ApiResponse<?> health() {
-        return ApiResponse.ok(Map.of(
-            "status", "UP",
-            "timestamp", System.currentTimeMillis(),
-            "version", "3.2.0",
-            "components", Map.of(
-                "database", "UP",
-                "redis", "UP",
-                "minio", "UP"
-            )
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("status", "UP");
+        data.put("version", System.getenv("GIT_COMMIT"));
+        data.put("timestamp", Instant.now().toString());
+        data.put("components", Map.of(
+            "database", "UP",
+            "redis", "UP",
+            "minio", "UP"
         ));
+        return ApiResponse.ok(data);
     }
 }
