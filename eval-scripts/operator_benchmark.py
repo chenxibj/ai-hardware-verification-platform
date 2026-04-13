@@ -480,6 +480,80 @@ def make_batchnorm(shape, device=None):
         return ("BatchNorm", bn_fn, str(list(shape)), "批归一化")
 
 
+# ================================================================
+# #413: Element-wise ops factory — Add, Mul, Div, Sub, Exp, Log, Sqrt, Abs, Neg, Clamp
+# ================================================================
+
+def make_elementwise(op_name, shape, device=None):
+    """Factory for simple element-wise operators."""
+    op_lower = op_name.lower()
+
+    if _use_torch(device):
+        A = torch.randn(*shape, dtype=torch.float32, device=device)
+        B = torch.randn(*shape, dtype=torch.float32, device=device)
+        B_nonzero = B.abs().clamp(min=0.01)  # avoid div-by-zero
+
+        OPS = {
+            "add":   ("Add",   lambda: torch.add(A, B),           "逐元素加法"),
+            "mul":   ("Mul",   lambda: torch.mul(A, B),           "逐元素乘法"),
+            "div":   ("Div",   lambda: torch.div(A, B_nonzero),   "逐元素除法"),
+            "sub":   ("Sub",   lambda: torch.sub(A, B),           "逐元素减法"),
+            "exp":   ("Exp",   lambda: torch.exp(A * 0.01),       "逐元素指数"),  # scale to avoid overflow
+            "log":   ("Log",   lambda: torch.log(A.abs() + 1e-6), "逐元素对数"),
+            "sqrt":  ("Sqrt",  lambda: torch.sqrt(A.abs()),       "逐元素平方根"),
+            "abs":   ("Abs",   lambda: torch.abs(A),              "逐元素绝对值"),
+            "neg":   ("Neg",   lambda: torch.neg(A),              "逐元素取负"),
+            "clamp": ("Clamp", lambda: torch.clamp(A, -1.0, 1.0),"逐元素截断"),
+        }
+    else:
+        A = np.random.randn(*shape).astype(np.float32)
+        B = np.random.randn(*shape).astype(np.float32)
+        B_nonzero = np.abs(B) + 0.01
+
+        OPS = {
+            "add":   ("Add",   lambda: np.add(A, B),              "逐元素加法"),
+            "mul":   ("Mul",   lambda: np.multiply(A, B),         "逐元素乘法"),
+            "div":   ("Div",   lambda: np.divide(A, B_nonzero),   "逐元素除法"),
+            "sub":   ("Sub",   lambda: np.subtract(A, B),         "逐元素减法"),
+            "exp":   ("Exp",   lambda: np.exp(A * 0.01),          "逐元素指数"),
+            "log":   ("Log",   lambda: np.log(np.abs(A) + 1e-6),  "逐元素对数"),
+            "sqrt":  ("Sqrt",  lambda: np.sqrt(np.abs(A)),        "逐元素平方根"),
+            "abs":   ("Abs",   lambda: np.abs(A),                 "逐元素绝对值"),
+            "neg":   ("Neg",   lambda: np.negative(A),            "逐元素取负"),
+            "clamp": ("Clamp", lambda: np.clip(A, -1.0, 1.0),    "逐元素截断"),
+        }
+
+    entry = OPS.get(op_lower)
+    if entry is None:
+        raise ValueError(f"未知的逐元素算子: {op_name}")
+    name, func, desc = entry
+    return (name, func, str(list(shape)), desc)
+
+
+def make_scaleddotproduct(qkv_shape, device=None):
+    """Factory for ScaledDotProduct attention."""
+    B, H, S, D = qkv_shape
+    shape_str = f"Q/K/V={list(qkv_shape)}"
+    desc = f"缩放点积注意力 (batch={B}, heads={H}, seq={S}, d_k={D})"
+
+    if _use_torch(device):
+        Q = torch.randn(B, H, S, D, dtype=torch.float32, device=device)
+        K = torch.randn(B, H, S, D, dtype=torch.float32, device=device)
+        V = torch.randn(B, H, S, D, dtype=torch.float32, device=device)
+        return ("ScaledDotProduct", lambda: F.scaled_dot_product_attention(Q, K, V), shape_str, desc)
+    else:
+        Q = np.random.randn(B, H, S, D).astype(np.float32)
+        K = np.random.randn(B, H, S, D).astype(np.float32)
+        V = np.random.randn(B, H, S, D).astype(np.float32)
+        scale = 1.0 / np.sqrt(D)
+        def sdp_fn():
+            scores = np.matmul(Q, K.transpose(0, 1, 3, 2)) * scale
+            e = np.exp(scores - np.max(scores, axis=-1, keepdims=True))
+            attn = e / np.sum(e, axis=-1, keepdims=True)
+            return np.matmul(attn, V)
+        return ("ScaledDotProduct", sdp_fn, shape_str, desc)
+
+
 def make_matinverse(size, device=None):
     if _use_torch(device):
         A = torch.randn(size, size, dtype=torch.float32, device=device)
@@ -614,6 +688,45 @@ def run_single_test_case(test_case, iterations=100, device=None):
     elif op_lower == "svd":
         shape = tuple(test_case.get("shape", [64, 64]))
         name, func, shape_str, desc = make_svd(shape, device)
+    elif op_lower in ("add", "mul", "div", "sub", "exp", "log", "sqrt", "abs", "neg", "clamp"):
+        shape = tuple(test_case.get("shape", [512, 512]))
+        name, func, shape_str, desc = make_elementwise(op, shape, device)
+    elif op_lower == "scaleddotproduct":
+        qkv_shape = tuple(test_case.get("qkv_shape", [1, 8, 128, 64]))
+        name, func, shape_str, desc = make_scaleddotproduct(qkv_shape, device)
+    elif op_lower == "linear":
+        shape = tuple(test_case.get("shape", [512, 512]))
+        if _use_torch(device):
+            A = torch.randn(*shape, dtype=torch.float32, device=device)
+            W = torch.randn(shape[-1], shape[-1], dtype=torch.float32, device=device)
+            name, func, shape_str, desc = ("Linear", lambda: F.linear(A, W), str(list(shape)), "线性变换")
+        else:
+            A = np.random.randn(*shape).astype(np.float32)
+            W = np.random.randn(shape[-1], shape[-1]).astype(np.float32)
+            name, func, shape_str, desc = ("Linear", lambda: np.dot(A, W.T), str(list(shape)), "线性变换")
+    elif op_lower == "embedding":
+        vocab_size = test_case.get("vocab_size", 512)
+        seq_len = test_case.get("seq_len", 32)
+        embed_dim = test_case.get("embed_dim", 512)
+        if _use_torch(device):
+            weight = torch.randn(vocab_size, embed_dim, dtype=torch.float32, device=device)
+            indices = torch.randint(0, vocab_size, (seq_len,), device=device)
+            name, func, shape_str, desc = ("Embedding", lambda: F.embedding(indices, weight), f"vocab={vocab_size},seq={seq_len},dim={embed_dim}", "Embedding查找")
+        else:
+            weight = np.random.randn(vocab_size, embed_dim).astype(np.float32)
+            indices = np.random.randint(0, vocab_size, seq_len)
+            name, func, shape_str, desc = ("Embedding", lambda: weight[indices], f"vocab={vocab_size},seq={seq_len},dim={embed_dim}", "Embedding查找")
+    elif op_lower == "gather":
+        shape = tuple(test_case.get("shape", [512, 512]))
+        gather_size = test_case.get("gather_size", 32)
+        if _use_torch(device):
+            A = torch.randn(*shape, dtype=torch.float32, device=device)
+            idx = torch.randint(0, shape[0], (gather_size,), device=device)
+            name, func, shape_str, desc = ("Gather", lambda: torch.index_select(A, 0, idx), f"{list(shape)}->[{gather_size},{shape[-1]}]", "索引选择")
+        else:
+            A = np.random.randn(*shape).astype(np.float32)
+            idx = np.random.randint(0, shape[0], gather_size)
+            name, func, shape_str, desc = ("Gather", lambda: A[idx], f"{list(shape)}->[{gather_size},{shape[-1]}]", "索引选择")
     else:
         raise ValueError(f"未知算子: {op}")
 
