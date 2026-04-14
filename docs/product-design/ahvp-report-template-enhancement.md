@@ -35,7 +35,8 @@ v2 设计文档中报告页面（5.4 节）仅做了模块级大纲：
 │   ├── 3.1 实测算力 vs 标称算力
 │   ├── 3.2 内存带宽
 │   ├── 3.3 互联带宽
-│   └── 3.4 功耗与能效
+│   ├── 3.4 功耗与能效
+│   └── 3.5 NCCL 通信性能测试（机内 AllReduce）  ★ 新增
 ├── 4. 算子评测结果（Layer 2）
 │   ├── 4.1 精度测试概览
 │   └── 4.2 性能测试排行
@@ -125,6 +126,115 @@ v2 设计文档中报告页面（5.4 节）仅做了模块级大纲：
   "mass_production_status": "mass_production",  // mass_production / small_batch / sampling / announced
   "launch_date": "2025-Q2",
   "supported_precisions": ["FP64", "FP32", "FP16", "BF16", "FP8"]
+}
+```
+
+---
+
+### 3.5 NCCL 通信性能测试（机内 AllReduce） ★ 新增
+
+> 基于 [NVIDIA nccl-tests](https://github.com/NVIDIA/nccl-tests)，评测机内多卡集合通信性能。
+> 对于非 NVIDIA 芯片，使用对应的通信库测试工具（如 MCCL-tests、HCCL-tests），指标定义保持一致。
+
+#### 测试方法
+
+**测试命令（标准配置）：**
+```bash
+# 机内 8 卡 AllReduce，消息大小从 8B 扫描到 8GB，每次翴倍
+./build/all_reduce_perf -b 8 -e 8G -f 2 -g 8 -n 20 -w 5
+```
+
+**测试参数说明：**
+
+| 参数 | 值 | 说明 |
+|------|------|------|
+| 消息大小范围 | 8B ~ 8GB | 覆盖小消息延迟和大消息带宽场景 |
+| 步进方式 | ×2 (factor=2) | 对数均匀扫描 |
+| GPU 数量 | 8 (机内全卡) | 测试机内全卡互联带宽 |
+| 迭代次数 | 20 | 确保结果稳定 |
+| 预热迭代 | 5 | 排除冷启动影响 |
+| 数据类型 | float (FP32) | 默认，可额外测试 fp16/bf16 |
+| 操作 | AllReduce (Sum) | 训练场景最关键的集合通信 |
+
+#### 核心指标
+
+| 指标 | 定义 | 说明 |
+|------|------|------|
+| **Bus Bandwidth (busbw)** | `algbw × 2×(n-1)/n` | ⭐ **核心指标**，反映硬件互联带宽的实际利用率，可直接与硬件峰值带宽对比 |
+| Algorithm Bandwidth (algbw) | `S / t` | 算法带宽，会随 GPU 数量变化，不宜直接对比 |
+| Latency | 操作时间 (ms) | 小消息场景的延迟，反映通信库启动开销 |
+| 带宽利用率 | busbw / 硬件峰值带宽 | 衡量通信库优化程度 |
+
+> ℹ️ **为什么用 Bus Bandwidth**：AllReduce 的算法带宽会随卡数增加而下降，而 Bus Bandwidth 经过校正后可以直接与硬件峰值对比，独立于 GPU 数量。参考 [NCCL Tests PERFORMANCE.md](https://github.com/NVIDIA/nccl-tests/blob/master/doc/PERFORMANCE.md)。
+
+#### 结果展示
+
+**摘要卡片：**
+
+| 指标 | 被测芯片 | L40S (基准) | **vs L40S** |
+|------|---------|-----------|:---:|
+| 峰值 Bus Bandwidth (GB/s) | — | — | —% |
+| 小消息延迟 (8B~1KB, µs) | — | — | —% |
+| 带宽利用率 (busbw / 峰值) | —% | —% | — |
+
+**详细结果表（关键消息大小点）：**
+
+| 消息大小 | 被测芯片 busbw (GB/s) | L40S busbw (GB/s) | **vs L40S** | 延迟 (ms) | 备注 |
+|---------|:---:|:---:|:---:|:---:|------|
+| 8 B | — | — | —% | — | 小消息延迟 |
+| 1 KB | — | — | —% | — | |
+| 1 MB | — | — | —% | — | |
+| 32 MB | — | — | —% | — | |
+| 256 MB | — | — | —% | — | |
+| 1 GB | — | — | —% | — | 大消息峰值带宽 |
+| 8 GB | — | — | —% | — | |
+
+**可视化方案：**
+1. **带宽-消息大小曲线图**：X 轴=消息大小（对数坐标），Y 轴=Bus Bandwidth (GB/s)，多芯片叠加对比
+2. **带宽利用率柱状图**：峰值 busbw 占硬件理论峰值的比例
+
+#### 数据模型
+
+```json
+// EvaluationResult.result_data NCCL 通信测试结果
+{
+  "result_type": "nccl_allreduce",
+  "test_tool": "nccl-tests",           // nccl-tests / mccl-tests / hccl-tests
+  "comm_library": "NCCL 2.21.5",       // 通信库版本
+  "num_gpus": 8,
+  "scope": "intra_node",               // intra_node / inter_node
+  "datatype": "float",
+  "operation": "allreduce_sum",
+  "iterations": 20,
+  "warmup_iterations": 5,
+  "results": [
+    {
+      "message_size_bytes": 8,
+      "algbw_gbps": 0.01,
+      "busbw_gbps": 0.02,
+      "latency_us": 25.3
+    },
+    {
+      "message_size_bytes": 1073741824,   // 1 GB
+      "algbw_gbps": 280.5,
+      "busbw_gbps": 490.8,
+      "latency_us": 3820
+    }
+  ],
+  "summary": {
+    "peak_busbw_gbps": 490.8,
+    "peak_message_size_bytes": 1073741824,
+    "small_msg_latency_us": 25.3,        // 8B 消息延迟
+    "hw_peak_bandwidth_gbps": 800,       // 硬件峰值带宽
+    "bandwidth_utilization": 0.614        // 490.8 / 800
+  },
+  "baseline_comparison": {
+    "baseline_chip": "NVIDIA_L40S",
+    "baseline_peak_busbw_gbps": 440.2,
+    "vs_baseline_peak_busbw": 1.115,     // 490.8 / 440.2
+    "baseline_small_msg_latency_us": 22.1,
+    "vs_baseline_latency": 1.145         // 25.3 / 22.1 (越小越好，>1 表示更慢)
+  }
 }
 ```
 
@@ -560,7 +670,20 @@ ALTER TABLE chip_reports ADD COLUMN scenario_recommendations JSONB;
       {"name": "Qwen3-235B", "size": "235B", "quantization": "INT8"},
       {"name": "DeepSeek-V3-70B", "size": "70B", "quantization": "FP16"},
       {"name": "Qwen3-vl-235B", "size": "235B", "quantization": "INT8", "multimodal": true}
-    ]
+    ],
+    "nccl_test": {
+      "enabled": true,
+      "scope": "intra_node",
+      "operation": "allreduce_sum",
+      "datatype": "float",
+      "min_bytes": "8",
+      "max_bytes": "8G",
+      "step_factor": 2,
+      "num_gpus": 8,
+      "iterations": 20,
+      "warmup_iterations": 5,
+      "report_key_sizes": ["8B", "1KB", "1MB", "32MB", "256MB", "1GB", "8GB"]
+    }
   }
 }
 ```
@@ -579,6 +702,7 @@ ALTER TABLE chip_reports ADD COLUMN scenario_recommendations JSONB;
 | **散点图** | Prefill vs Decode 性能分布 | ECharts |
 | **表格（可排序）** | 详细数据展示 | Ant Design Table |
 | **卡片** | 芯片规格、总览指标 | 自定义组件 |
+| **带宽-消息大小曲线** | NCCL AllReduce busbw 随消息大小变化 | ECharts（对数X轴） |
 | **基准比值徽章** | vs L40S 百分比标记（绿/黄/红） | 自定义组件 |
 
 ---
