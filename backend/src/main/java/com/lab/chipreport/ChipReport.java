@@ -80,6 +80,18 @@ public class ChipReport {
     @UpdateTimestamp
     private Instant updatedAt;
 
+    // #436: training/inference summary + baseline chip
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "training_summary", columnDefinition = "jsonb")
+    private String trainingSummary;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "inference_summary", columnDefinition = "jsonb")
+    private String inferenceSummary;
+
+    @Column(name = "baseline_chip", length = 200)
+    private String baselineChip;
+
     @Transient
     private String chipName;
 

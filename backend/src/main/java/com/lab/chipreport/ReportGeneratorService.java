@@ -177,6 +177,27 @@ public class ReportGeneratorService {
             log.error("Failed to serialize report data", e);
         }
 
+        // #436: Fill training_summary, inference_summary, baseline_chip
+        try {
+            Chip chip = chipRepository.findById(plan.getChipId()).orElse(null);
+            Chip baselineChip = chipRepository.findByNameContainingIgnoreCase("L40S").stream()
+                    .filter(ch -> "CHIP-BASELINE-L40S".equals(ch.getChipNo()))
+                    .findFirst().orElse(null);
+            if (baselineChip != null) {
+                report.setBaselineChip(baselineChip.getName() + " (" + baselineChip.getChipNo() + ")");
+            }
+
+            // Build training summary from training-related results
+            Map<String, Object> trainSummary = buildCategorySummary(operatorRanking, "训练", dimScores.getOrDefault("training", 0.0));
+            report.setTrainingSummary(objectMapper.writeValueAsString(trainSummary));
+
+            // Build inference summary from inference-related results
+            Map<String, Object> infSummary = buildCategorySummary(operatorRanking, "推理", dimScores.getOrDefault("inference", 0.0));
+            report.setInferenceSummary(objectMapper.writeValueAsString(infSummary));
+        } catch (Exception e) {
+            log.warn("#436: Failed to fill training/inference summary: {}", e.getMessage());
+        }
+
         ChipReport saved = reportRepository.save(report);
         log.info("Generated report {} for plan {} (score={})", saved.getReportNo(), plan.getPlanNo(), overallScore);
 
@@ -636,6 +657,56 @@ public class ReportGeneratorService {
             lower.contains("model") || lower.contains("inference"))
             return "推理";
         return "计算";
+    }
+
+    /**
+     * #436: Build category summary for training or inference
+     */
+    private Map<String, Object> buildCategorySummary(
+            List<Map<String, Object>> operatorRanking, String dimension, double dimensionScore) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("dimension", dimension);
+        summary.put("overallScore", Math.round(dimensionScore * 10.0) / 10.0);
+
+        List<Map<String, Object>> operators = operatorRanking.stream()
+                .filter(op -> dimension.equals(op.get("dimension")))
+                .collect(Collectors.toList());
+
+        summary.put("operatorCount", operators.size());
+        summary.put("validCount", operators.stream()
+                .filter(op -> "VALID".equals(op.get("dataStatus"))).count());
+
+        // Best and worst operators
+        operators.stream()
+                .filter(op -> op.get("score") != null)
+                .max((a, b) -> Double.compare(toDouble(a.get("score")), toDouble(b.get("score"))))
+                .ifPresent(best -> {
+                    summary.put("bestOperator", best.get("testItem"));
+                    summary.put("bestScore", toDouble(best.get("score")));
+                });
+
+        operators.stream()
+                .filter(op -> op.get("score") != null && toDouble(op.get("score")) > 0)
+                .min((a, b) -> Double.compare(toDouble(a.get("score")), toDouble(b.get("score"))))
+                .ifPresent(worst -> {
+                    summary.put("worstOperator", worst.get("testItem"));
+                    summary.put("worstScore", toDouble(worst.get("score")));
+                });
+
+        // Average latency and throughput
+        double avgLatency = operators.stream()
+                .filter(op -> toDouble(op.getOrDefault("latencyMean", 0)) > 0)
+                .mapToDouble(op -> toDouble(op.get("latencyMean")))
+                .average().orElse(0);
+        double avgThroughput = operators.stream()
+                .filter(op -> toDouble(op.getOrDefault("throughput", 0)) > 0)
+                .mapToDouble(op -> toDouble(op.get("throughput")))
+                .average().orElse(0);
+
+        summary.put("avgLatencyMs", Math.round(avgLatency * 1000.0) / 1000.0);
+        summary.put("avgThroughput", Math.round(avgThroughput * 10.0) / 10.0);
+
+        return summary;
     }
 
     /**
