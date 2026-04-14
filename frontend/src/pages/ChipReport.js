@@ -64,6 +64,14 @@ const safeParse = (str) => {
   try { return JSON.parse(str); } catch (_) { return null; }
 };
 
+/* Infer dataStatus when backend doesn't provide it (#405 compat) */
+function inferDataStatus(op) {
+  if (op.dataStatus) return op.dataStatus;
+  if (op.latencyMean || op.avgLatency || op.throughput || (op.score && op.score > 0)) return "VALID";
+  if (op.passed === false && !op.latencyMean && !op.throughput) return "FAILED";
+  return "NO_DATA";
+}
+
 /* 维度键 -> 中文名 */
 const DIM_CN = {
   compute_perf: "计算性能", memory_perf: "访存性能", math_func: "数学函数",
@@ -202,7 +210,7 @@ export default function ChipReport() {
   }
 
   // 解析各项数据
-  const operators = safeParse(report.operatorRanking) || [];
+  const operators = (safeParse(report.operatorRanking) || []).map(op => ({ ...op, dataStatus: inferDataStatus(op) }));
   const radarData = safeParse(report.radarData) || [];
   const dimScores = safeParse(report.dimensionScores) || {};
   const bottleneckData = safeParse(report.bottleneckAnalysis) || [];

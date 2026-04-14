@@ -69,6 +69,7 @@ public class ReportGeneratorService {
         }
     }
 
+    @Transactional
     public ChipReport generateReport(Long planId) {
         EvaluationPlan plan = planRepository.findById(planId)
                 .orElseThrow(() -> new RuntimeException("Plan not found: " + planId));

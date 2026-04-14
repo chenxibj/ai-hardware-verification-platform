@@ -171,7 +171,20 @@ public class ScoringService {
      * 获取 testItem 对应的维度名称
      */
     public String getDimension(String testItem) {
-        return DIMENSION_MAP.getOrDefault(testItem, "其他");
+        if (testItem == null) return "其他";
+        // Exact match first
+        String dim = DIMENSION_MAP.get(testItem);
+        if (dim != null) return dim;
+        // Prefix match: e.g. "MLP-Small/batch=4" matches "MLP-Small"
+        for (Map.Entry<String, String> entry : DIMENSION_MAP.entrySet()) {
+            if (testItem.startsWith(entry.getKey())) return entry.getValue();
+        }
+        // Contains match for model names
+        String lower = testItem.toLowerCase();
+        if (lower.contains("mlp") || lower.contains("resnet") || lower.contains("bert") || lower.contains("model")) {
+            return "模型推理";
+        }
+        return "其他";
     }
 
     /**
@@ -191,6 +204,21 @@ public class ScoringService {
             item.put("dimension", task != null ? getDimension(task.getTestItem()) : "其他");
             item.put("passed", result.getPassed() != null && result.getPassed());
             item.put("score", scoreFromMetrics(result.getMetricsSummary()));
+
+            // Determine dataStatus for frontend compatibility (#405)
+            String dataStatus;
+            if (result.getMetricsSummary() != null && result.getPassed() != null) {
+                if (result.getErrorMessage() != null && !result.getErrorMessage().isEmpty()) {
+                    dataStatus = "FAILED";
+                } else {
+                    dataStatus = "VALID";
+                }
+            } else if (result.getErrorMessage() != null && !result.getErrorMessage().isEmpty()) {
+                dataStatus = "FAILED";
+            } else {
+                dataStatus = "NO_DATA";
+            }
+            item.put("dataStatus", dataStatus);
 
             try {
                 if (result.getMetricsSummary() != null) {
