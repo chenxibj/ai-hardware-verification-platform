@@ -138,10 +138,41 @@ v2 设计文档中报告页面（5.4 节）仅做了模块级大纲：
 
 #### 测试方法
 
-**测试命令（标准配置）：**
+**测试工具映射：**
+
+| 芯片厂商 | 通信库 | 测试工具 | 测试命令 |
+|---------|--------|---------|----------|
+| NVIDIA | NCCL | nccl-tests | `all_reduce_perf` / `all_reduce_perf_mpi` |
+| 华为昇腾 | HCCL | hccl-tests | `all_reduce_test` |
+| 摩尔线程 | MCCL | mccl-tests | `all_reduce_perf` |
+| 其他国产 | 各只实现 | 对应测试工具 | 参数保持一致 |
+
+**标准测试命令：**
+
 ```bash
-# 机内 8 卡 AllReduce，消息大小从 8B 扫描到 8GB，每次翴倍
+# === NVIDIA GPU 机内 8 卡 AllReduce ===
+# 全范围扫描（8B~8GB）
 ./build/all_reduce_perf -b 8 -e 8G -f 2 -g 8 -n 20 -w 5
+
+# MPI 模式（单机 8 卡）
+mpirun --allow-run-as-root -bind-to none -map-by slot \
+  all_reduce_perf_mpi -b 2048M -e 8192M -f 2 -g 1
+
+# === 华为昇腾 910C 机内 16 NPU AllReduce ===
+mpirun -np 16 all_reduce_test -p 16 -b 1G -e 16G -f 2 -w 5 -n 20 -c 1
+```
+
+> 参考：[SenseCore ACP nccl-test 最佳实践](https://www.sensecore.cn/help/docs/cloud-foundation/compute/acp/acpBestPractices/Job-nccl_test)；910C D设施项目 HCCL 测试报告
+
+**网络环境变量（RoCE v2 400G 场景）：**
+
+```bash
+# NCCL 环境变量（根据实际网络方案调整）
+export NCCL_IB_GID_INDEX=5
+export NCCL_IB_TC=138
+export NCCL_IB_QPS_PER_CONNECTION=8
+# 基线测试可设置更高并发度（实际训练中需根据计算/通信资源平衡调整）
+export NCCL_MIN_NCHANNELS=32
 ```
 
 **测试参数说明：**
@@ -150,11 +181,19 @@ v2 设计文档中报告页面（5.4 节）仅做了模块级大纲：
 |------|------|------|
 | 消息大小范围 | 8B ~ 8GB | 覆盖小消息延迟和大消息带宽场景 |
 | 步进方式 | ×2 (factor=2) | 对数均匀扫描 |
-| GPU 数量 | 8 (机内全卡) | 测试机内全卡互联带宽 |
+| GPU/NPU 数量 | 8 或 16 (机内全卡) | 测试机内全卡互联带宽 |
 | 迭代次数 | 20 | 确保结果稳定 |
 | 预热迭代 | 5 | 排除冷启动影响 |
 | 数据类型 | float (FP32) | 默认，可额外测试 fp16/bf16 |
 | 操作 | AllReduce (Sum) | 训练场景最关键的集合通信 |
+
+#### 慢节点检测标准
+
+> 参考 SenseCore Network Diagnostic Toolkit 慢节点判定标准：
+
+- **基线值**：实测 `max_algbw` 的 **80%** 为最低基线
+- **慢节点判定**：单节点 busbw 低于基线值，则标记为疑似慢节点
+- **检测命令**：`bash everun_base.sh`（单机）/ `bash everun_dect.sh`（并行模式）
 
 #### 核心指标
 
@@ -167,15 +206,25 @@ v2 设计文档中报告页面（5.4 节）仅做了模块级大纲：
 
 > ℹ️ **为什么用 Bus Bandwidth**：AllReduce 的算法带宽会随卡数增加而下降，而 Bus Bandwidth 经过校正后可以直接与硬件峰值对比，独立于 GPU 数量。参考 [NCCL Tests PERFORMANCE.md](https://github.com/NVIDIA/nccl-tests/blob/master/doc/PERFORMANCE.md)。
 
+#### 测试项目
+
+| 测试项 | 优先级 | 场景 | 命令 |
+|---------|:---:|------|------|
+| **AllReduce** | 必测 | 训练梯度同步，最关键的集合通信 | `all_reduce_perf` |
+| **AlltoAll** | 建议 | MoE 模型的 Expert Parallel | `alltoall_perf` |
+| **AllGather** | 可选 | 模型并行参数收集 | `all_gather_perf` |
+| **ReduceScatter** | 可选 | ZeRO 优化器状态分割 | `reduce_scatter_perf` |
+
 #### 结果展示
 
-**摘要卡片：**
+**摘要卡片（AllReduce 为主）：**
 
 | 指标 | 被测芯片 | L40S (基准) | **vs L40S** |
 |------|---------|-----------|:---:|
 | 峰值 Bus Bandwidth (GB/s) | — | — | —% |
 | 小消息延迟 (8B~1KB, µs) | — | — | —% |
-| 带宽利用率 (busbw / 峰值) | —% | —% | — |
+| 带宽利用率 (busbw / 硬件峰值) | —% | —% | — |
+| AlltoAll 峰值 busbw (GB/s) | — | — | —% |
 
 **详细结果表（关键消息大小点）：**
 
