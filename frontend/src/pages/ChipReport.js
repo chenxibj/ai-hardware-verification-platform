@@ -154,6 +154,7 @@ export default function ChipReport() {
   const reportRef = useRef(null);
   const [exporting, setExporting] = useState(false);
   const [settingBaseline, setSettingBaseline] = useState(false);
+  const [baselineChip, setBaselineChip] = useState(null);
 
   useEffect(() => {
     if (!reportId) return;
@@ -180,6 +181,12 @@ export default function ChipReport() {
               setChip(cr.data.data);
               setChipName(cr.data.data.name || "芯片#" + r.chipId);
             }
+          }).catch(() => {});
+          // Fetch L40S baseline chip for comparison (#438)
+          api.get("/chips", { params: { keyword: "L40S", page: 0, size: 10 } }).then(cr => {
+            const chips = cr.data?.data || [];
+            const baseline = chips.find(c => c.chipNo === "CHIP-BASELINE-L40S") || chips[0];
+            if (baseline) setBaselineChip(baseline);
           }).catch(() => {});
         }
         if (r.planId) {
@@ -661,7 +668,107 @@ export default function ChipReport() {
         </Card>
       )}
 
-      {/* ── Section 2: 算子精度 (#165) ── */}
+      {/* ── Section 2: 芯片规格卡片 (#438) ── */}
+      {chip && (
+        <Card
+          title={<Space><ExperimentOutlined style={{ color: "#1890ff" }} /> 芯片规格卡片</Space>}
+          extra={baselineChip ? <Tag color="blue">vs {baselineChip.name}</Tag> : null}
+          style={{ marginBottom: 24 }}
+        >
+          <Row gutter={[24, 16]}>
+            <Col xs={24} md={baselineChip ? 12 : 24}>
+              <Title level={5} style={{ marginBottom: 12 }}>
+                {chip.name} <Tag color="geekblue">{chip.chipType || "GPU"}</Tag>
+              </Title>
+              <Descriptions column={2} size="small" bordered>
+                <Descriptions.Item label="厂商">{chip.manufacturer || "-"}</Descriptions.Item>
+                <Descriptions.Item label="架构">{chip.architecture || "-"}</Descriptions.Item>
+                <Descriptions.Item label="工艺制程">{chip.processNode || "-"}</Descriptions.Item>
+                <Descriptions.Item label="TDP">{chip.tdpWatts ? `${chip.tdpWatts}W` : "-"}</Descriptions.Item>
+                <Descriptions.Item label="显存">{chip.memoryGb ? `${chip.memoryGb}GB ${chip.memoryType || ""}` : "-"}</Descriptions.Item>
+                <Descriptions.Item label="显存带宽">{chip.memoryBandwidthTbps ? `${chip.memoryBandwidthTbps} TB/s` : "-"}</Descriptions.Item>
+                <Descriptions.Item label="FP32">{chip.peakGflopsFp32 ? `${chip.peakGflopsFp32} TFLOPS` : "-"}</Descriptions.Item>
+                <Descriptions.Item label="FP16">{chip.peakGflopsFp16 ? `${chip.peakGflopsFp16} TFLOPS` : "-"}</Descriptions.Item>
+                <Descriptions.Item label="BF16">{chip.bf16Tflops ? `${chip.bf16Tflops} TFLOPS` : "-"}</Descriptions.Item>
+                <Descriptions.Item label="FP8">{chip.fp8Tflops ? `${chip.fp8Tflops} TFLOPS` : "-"}</Descriptions.Item>
+                <Descriptions.Item label="INT8">{chip.int8Tops ? `${chip.int8Tops} TOPS` : "-"}</Descriptions.Item>
+                <Descriptions.Item label="互联">{chip.interconnectType || "-"}{chip.interconnectBandwidthGbps ? ` (${chip.interconnectBandwidthGbps} Gbps)` : ""}</Descriptions.Item>
+                <Descriptions.Item label="精度支持" span={2}>{chip.supportedPrecisions || "-"}</Descriptions.Item>
+              </Descriptions>
+            </Col>
+            {baselineChip && (
+              <Col xs={24} md={12}>
+                <Title level={5} style={{ marginBottom: 12 }}>
+                  {baselineChip.name} <Tag color="orange">基准</Tag>
+                </Title>
+                <Descriptions column={2} size="small" bordered>
+                  <Descriptions.Item label="厂商">{baselineChip.manufacturer || "-"}</Descriptions.Item>
+                  <Descriptions.Item label="架构">{baselineChip.architecture || "-"}</Descriptions.Item>
+                  <Descriptions.Item label="工艺制程">{baselineChip.processNode || "-"}</Descriptions.Item>
+                  <Descriptions.Item label="TDP">{baselineChip.tdpWatts ? `${baselineChip.tdpWatts}W` : "-"}</Descriptions.Item>
+                  <Descriptions.Item label="显存">{baselineChip.memoryGb ? `${baselineChip.memoryGb}GB ${baselineChip.memoryType || ""}` : "-"}</Descriptions.Item>
+                  <Descriptions.Item label="显存带宽">{baselineChip.memoryBandwidthTbps ? `${baselineChip.memoryBandwidthTbps} TB/s` : "-"}</Descriptions.Item>
+                  <Descriptions.Item label="FP32">{baselineChip.peakGflopsFp32 ? `${baselineChip.peakGflopsFp32} TFLOPS` : "-"}</Descriptions.Item>
+                  <Descriptions.Item label="FP16">{baselineChip.peakGflopsFp16 ? `${baselineChip.peakGflopsFp16} TFLOPS` : "-"}</Descriptions.Item>
+                  <Descriptions.Item label="BF16">{baselineChip.bf16Tflops ? `${baselineChip.bf16Tflops} TFLOPS` : "-"}</Descriptions.Item>
+                  <Descriptions.Item label="FP8">{baselineChip.fp8Tflops ? `${baselineChip.fp8Tflops} TFLOPS` : "-"}</Descriptions.Item>
+                  <Descriptions.Item label="INT8">{baselineChip.int8Tops ? `${baselineChip.int8Tops} TOPS` : "-"}</Descriptions.Item>
+                  <Descriptions.Item label="互联">{baselineChip.interconnectType || "-"}{baselineChip.interconnectBandwidthGbps ? ` (${baselineChip.interconnectBandwidthGbps} Gbps)` : ""}</Descriptions.Item>
+                  <Descriptions.Item label="精度支持" span={2}>{baselineChip.supportedPrecisions || "-"}</Descriptions.Item>
+                </Descriptions>
+              </Col>
+            )}
+          </Row>
+
+          {/* Comparison table */}
+          {baselineChip && (
+            <>
+              <Divider style={{ margin: "16px 0" }} />
+              <Title level={5}>关键指标对比</Title>
+              <Table
+                dataSource={[
+                  { key: "fp32", metric: "FP32 算力", tested: chip.peakGflopsFp32, baseline: baselineChip.peakGflopsFp32, unit: "TFLOPS" },
+                  { key: "fp16", metric: "FP16 算力", tested: chip.peakGflopsFp16, baseline: baselineChip.peakGflopsFp16, unit: "TFLOPS" },
+                  { key: "bf16", metric: "BF16 算力", tested: chip.bf16Tflops, baseline: baselineChip.bf16Tflops, unit: "TFLOPS" },
+                  { key: "fp8", metric: "FP8 算力", tested: chip.fp8Tflops, baseline: baselineChip.fp8Tflops, unit: "TFLOPS" },
+                  { key: "int8", metric: "INT8 算力", tested: chip.int8Tops, baseline: baselineChip.int8Tops, unit: "TOPS" },
+                  { key: "mem", metric: "显存容量", tested: chip.memoryGb, baseline: baselineChip.memoryGb, unit: "GB" },
+                  { key: "bw", metric: "显存带宽", tested: chip.memoryBandwidthTbps, baseline: baselineChip.memoryBandwidthTbps, unit: "TB/s" },
+                  { key: "ic", metric: "互联带宽", tested: chip.interconnectBandwidthGbps, baseline: baselineChip.interconnectBandwidthGbps, unit: "Gbps" },
+                  { key: "tdp", metric: "TDP", tested: chip.tdpWatts, baseline: baselineChip.tdpWatts, unit: "W" },
+                ].filter(r => r.tested != null || r.baseline != null)}
+                columns={[
+                  { title: "指标", dataIndex: "metric", key: "metric", width: 120 },
+                  { title: chip.name || "被测芯片", key: "tested", width: 150, align: "right",
+                    render: (_, r) => r.tested != null ? <Text strong>{r.tested} {r.unit}</Text> : <Text type="secondary">—</Text> },
+                  { title: baselineChip.name || "基准", key: "baseline", width: 150, align: "right",
+                    render: (_, r) => r.baseline != null ? <Text>{r.baseline} {r.unit}</Text> : <Text type="secondary">—</Text> },
+                  { title: "对比", key: "ratio", width: 120, align: "center",
+                    render: (_, r) => {
+                      if (r.tested == null || r.baseline == null || r.baseline === 0) return <Text type="secondary">—</Text>;
+                      // For TDP, lower is better
+                      const isTdp = r.key === "tdp";
+                      const ratio = r.tested / r.baseline;
+                      const pct = (ratio * 100).toFixed(0);
+                      const color = isTdp
+                        ? (ratio <= 1 ? "#52c41a" : ratio <= 1.2 ? "#faad14" : "#ff4d4f")
+                        : (ratio >= 1 ? "#52c41a" : ratio >= 0.8 ? "#faad14" : "#ff4d4f");
+                      const arrow = isTdp
+                        ? (ratio < 1 ? "↓" : ratio > 1 ? "↑" : "=")
+                        : (ratio > 1 ? "↑" : ratio < 1 ? "↓" : "=");
+                      return <Text strong style={{ color }}>{pct}% {arrow}</Text>;
+                    }
+                  },
+                ]}
+                pagination={false}
+                size="small"
+              />
+            </>
+          )}
+        </Card>
+      )}
+
+      {/* ── Section 3: 算子精度 (#165) ── */}
       {accuracyData.length > 0 && operators.length > 0 && (
         <Card
           title={<Space><SafetyCertificateOutlined style={{ color: "#1890ff" }} /> 算子精度</Space>}
@@ -682,7 +789,7 @@ export default function ChipReport() {
         </Card>
       )}
 
-      {/* ── Section 3: 算子性能（延迟柱状图 + 排行表） (#165) ── */}
+      {/* ── Section 4: 算子性能（延迟柱状图 + 排行表） (#165) ── */}
       {operators.length > 0 && (
         <Card
           title={<Space><ThunderboltOutlined style={{ color: "#faad14" }} /> 算子性能排行</Space>}
@@ -703,7 +810,7 @@ export default function ChipReport() {
         </Card>
       )}
 
-      {/* ── Section 4: 模型评测 (#165) ── */}
+      {/* ── Section 5: 模型评测 (#165) ── */}
       {modelData.length > 0 && (
         <Card
           title={<Space><RocketOutlined style={{ color: "#722ed1" }} /> 模型评测</Space>}
@@ -719,7 +826,7 @@ export default function ChipReport() {
         </Card>
       )}
 
-      {/* ── Section 5: 训练性能 (#437) ── */}
+      {/* ── Section 6: 训练性能 (#437) ── */}
       <Card
         title={<Space><ExperimentOutlined style={{ color: "#1890ff" }} /> 训练性能分析</Space>}
         extra={<Tag color={dimScores.training >= 100 ? "green" : dimScores.training >= 80 ? "orange" : "red"}>
@@ -827,7 +934,7 @@ export default function ChipReport() {
         )}
       </Card>
 
-      {/* ── Section 6: 推理性能 (#437) ── */}
+      {/* ── Section 7: 推理性能 (#437) ── */}
       <Card
         title={<Space><RocketOutlined style={{ color: "#722ed1" }} /> 推理性能分析</Space>}
         extra={<Tag color={dimScores.inference >= 100 ? "green" : dimScores.inference >= 80 ? "orange" : "red"}>
@@ -967,7 +1074,7 @@ export default function ChipReport() {
         })()}
       </Card>
 
-      {/* ── Section 7: 瓶颈分析 (#165 增强) ── */}
+      {/* ── Section 8: 瓶颈分析 (#165 增强) ── */}
       <Card
         title={<Space><WarningOutlined style={{ color: "#faad14" }} /> 瓶颈分析与优化建议</Space>}
         style={{ marginBottom: 24 }}
@@ -1045,7 +1152,7 @@ export default function ChipReport() {
         </div>
       </Card>
 
-      {/* ── Section 8: 适用场景推荐 (#165) ── */}
+      {/* ── Section 9: 适用场景推荐 (#165) ── */}
       <Card title="适用场景推荐" style={{ marginBottom: 24 }}>
         {scenarioRecs.length > 0 ? (
           <Row gutter={16}>
@@ -1083,7 +1190,7 @@ export default function ChipReport() {
         )}
       </Card>
 
-      {/* ── Section 9: 评测环境 (#165) ── */}
+      {/* ── Section 10: 评测环境 (#165) ── */}
       <Card
         title={<Space><ClockCircleOutlined /> 评测环境</Space>}
         style={{ marginBottom: 24 }}
