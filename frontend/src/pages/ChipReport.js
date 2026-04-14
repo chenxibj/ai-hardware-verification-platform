@@ -14,7 +14,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   Card, Row, Col, Statistic, Progress, Table, Tag, Typography,
-  Spin, Button, Space, Divider, message, Descriptions, Alert, Empty, Collapse, Tooltip,
+  Spin, Button, Space, Divider, message, Descriptions, Alert, Empty, Collapse, Tooltip, Radio,
 } from "antd";
 import {
   ArrowLeftOutlined, TrophyOutlined, CheckCircleOutlined,
@@ -153,6 +153,7 @@ export default function ChipReport() {
   const [plan, setPlan] = useState(null);
   const reportRef = useRef(null);
   const [exporting, setExporting] = useState(false);
+  const [weightMode, setWeightMode] = useState("equal");
   const [settingBaseline, setSettingBaseline] = useState(false);
   const [baselineChip, setBaselineChip] = useState(null);
 
@@ -232,8 +233,29 @@ export default function ChipReport() {
   const trainingOps = operators.filter(o => o.dimension === "训练");
   const inferenceOps = operators.filter(o => o.dimension === "推理");
   const overallScore = report.overallScore || 0;
-  const grade = scoreGrade(overallScore);
-  const summary = generateSummary(dimScores, overallScore);
+  // #439: Scenario-weighted score calculation
+  const WEIGHT_PRESETS = {
+    equal: { label: "均衡", weights: { compute: 1, memory: 1, communication: 1, op_compat: 1, training: 1, inference: 1, scalability: 1, ecosystem: 1 } },
+    inference: { label: "推理优先", weights: { compute: 0.8, memory: 1.2, communication: 0.5, op_compat: 1.0, training: 0.3, inference: 2.0, scalability: 0.5, ecosystem: 0.7 } },
+    training: { label: "训练优先", weights: { compute: 1.2, memory: 1.0, communication: 1.5, op_compat: 0.8, training: 2.0, inference: 0.3, scalability: 1.5, ecosystem: 0.7 } },
+    mixed: { label: "混合负载", weights: { compute: 1.2, memory: 1.2, communication: 1.0, op_compat: 1.0, training: 1.2, inference: 1.2, scalability: 1.0, ecosystem: 0.8 } },
+  };
+  const currentWeights = WEIGHT_PRESETS[weightMode].weights;
+  const weightedScore = (() => {
+    const entries = Object.entries(currentWeights);
+    let totalWeight = 0, totalWeightedScore = 0;
+    for (const [key, w] of entries) {
+      const s = dimScores[key] || 0;
+      if (s > 0) {
+        totalWeight += w;
+        totalWeightedScore += s * w;
+      }
+    }
+    return totalWeight > 0 ? totalWeightedScore / totalWeight : overallScore;
+  })();
+  const displayScore = weightMode === "equal" ? overallScore : weightedScore;
+  const grade = scoreGrade(displayScore);
+  const summary = generateSummary(dimScores, displayScore);
 
   // #287: 检测所有维度评分是否都 = 100（可能是后端评分异常）
   const allScores100 = radarData.length > 0 && false /* #434: 100% is normal for vs-baseline */;
@@ -500,19 +522,31 @@ export default function ChipReport() {
         <Row gutter={[24, 16]} align="middle">
           <Col xs={24} md={8}>
             <div style={{ textAlign: "center" }}>
+              {/* #439: Scenario weighting selector */}
+              <Radio.Group value={weightMode} onChange={e => setWeightMode(e.target.value)}
+                size="small" buttonStyle="solid" style={{ marginBottom: 12 }}>
+                {Object.entries(WEIGHT_PRESETS).map(([k, v]) => (
+                  <Radio.Button key={k} value={k}>{v.label}</Radio.Button>
+                ))}
+              </Radio.Group>
               <Progress
                 type="circle"
-                percent={Math.min(100, Math.round(overallScore))}
-                strokeColor={scoreColor(overallScore)}
+                percent={Math.min(100, Math.round(displayScore))}
+                strokeColor={scoreColor(displayScore)}
                 size={160}
                 format={() => (
                   <div>
-                    <div style={{ fontSize: 36, fontWeight: "bold", color: scoreColor(overallScore) }}>
-                      {overallScore.toFixed(1)}%
+                    <div style={{ fontSize: 36, fontWeight: "bold", color: scoreColor(displayScore) }}>
+                      {displayScore.toFixed(1)}%
                     </div>
                     <div style={{ fontSize: 14, color: "#666" }}>
                       {grade.emoji} {grade.text}
                     </div>
+                    {weightMode !== "equal" && (
+                      <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>
+                        {WEIGHT_PRESETS[weightMode].label}加权
+                      </div>
+                    )}
                   </div>
                 )}
               />

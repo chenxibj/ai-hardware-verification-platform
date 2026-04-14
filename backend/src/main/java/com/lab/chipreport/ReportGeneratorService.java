@@ -411,6 +411,99 @@ public class ReportGeneratorService {
             }
         }
 
+        // #439: 4. 训练推理不平衡检测
+        double trainScore = dimScores.getOrDefault("training", 0.0);
+        double infScore = dimScores.getOrDefault("inference", 0.0);
+        if (trainScore > 0 && infScore > 0 && Math.abs(trainScore - infScore) > 30) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("type", "imbalance");
+            item.put("level", "warning");
+            String stronger = trainScore > infScore ? "训练" : "推理";
+            String weaker = trainScore > infScore ? "推理" : "训练";
+            item.put("title", "训练/推理不平衡");
+            item.put("detail", String.format("%s(%.1f%%) 显著强于 %s(%.1f%%)，差距 %.1f%%。适合专注 %s 场景，%s 场景慎用。",
+                    stronger, Math.max(trainScore, infScore), weaker, Math.min(trainScore, infScore),
+                    Math.abs(trainScore - infScore), stronger, weaker));
+            analysis.add(item);
+        }
+
+        // #439: 5. 显存带宽瓶颈（访存低+推理低 → 显存带宽可能是瓶颈）
+        double memScore = dimScores.getOrDefault("memory", 0.0);
+        if (memScore < 80 && infScore > 0 && infScore < 90) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("type", "memory_bottleneck");
+            item.put("level", memScore < 60 ? "error" : "warning");
+            item.put("title", "显存带宽可能是瓶颈");
+            item.put("detail", String.format("访存性能 %.1f%%，推理性能 %.1f%%。建议检查显存带宽利用率，考虑量化或算子融合优化。", memScore, infScore));
+            analysis.add(item);
+        }
+
+        // #439: 6. 通信瓶颈检测（多卡分布式训练风险）
+        double commScore = dimScores.getOrDefault("communication", 0.0);
+        double scaleScore = dimScores.getOrDefault("scalability", 0.0);
+        if (commScore < 50 || scaleScore < 50) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("type", "comm_bottleneck");
+            item.put("level", "warning");
+            item.put("title", "分布式训练风险");
+            item.put("detail", String.format("通信评分 %.1f%%，扩展性 %.1f%%。多卡/多机分布式训练可能出现严重通信瓶颈，建议先单卡验证再扩展。",
+                    commScore, scaleScore));
+            analysis.add(item);
+        }
+
+        // #439: 7. 算子通过率检测
+        long totalValid = operatorRanking.stream().filter(op -> "VALID".equals(op.get("dataStatus"))).count();
+        long totalPassed = operatorRanking.stream().filter(op -> Boolean.TRUE.equals(op.get("passed"))).count();
+        if (totalValid > 0) {
+            double passRate = (double) totalPassed / totalValid * 100;
+            if (passRate < 90) {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("type", "low_pass_rate");
+                item.put("level", passRate < 70 ? "error" : "warning");
+                item.put("title", String.format("算子通过率偏低: %.0f%%", passRate));
+                item.put("detail", String.format("%d/%d 算子通过基准测试。未通过算子可能影响模型兼容性和部署可靠性。",
+                        totalPassed, totalValid));
+                analysis.add(item);
+            }
+        }
+
+        // #439: 8. 生态适配检测
+        double ecoScore = dimScores.getOrDefault("ecosystem", 0.0);
+        if (ecoScore > 0 && ecoScore < 70) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("type", "ecosystem_gap");
+            item.put("level", "warning");
+            item.put("title", "生态支持不足");
+            item.put("detail", String.format("生态评分 %.1f%%。支持的精度类型较少或软件栈不完善，可能影响模型适配和开发效率。", ecoScore));
+            analysis.add(item);
+        }
+
+        // #439: 9. 能效比异常（高TDP但低性能）
+        double computeScore = dimScores.getOrDefault("compute", 0.0);
+        double overallAvg = dimScores.values().stream().filter(v -> v > 0).mapToDouble(Double::doubleValue).average().orElse(0);
+        if (overallAvg < 80 && overallAvg > 0) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("type", "efficiency_concern");
+            item.put("level", "info");
+            item.put("title", "综合性价比待评估");
+            item.put("detail", String.format("有效维度均分 %.1f%%，未达到 L40S 80%% 水平。建议结合价格和功耗评估 TCO。", overallAvg));
+            analysis.add(item);
+        }
+
+        // #439: 10. 单一强项提示
+        List<Map.Entry<String, Double>> highDims = dimScores.entrySet().stream()
+                .filter(e -> e.getValue() >= 120).collect(Collectors.toList());
+        if (highDims.size() >= 1 && highDims.size() <= 2) {
+            String dims = highDims.stream().map(e -> DIM_NAMES.getOrDefault(e.getKey(), e.getKey()) + "(" + String.format("%.0f%%", e.getValue()) + ")")
+                    .collect(Collectors.joining("、"));
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("type", "single_strength");
+            item.put("level", "info");
+            item.put("title", "突出优势: " + dims);
+            item.put("detail", "这些维度显著超越 L40S，可作为芯片核心卖点和差异化竞争优势。");
+            analysis.add(item);
+        }
+
         return analysis;
     }
 
