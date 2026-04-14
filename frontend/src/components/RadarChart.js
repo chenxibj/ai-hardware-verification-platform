@@ -20,13 +20,16 @@ import React, { useMemo } from "react";
 import ReactECharts from "echarts-for-react";
 
 /* 六维固定轴（顺序固定，保证雷达图一致性） */
+/* #435: 8 dimensions */
 const DIMENSIONS = [
-  "计算性能",
-  "访存性能",
-  "数学函数",
-  "Attention能力",
-  "归一化性能",
-  "模型推理",
+  "计算",
+  "访存",
+  "通信",
+  "算子兼容",
+  "训练",
+  "推理",
+  "扩展性",
+  "生态",
 ];
 
 /* 默认多芯片颜色 */

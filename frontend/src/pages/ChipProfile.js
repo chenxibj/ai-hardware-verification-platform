@@ -282,8 +282,8 @@ export default function ChipProfile() {
 
   /* 维度中文映射 */
   const DIM_CN = {
-    compute_perf: "计算性能", memory_perf: "访存性能", math_func: "数学函数",
-    attention: "Attention能力", normalization: "归一化性能", model_inference: "模型推理",
+    compute: "计算性能", memory: "访存性能", op_compat: "数学函数",
+    attention: "Attention能力", op_compat: "归一化性能", inference: "模型推理",
   };
 
   /* ── 评测历史列 ── */
@@ -781,7 +781,7 @@ export default function ChipProfile() {
               {compareData.reports.length > 0 && compareData.reports[0].radarData && (() => {
                 const colors = ["#1890ff", "#f5222d", "#52c41a", "#fa8c16", "#722ed1"];
                 const dimLabels = ["计算性能", "访存性能", "数学函数", "Attention能力", "归一化性能", "模型推理"];
-                const dimKeys = ["compute_perf", "memory_perf", "math_func", "attention", "normalization", "model_inference"];
+                const dimKeys = ["compute", "memory", "op_compat", "inference", "op_compat", "inference"];
 
                 const radarOption = {
                   tooltip: {},

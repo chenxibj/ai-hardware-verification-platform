@@ -35,41 +35,59 @@ public class ScoringService {
     /** Cached baseline latency map: testItem -> latency_ms_mean */
     private volatile Map<String, Double> baselineLatencyCache = null;
 
-    // 维度映射：testItem -> dimension（扩展为 6 维）
+    // 维度映射：testItem -> dimension（#435: 扩展为 8 维）
     private static final Map<String, String> DIMENSION_MAP = new LinkedHashMap<>();
     static {
-        // 计算性能
-        DIMENSION_MAP.put("MatMul", "计算性能");
-        DIMENSION_MAP.put("Conv2D", "计算性能");
-        DIMENSION_MAP.put("GEMM", "计算性能");
-        DIMENSION_MAP.put("Linear", "计算性能");
-        // 访存性能
-        DIMENSION_MAP.put("Transpose", "访存性能");
-        DIMENSION_MAP.put("Embedding", "访存性能");
-        DIMENSION_MAP.put("Concat", "访存性能");
-        DIMENSION_MAP.put("Gather", "访存性能");
-        DIMENSION_MAP.put("Scatter", "访存性能");
-        // 数学函数
-        DIMENSION_MAP.put("ReLU", "数学函数");
-        DIMENSION_MAP.put("GELU", "数学函数");
-        DIMENSION_MAP.put("SiLU", "数学函数");
-        DIMENSION_MAP.put("Sigmoid", "数学函数");
-        DIMENSION_MAP.put("Tanh", "数学函数");
-        DIMENSION_MAP.put("Softmax", "数学函数");
-        // Attention
-        DIMENSION_MAP.put("Attention", "Attention能力");
-        DIMENSION_MAP.put("ScaledDotProduct", "Attention能力");
-        // 归一化
-        DIMENSION_MAP.put("LayerNorm", "归一化性能");
-        DIMENSION_MAP.put("BatchNorm", "归一化性能");
-        DIMENSION_MAP.put("RMSNorm", "归一化性能");
-        // 模型推理
-        DIMENSION_MAP.put("MLP", "模型推理");
-        DIMENSION_MAP.put("MLP-Small", "模型推理");
-        DIMENSION_MAP.put("MLP-Medium", "模型推理");
-        DIMENSION_MAP.put("MLP-Large", "模型推理");
-        DIMENSION_MAP.put("ResNet", "模型推理");
-        DIMENSION_MAP.put("BERT", "模型推理");
+        // 计算
+        DIMENSION_MAP.put("MatMul", "计算");
+        DIMENSION_MAP.put("Conv2D", "计算");
+        DIMENSION_MAP.put("GEMM", "计算");
+        DIMENSION_MAP.put("Linear", "计算");
+        // 访存
+        DIMENSION_MAP.put("Transpose", "访存");
+        DIMENSION_MAP.put("Embedding", "访存");
+        DIMENSION_MAP.put("Concat", "访存");
+        DIMENSION_MAP.put("Gather", "访存");
+        DIMENSION_MAP.put("Scatter", "访存");
+        DIMENSION_MAP.put("Memcpy", "访存");
+        DIMENSION_MAP.put("Bandwidth", "访存");
+        // 通信
+        DIMENSION_MAP.put("AllReduce", "通信");
+        DIMENSION_MAP.put("AllGather", "通信");
+        DIMENSION_MAP.put("NCCL", "通信");
+        DIMENSION_MAP.put("P2P", "通信");
+        DIMENSION_MAP.put("Broadcast", "通信");
+        DIMENSION_MAP.put("ReduceScatter", "通信");
+        // 算子兼容
+        DIMENSION_MAP.put("ReLU", "算子兼容");
+        DIMENSION_MAP.put("GELU", "算子兼容");
+        DIMENSION_MAP.put("SiLU", "算子兼容");
+        DIMENSION_MAP.put("Sigmoid", "算子兼容");
+        DIMENSION_MAP.put("Tanh", "算子兼容");
+        DIMENSION_MAP.put("Softmax", "算子兼容");
+        DIMENSION_MAP.put("LayerNorm", "算子兼容");
+        DIMENSION_MAP.put("BatchNorm", "算子兼容");
+        DIMENSION_MAP.put("RMSNorm", "算子兼容");
+        DIMENSION_MAP.put("Add", "算子兼容");
+        DIMENSION_MAP.put("Mul", "算子兼容");
+        // 训练
+        DIMENSION_MAP.put("Backward", "训练");
+        DIMENSION_MAP.put("Gradient", "训练");
+        DIMENSION_MAP.put("Optimizer", "训练");
+        DIMENSION_MAP.put("Adam", "训练");
+        DIMENSION_MAP.put("SGD", "训练");
+        DIMENSION_MAP.put("MixedPrecision", "训练");
+        // 推理
+        DIMENSION_MAP.put("Attention", "推理");
+        DIMENSION_MAP.put("ScaledDotProduct", "推理");
+        DIMENSION_MAP.put("MLP", "推理");
+        DIMENSION_MAP.put("MLP-Small", "推理");
+        DIMENSION_MAP.put("MLP-Medium", "推理");
+        DIMENSION_MAP.put("MLP-Large", "推理");
+        DIMENSION_MAP.put("ResNet", "推理");
+        DIMENSION_MAP.put("BERT", "推理");
+        DIMENSION_MAP.put("LLaMA", "推理");
+        // 扩展性 和 生态 是非算子维度，基于芯片属性计算
     }
 
     /**
@@ -323,8 +341,14 @@ public class ScoringService {
             if (testItem.startsWith(entry.getKey())) return entry.getValue();
         }
         String lower = testItem.toLowerCase();
-        if (lower.contains("mlp") || lower.contains("resnet") || lower.contains("bert") || lower.contains("model")) {
-            return "模型推理";
+        if (lower.contains("mlp") || lower.contains("resnet") || lower.contains("bert") || lower.contains("llama") || lower.contains("model") || lower.contains("inference")) {
+            return "推理";
+        }
+        if (lower.contains("allreduce") || lower.contains("nccl") || lower.contains("p2p") || lower.contains("broadcast")) {
+            return "通信";
+        }
+        if (lower.contains("backward") || lower.contains("gradient") || lower.contains("optimizer") || lower.contains("train")) {
+            return "训练";
         }
         return "其他";
     }

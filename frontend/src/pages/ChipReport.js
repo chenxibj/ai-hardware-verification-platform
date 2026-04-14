@@ -74,9 +74,10 @@ function inferDataStatus(op) {
 }
 
 /* 维度键 -> 中文名 */
+/* #435: 8-dimension mapping */
 const DIM_CN = {
-  compute_perf: "计算性能", memory_perf: "访存性能", math_func: "数学函数",
-  attention: "Attention能力", normalization: "归一化性能", model_inference: "模型推理",
+  compute: "计算", memory: "访存", communication: "通信", op_compat: "算子兼容",
+  training: "训练", inference: "推理", scalability: "扩展性", ecosystem: "生态",
 };
 
 /* 生成能力摘要文字 */
@@ -769,12 +770,12 @@ export default function ChipReport() {
             const score = dimScores[key] || 0;
             if (score >= 80) return null;
             const suggestions = {
-              compute_perf: "建议优化矩阵运算核函数，使用 Tensor Core / 硬件加速指令，增大计算并行度",
-              memory_perf: "建议优化数据布局减少 cache miss，使用异步拷贝和内存合并访问",
-              math_func: "建议使用快速数学近似实现，检查激活函数是否有硬件原生支持",
+              compute: "建议优化矩阵运算核函数，使用 Tensor Core / 硬件加速指令，增大计算并行度",
+              memory: "建议优化数据布局减少 cache miss，使用异步拷贝和内存合并访问",
+              op_compat: "建议使用快速数学近似实现，检查激活函数是否有硬件原生支持",
               attention: "建议使用 FlashAttention 或分块注意力机制，降低显存占用",
-              normalization: "建议融合归一化与前后算子，减少内存读写次数",
-              model_inference: "建议优化模型图编译，使用算子融合和量化技术提升端到端性能",
+              op_compat: "建议融合归一化与前后算子，减少内存读写次数",
+              inference: "建议优化模型图编译，使用算子融合和量化技术提升端到端性能",
             };
             return (
               <div key={key} style={{ marginBottom: 8, padding: "8px 12px", background: score < 60 ? "#fff2f0" : "#fffbe6", borderRadius: 4 }}>

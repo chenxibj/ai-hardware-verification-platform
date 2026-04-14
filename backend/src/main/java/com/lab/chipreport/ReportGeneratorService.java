@@ -47,15 +47,17 @@ public class ReportGeneratorService {
     private final ComputeNodeRepository nodeRepository;
     private final ScoringService scoringService;
 
-    /* 六维度中文名称映射 */
+    /* #435: 八维度中文名称映射 */
     private static final Map<String, String> DIM_NAMES = new LinkedHashMap<>();
     static {
-        DIM_NAMES.put("compute_perf", "计算性能");
-        DIM_NAMES.put("memory_perf", "访存性能");
-        DIM_NAMES.put("math_func", "数学函数");
-        DIM_NAMES.put("attention", "Attention能力");
-        DIM_NAMES.put("normalization", "归一化性能");
-        DIM_NAMES.put("model_inference", "模型推理");
+        DIM_NAMES.put("compute", "计算");
+        DIM_NAMES.put("memory", "访存");
+        DIM_NAMES.put("communication", "通信");
+        DIM_NAMES.put("op_compat", "算子兼容");
+        DIM_NAMES.put("training", "训练");
+        DIM_NAMES.put("inference", "推理");
+        DIM_NAMES.put("scalability", "扩展性");
+        DIM_NAMES.put("ecosystem", "生态");
     }
 
     /**
@@ -78,6 +80,20 @@ public class ReportGeneratorService {
 
         // 1. 计算维度评分
         Map<String, Double> dimScores = resultService.calculateDimensionScores(planId);
+
+        // #435: 计算扩展性和生态维度（基于芯片属性 vs L40S）
+        try {
+            Chip chip = chipRepository.findById(plan.getChipId()).orElse(null);
+            Chip baseline = chipRepository.findByNameContainingIgnoreCase("L40S").stream()
+                    .filter(ch -> "CHIP-BASELINE-L40S".equals(ch.getChipNo()))
+                    .findFirst().orElse(null);
+            if (chip != null && baseline != null) {
+                dimScores.put("scalability", calculateScalabilityScore(chip, baseline));
+                dimScores.put("ecosystem", calculateEcosystemScore(chip, baseline));
+            }
+        } catch (Exception e) {
+            log.warn("#435: Failed to compute scalability/ecosystem scores: {}", e.getMessage());
+        }
 
         // 2. 生成算子排行 (with three-state: VALID/NO_DATA/FAILED)
         List<Map<String, Object>> operatorRanking = buildOperatorRanking(planId);
@@ -194,56 +210,72 @@ public class ReportGeneratorService {
         return saved;
     }
 
-    /* 六维度详细说明 */
+    /* #435: 八维度详细说明 */
     private static final Map<String, Map<String, Object>> DIM_DETAILS = new LinkedHashMap<>();
     static {
-        DIM_DETAILS.put("compute_perf", buildDimDetail(
-            "计算性能",
-            "衡量芯片执行核心计算操作的能力，是AI推理的基础",
-            "对 MatMul（矩阵乘法）、Conv2D（卷积）等基础计算算子，在不同输入尺寸下进行 benchmark，测量平均延迟和吞吐量",
-            "score = 100 - 20×log₁₀(avg_latency_ms)，延迟越低得分越高",
-            "≥80分：优秀 | 60-79分：良好 | 40-59分：一般 | <40分：较差",
+        DIM_DETAILS.put("compute", buildDimDetail(
+            "计算",
+            "衡量芯片执行核心计算操作的能力",
+            "对 MatMul、Conv2D 等基础计算算子进行 benchmark",
+            "vs L40S 百分比 = (L40S基准延迟 / 被测芯片延迟) × 100%",
+            "≥100%：达到基准 | 80-99%：接近基准 | <80%：低于基准",
             new String[]{"MatMul", "Conv2D", "GEMM", "Linear"}
         ));
-        DIM_DETAILS.put("memory_perf", buildDimDetail(
-            "访存性能",
-            "衡量芯片数据搬运和内存访问效率，影响整体推理流水线效率",
-            "通过 Transpose、Embedding Lookup、Concat、Gather/Scatter 等内存密集型操作测量数据搬运延迟",
-            "score = 100 - 20×log₁₀(avg_latency_ms)，延迟越低得分越高",
-            "≥80分：优秀 | 60-79分：良好 | 40-59分：一般 | <40分：较差",
-            new String[]{"Transpose", "Embedding", "Concat", "Gather", "Scatter", "Memcpy", "Bandwidth"}
+        DIM_DETAILS.put("memory", buildDimDetail(
+            "访存",
+            "衡量芯片数据搬运和内存访问效率",
+            "通过 Transpose、Embedding、Concat 等内存密集型操作测量",
+            "vs L40S 百分比",
+            "≥100%：达到基准 | 80-99%：接近基准 | <80%：低于基准",
+            new String[]{"Transpose", "Embedding", "Concat", "Gather", "Scatter"}
         ));
-        DIM_DETAILS.put("math_func", buildDimDetail(
-            "数学函数",
-            "衡量芯片执行激活函数等数学运算的能力",
-            "对 ReLU、Softmax、GeLU、Sigmoid、Tanh 等常用激活函数进行 benchmark",
-            "score = 100 - 20×log₁₀(avg_latency_ms)，延迟越低得分越高",
-            "≥80分：优秀 | 60-79分：良好 | 40-59分：一般 | <40分：较差",
-            new String[]{"ReLU", "GeLU", "SiLU", "Sigmoid", "Tanh", "Softmax"}
+        DIM_DETAILS.put("communication", buildDimDetail(
+            "通信",
+            "衡量多卡/多机间通信效率，影响分布式训练和推理",
+            "通过 AllReduce、AllGather、NCCL、P2P 等集合通信操作测量",
+            "vs L40S 百分比",
+            "≥100%：达到基准 | 80-99%：接近基准 | <80%：低于基准",
+            new String[]{"AllReduce", "AllGather", "NCCL", "P2P", "Broadcast"}
         ));
-        DIM_DETAILS.put("attention", buildDimDetail(
-            "Attention能力",
-            "衡量芯片对 Transformer 架构核心组件的支持能力，直接决定大模型推理性能",
-            "通过 Scaled Dot-Product Attention、Flash Attention 等机制进行端到端性能测试",
-            "score = 100 - 20×log₁₀(avg_latency_ms)，延迟越低得分越高",
-            "≥80分：优秀 | 60-79分：良好 | 40-59分：一般 | <40分：较差",
-            new String[]{"ScaledDotProduct", "FlashAttention"}
+        DIM_DETAILS.put("op_compat", buildDimDetail(
+            "算子兼容",
+            "衡量芯片对常用激活/归一化/元素算子的兼容性和效率",
+            "对 ReLU、Softmax、LayerNorm、BatchNorm 等进行 benchmark",
+            "vs L40S 百分比",
+            "≥100%：达到基准 | 80-99%：接近基准 | <80%：低于基准",
+            new String[]{"ReLU", "GeLU", "SiLU", "Softmax", "LayerNorm", "BatchNorm", "RMSNorm"}
         ));
-        DIM_DETAILS.put("normalization", buildDimDetail(
-            "归一化性能",
-            "衡量芯片执行归一化操作的效率，是现代深度学习模型的标配组件",
-            "对 LayerNorm、BatchNorm、RMSNorm 进行不同维度输入的 benchmark",
-            "score = 100 - 20×log₁₀(avg_latency_ms)，延迟越低得分越高",
-            "≥80分：优秀 | 60-79分：良好 | 40-59分：一般 | <40分：较差",
-            new String[]{"LayerNorm", "BatchNorm", "RMSNorm"}
+        DIM_DETAILS.put("training", buildDimDetail(
+            "训练",
+            "衡量芯片执行模型训练的综合能力",
+            "通过反向传播、梯度计算、优化器等训练相关操作测量",
+            "vs L40S 百分比",
+            "≥100%：达到基准 | 80-99%：接近基准 | <80%：低于基准",
+            new String[]{"Backward", "Gradient", "Optimizer", "Adam", "SGD"}
         ));
-        DIM_DETAILS.put("model_inference", buildDimDetail(
-            "模型推理",
-            "衡量芯片端到端运行完整模型的综合能力",
-            "部署 MLP、ResNet、BERT、LLaMA 等不同规模模型，测量多 batch size 下的推理延迟和吞吐量",
-            "score = 100 - 20×log₁₀(avg_latency_ms)，延迟越低得分越高",
-            "≥80分：优秀 | 60-79分：良好 | 40-59分：一般 | <40分：较差",
-            new String[]{"MLP", "ResNet", "BERT", "LLaMA"}
+        DIM_DETAILS.put("inference", buildDimDetail(
+            "推理",
+            "衡量芯片端到端运行模型推理的综合能力",
+            "通过 Attention、MLP、BERT、LLaMA 等模型推理场景测量",
+            "vs L40S 百分比",
+            "≥100%：达到基准 | 80-99%：接近基准 | <80%：低于基准",
+            new String[]{"Attention", "ScaledDotProduct", "MLP", "BERT", "LLaMA"}
+        ));
+        DIM_DETAILS.put("scalability", buildDimDetail(
+            "扩展性",
+            "衡量芯片多卡扩展时的性能线性度",
+            "基于芯片 interconnect 带宽、GPU 数量、NVLink 等硬件参数计算",
+            "基于芯片规格属性计算",
+            "≥100%：达到基准 | 80-99%：接近基准 | <80%：低于基准",
+            new String[]{"Multi-GPU", "Scaling"}
+        ));
+        DIM_DETAILS.put("ecosystem", buildDimDetail(
+            "生态",
+            "衡量芯片软件生态、框架兼容性和工具链成熟度",
+            "基于芯片 softwareStack、supportedPrecisions 等属性量化评分",
+            "基于芯片规格属性计算",
+            "≥100%：达到基准 | 80-99%：接近基准 | <80%：低于基准",
+            new String[]{"Framework", "CUDA", "Driver"}
         ));
     }
 
@@ -369,12 +401,14 @@ public class ReportGeneratorService {
             Map<String, Double> dimScores, double overallScore) {
         List<Map<String, Object>> recommendations = new ArrayList<>();
 
-        double computeScore = dimScores.getOrDefault("compute_perf", 0.0);
-        double memoryScore = dimScores.getOrDefault("memory_perf", 0.0);
-        double mathScore = dimScores.getOrDefault("math_func", 0.0);
-        double attentionScore = dimScores.getOrDefault("attention", 0.0);
-        double normScore = dimScores.getOrDefault("normalization", 0.0);
-        double modelScore = dimScores.getOrDefault("model_inference", 0.0);
+        double computeScore = dimScores.getOrDefault("compute", 0.0);
+        double memoryScore = dimScores.getOrDefault("memory", 0.0);
+        double opCompatScore = dimScores.getOrDefault("op_compat", 0.0);
+        double inferenceScore = dimScores.getOrDefault("inference", 0.0);
+        
+        double trainingScore = dimScores.getOrDefault("training", 0.0);
+        double scalabilityScore = dimScores.getOrDefault("scalability", 0.0);
+        double ecosystemScore = dimScores.getOrDefault("ecosystem", 0.0);
 
         // ✅ 推荐场景
         if (overallScore >= 75 && computeScore >= 85) {
@@ -382,19 +416,19 @@ public class ReportGeneratorService {
                     String.format("计算性能突出（%.1f分），适合 HPC、科学计算等计算密集型场景", computeScore),
                     Arrays.asList("计算性能"));
         }
-        if (overallScore >= 75 && attentionScore >= 85) {
+        if (overallScore >= 75 && inferenceScore >= 85) {
             addRecommendation(recommendations, "recommended", "大语言模型推理",
-                    String.format("Attention 能力优秀（%.1f分），适合 LLM 推理和 Transformer 模型部署", attentionScore),
+                    String.format("Attention 能力优秀（%.1f分），适合 LLM 推理和 Transformer 模型部署", inferenceScore),
                     Arrays.asList("Attention能力"));
         }
-        if (overallScore >= 75 && modelScore >= 85) {
+        if (overallScore >= 75 && inferenceScore >= 85) {
             addRecommendation(recommendations, "recommended", "模型部署服务",
-                    String.format("模型推理性能优秀（%.1f分），适合生产环境模型部署", modelScore),
+                    String.format("模型推理性能优秀（%.1f分），适合生产环境模型部署", inferenceScore),
                     Arrays.asList("模型推理"));
         }
-        if (overallScore >= 75 && mathScore >= 85) {
+        if (overallScore >= 75 && opCompatScore >= 85) {
             addRecommendation(recommendations, "recommended", "训练加速",
-                    String.format("数学函数性能优秀（%.1f分），激活函数高效，适合模型训练", mathScore),
+                    String.format("数学函数性能优秀（%.1f分），激活函数高效，适合模型训练", opCompatScore),
                     Arrays.asList("数学函数"));
         }
         if (overallScore >= 75 && memoryScore >= 85) {
@@ -404,9 +438,9 @@ public class ReportGeneratorService {
         }
 
         // ⚠️ 需关注场景
-        if (attentionScore >= 60 && attentionScore < 75) {
+        if (inferenceScore >= 60 && inferenceScore < 75) {
             addRecommendation(recommendations, "caution", "Transformer 模型",
-                    String.format("Attention 能力中等（%.1f分），部署 Transformer 模型时需关注延迟", attentionScore),
+                    String.format("Attention 能力中等（%.1f分），部署 Transformer 模型时需关注延迟", inferenceScore),
                     Arrays.asList("Attention能力"));
         }
         if (computeScore >= 60 && computeScore < 75) {
@@ -419,24 +453,24 @@ public class ReportGeneratorService {
                     String.format("访存性能中等（%.1f分），大批量 embedding 和转置操作需关注", memoryScore),
                     Arrays.asList("访存性能"));
         }
-        if (normScore >= 60 && normScore < 75) {
+        if (opCompatScore >= 60 && opCompatScore < 75) {
             addRecommendation(recommendations, "caution", "深层网络训练",
-                    String.format("归一化性能中等（%.1f分），深层网络 LayerNorm/BatchNorm 性能需关注", normScore),
+                    String.format("归一化性能中等（%.1f分），深层网络 LayerNorm/BatchNorm 性能需关注", opCompatScore),
                     Arrays.asList("归一化性能"));
         }
 
         // ❌ 待验证场景
-        if (attentionScore < 60) {
+        if (inferenceScore < 60) {
             addRecommendation(recommendations, "unverified", "大语言模型",
-                    attentionScore > 0 ?
-                        String.format("Attention 维度评分较低（%.1f分），LLM 部署前需充分验证", attentionScore) :
+                    inferenceScore > 0 ?
+                        String.format("Attention 维度评分较低（%.1f分），LLM 部署前需充分验证", inferenceScore) :
                         "缺少 Attention 维度评测数据，LLM 部署前需补充验证",
                     Arrays.asList("Attention能力"));
         }
-        if (modelScore < 60) {
+        if (inferenceScore < 60) {
             addRecommendation(recommendations, "unverified", "端到端模型推理",
-                    modelScore > 0 ?
-                        String.format("模型推理评分较低（%.1f分），生产部署前需验证", modelScore) :
+                    inferenceScore > 0 ?
+                        String.format("模型推理评分较低（%.1f分），生产部署前需验证", inferenceScore) :
                         "缺少模型推理评测数据，部署前需补充验证",
                     Arrays.asList("模型推理"));
         }
@@ -575,30 +609,63 @@ public class ReportGeneratorService {
         /**
      * 根据任务的 testItem 分类到六维度中文名
      */
+    /* #435: 八维度分类 */
     private String categorizeToDimension(EvaluationTask task) {
-        if (task == null) return "计算性能";
+        if (task == null) return "计算";
         String item = task.getTestItem();
-        if (item == null) return "计算性能";
+        if (item == null) return "计算";
         String lower = item.toLowerCase();
         if (lower.contains("matmul") || lower.contains("conv") || lower.contains("gemm") || lower.contains("linear"))
-            return "计算性能";
+            return "计算";
         if (lower.contains("transpose") || lower.contains("embedding") || lower.contains("concat") ||
             lower.contains("gather") || lower.contains("scatter") || lower.contains("memcpy") || lower.contains("bandwidth"))
-            return "访存性能";
+            return "访存";
+        if (lower.contains("allreduce") || lower.contains("allgather") || lower.contains("nccl") ||
+            lower.contains("p2p") || lower.contains("broadcast") || lower.contains("reducescatter"))
+            return "通信";
         if (lower.contains("relu") || lower.contains("gelu") || lower.contains("silu") || lower.contains("sigmoid") ||
-            lower.contains("tanh") || lower.contains("softmax"))
-            return "数学函数";
-        if (lower.contains("attention") || lower.contains("scaleddotproduct") || lower.contains("flash"))
-            return "Attention能力";
-        if (lower.contains("layernorm") || lower.contains("batchnorm") || lower.contains("rmsnorm") || lower.contains("norm"))
-            return "归一化性能";
-        if (lower.contains("mlp") || lower.contains("resnet") || lower.contains("bert") || lower.contains("llama") ||
+            lower.contains("tanh") || lower.contains("softmax") || lower.contains("layernorm") ||
+            lower.contains("batchnorm") || lower.contains("rmsnorm") || lower.contains("norm") ||
+            lower.contains("add") || lower.contains("mul"))
+            return "算子兼容";
+        if (lower.contains("backward") || lower.contains("gradient") || lower.contains("optimizer") ||
+            lower.contains("adam") || lower.contains("sgd") || lower.contains("train") || lower.contains("mixedprecision"))
+            return "训练";
+        if (lower.contains("attention") || lower.contains("scaleddotproduct") || lower.contains("flash") ||
+            lower.contains("mlp") || lower.contains("resnet") || lower.contains("bert") || lower.contains("llama") ||
             lower.contains("model") || lower.contains("inference"))
-            return "模型推理";
-        return "计算性能";
+            return "推理";
+        return "计算";
     }
 
-    private String generateReportNo() {
+    /**
+     * #435: 计算扩展性评分 vs L40S
+     * 基于 interconnect 带宽对比
+     */
+    private double calculateScalabilityScore(Chip chip, Chip baseline) {
+        double chipBw = chip.getInterconnectBandwidthGbps() != null ? chip.getInterconnectBandwidthGbps() : 0;
+        double baseBw = baseline.getInterconnectBandwidthGbps() != null ? baseline.getInterconnectBandwidthGbps() : 63; // L40S default 63 Gbps PCIe Gen4
+        if (baseBw <= 0) return 0;
+        return Math.round(chipBw / baseBw * 1000.0) / 10.0; // percentage with 1 decimal
+    }
+
+    /**
+     * #435: 计算生态评分 vs L40S
+     * 基于 supportedPrecisions 数量对比
+     */
+    private double calculateEcosystemScore(Chip chip, Chip baseline) {
+        int chipPrec = countPrecisions(chip.getSupportedPrecisions());
+        int basePrec = countPrecisions(baseline.getSupportedPrecisions());
+        if (basePrec <= 0) basePrec = 7; // L40S default: FP64,FP32,TF32,FP16,BF16,FP8,INT8
+        return Math.round((double) chipPrec / basePrec * 1000.0) / 10.0;
+    }
+
+    private int countPrecisions(String precisions) {
+        if (precisions == null || precisions.isEmpty()) return 0;
+        return precisions.split(",").length;
+    }
+
+        private String generateReportNo() {
         String date = DateTimeFormatter.ofPattern("yyyyMMdd")
                 .withZone(ZoneId.of("Asia/Shanghai"))
                 .format(Instant.now());

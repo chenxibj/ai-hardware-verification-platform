@@ -31,12 +31,12 @@ const MAX_CHIPS = 5;
 
 /* 维度映射 */
 const DIMENSION_MAP = {
-  compute_perf: "计算性能",
-  normalization: "归一化",
-  math_func: "数学函数",
+  compute: "计算",
+  op_compat: "归一化",
+  op_compat: "算子兼容",
   attention: "Attention",
-  memory_perf: "访存性能",
-  model_inference: "模型推理",
+  memory: "访存",
+  inference: "推理",
 };
 const DIMENSION_KEYS = Object.keys(DIMENSION_MAP);
 const DIMENSION_LABELS = Object.values(DIMENSION_MAP);

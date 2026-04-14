@@ -28,8 +28,8 @@ const CHIP_TYPE_OPTIONS = [
 
 const SORT_OPTIONS = [
   { value: "overall", label: "综合评分" },
-  { value: "compute", label: "计算性能" },
-  { value: "inference", label: "模型推理" },
+  { value: "compute", label: "计算" },
+  { value: "inference", label: "推理" },
 ];
 
 const CHIP_TYPE_COLORS = { GPU: "blue", NPU: "green", TPU: "orange", CPU: "cyan", OTHER: "purple" };
