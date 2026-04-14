@@ -217,6 +217,13 @@ export default function ChipReport() {
   const dimScores = safeParse(report.dimensionScores) || {};
   const bottleneckData = safeParse(report.bottleneckAnalysis) || [];
   const scenarioRecs = safeParse(report.scenarioRecommendations) || [];
+  const trainingSummary = safeParse(report.trainingSummary);
+  const inferenceSummary = safeParse(report.inferenceSummary);
+  const baselineChipName = report.baselineChip || "L40S";
+
+  // Split operators by category
+  const trainingOps = operators.filter(o => o.dimension === "训练");
+  const inferenceOps = operators.filter(o => o.dimension === "推理");
   const overallScore = report.overallScore || 0;
   const grade = scoreGrade(overallScore);
   const summary = generateSummary(dimScores, overallScore);
@@ -712,7 +719,255 @@ export default function ChipReport() {
         </Card>
       )}
 
-      {/* ── Section 5: 瓶颈分析 (#165 增强) ── */}
+      {/* ── Section 5: 训练性能 (#437) ── */}
+      <Card
+        title={<Space><ExperimentOutlined style={{ color: "#1890ff" }} /> 训练性能分析</Space>}
+        extra={<Tag color={dimScores.training >= 100 ? "green" : dimScores.training >= 80 ? "orange" : "red"}>
+          评分: {(dimScores.training || 0).toFixed(1)}% vs {baselineChipName}
+        </Tag>}
+        style={{ marginBottom: 24 }}
+      >
+        {/* Training Summary */}
+        {trainingSummary ? (
+          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+            <Col xs={12} md={6}>
+              <Statistic title="训练算子数" value={trainingSummary.operatorCount || 0}
+                suffix={`/ ${trainingSummary.validCount || 0} 有效`} />
+            </Col>
+            <Col xs={12} md={6}>
+              <Statistic title="综合评分" value={(trainingSummary.overallScore || 0).toFixed(1)}
+                suffix="% vs L40S"
+                valueStyle={{ color: scoreColor(trainingSummary.overallScore || 0) }} />
+            </Col>
+            <Col xs={12} md={6}>
+              <Statistic title="平均延迟" value={(trainingSummary.avgLatencyMs || 0).toFixed(3)}
+                suffix="ms" />
+            </Col>
+            <Col xs={12} md={6}>
+              <Statistic title="平均吞吐" value={(trainingSummary.avgThroughput || 0).toFixed(1)}
+                suffix="ops/s" />
+            </Col>
+          </Row>
+        ) : trainingOps.length === 0 ? (
+          <Alert type="info" showIcon message="暂无训练类算子评测数据"
+            description="当前评测计划未包含训练相关算子（Backward/Gradient/Optimizer等），如需评估训练性能请添加训练类评测任务。" style={{ marginBottom: 16 }} />
+        ) : null}
+
+        {/* Best/Worst training operators */}
+        {trainingSummary && (trainingSummary.bestOperator || trainingSummary.worstOperator) && (
+          <Row gutter={16} style={{ marginBottom: 16 }}>
+            {trainingSummary.bestOperator && (
+              <Col xs={12}>
+                <Card size="small" style={{ background: "#f6ffed", borderColor: "#b7eb8f" }}>
+                  <Text type="secondary">最佳算子</Text>
+                  <div><Text strong style={{ fontSize: 16 }}>{trainingSummary.bestOperator}</Text></div>
+                  <Text style={{ color: "#52c41a", fontWeight: "bold" }}>{(trainingSummary.bestScore || 0).toFixed(1)}%</Text>
+                </Card>
+              </Col>
+            )}
+            {trainingSummary.worstOperator && (
+              <Col xs={12}>
+                <Card size="small" style={{ background: "#fff2f0", borderColor: "#ffccc7" }}>
+                  <Text type="secondary">最弱算子</Text>
+                  <div><Text strong style={{ fontSize: 16 }}>{trainingSummary.worstOperator}</Text></div>
+                  <Text style={{ color: "#ff4d4f", fontWeight: "bold" }}>{(trainingSummary.worstScore || 0).toFixed(1)}%</Text>
+                </Card>
+              </Col>
+            )}
+          </Row>
+        )}
+
+        {/* Training throughput table */}
+        {trainingOps.length > 0 && (
+          <>
+            <Title level={5}>训练算子吞吐表</Title>
+            <Table
+              dataSource={trainingOps}
+              columns={[
+                { title: "算子", dataIndex: "testItem", key: "testItem",
+                  render: t => <Space><ExperimentOutlined />{t}</Space> },
+                { title: "延迟(ms)", key: "latency", width: 100, align: "right",
+                  render: (_, r) => (r.latencyMean ?? 0).toFixed(2) },
+                { title: "吞吐(ops/s)", dataIndex: "throughput", key: "throughput", width: 120, align: "right",
+                  render: v => (v ?? 0).toFixed(1) },
+                { title: "评分", dataIndex: "score", key: "score", width: 100, align: "center",
+                  render: (v, r) => r.dataStatus === "NO_DATA" ? <Text type="secondary">—</Text>
+                    : <span style={{ color: scoreColor(v || 0), fontWeight: "bold" }}>{(v || 0).toFixed(1)}%</span> },
+                { title: "状态", key: "status", width: 80, align: "center",
+                  render: (_, r) => r.passed ? <Tag color="success">PASS</Tag> : <Tag color="error">FAIL</Tag> },
+              ]}
+              rowKey={(_, idx) => `train-${idx}`}
+              pagination={false}
+              size="small"
+            />
+          </>
+        )}
+
+        {/* Scalability info */}
+        {dimScores.scalability > 0 && (
+          <>
+            <Divider />
+            <Title level={5}>扩展性评估</Title>
+            <Row gutter={16}>
+              <Col xs={12} md={8}>
+                <Statistic title="扩展性评分" value={(dimScores.scalability || 0).toFixed(1)}
+                  suffix="% vs L40S"
+                  valueStyle={{ color: scoreColor(dimScores.scalability || 0) }} />
+              </Col>
+              <Col xs={12} md={16}>
+                <Alert type={dimScores.scalability >= 100 ? "success" : dimScores.scalability >= 80 ? "warning" : "error"}
+                  showIcon
+                  message={dimScores.scalability >= 100 ? "多卡扩展性达到或超越 L40S 基准" :
+                    dimScores.scalability >= 80 ? "多卡扩展性接近 L40S 基准" :
+                    "多卡扩展性低于 L40S 基准，分布式训练效率可能受限"}
+                />
+              </Col>
+            </Row>
+          </>
+        )}
+      </Card>
+
+      {/* ── Section 6: 推理性能 (#437) ── */}
+      <Card
+        title={<Space><RocketOutlined style={{ color: "#722ed1" }} /> 推理性能分析</Space>}
+        extra={<Tag color={dimScores.inference >= 100 ? "green" : dimScores.inference >= 80 ? "orange" : "red"}>
+          评分: {(dimScores.inference || 0).toFixed(1)}% vs {baselineChipName}
+        </Tag>}
+        style={{ marginBottom: 24 }}
+      >
+        {/* Inference Summary */}
+        {inferenceSummary ? (
+          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+            <Col xs={12} md={6}>
+              <Statistic title="推理算子数" value={inferenceSummary.operatorCount || 0}
+                suffix={`/ ${inferenceSummary.validCount || 0} 有效`} />
+            </Col>
+            <Col xs={12} md={6}>
+              <Statistic title="综合评分" value={(inferenceSummary.overallScore || 0).toFixed(1)}
+                suffix="% vs L40S"
+                valueStyle={{ color: scoreColor(inferenceSummary.overallScore || 0) }} />
+            </Col>
+            <Col xs={12} md={6}>
+              <Statistic title="平均延迟" value={(inferenceSummary.avgLatencyMs || 0).toFixed(3)}
+                suffix="ms" />
+            </Col>
+            <Col xs={12} md={6}>
+              <Statistic title="平均吞吐" value={(inferenceSummary.avgThroughput || 0).toFixed(1)}
+                suffix="ops/s" />
+            </Col>
+          </Row>
+        ) : inferenceOps.length === 0 ? (
+          <Alert type="info" showIcon message="暂无推理类算子评测数据"
+            description="当前评测计划未包含推理相关算子（Attention/MLP/BERT等），如需评估推理性能请添加推理类评测任务。" style={{ marginBottom: 16 }} />
+        ) : null}
+
+        {/* Best/Worst inference operators */}
+        {inferenceSummary && (inferenceSummary.bestOperator || inferenceSummary.worstOperator) && (
+          <Row gutter={16} style={{ marginBottom: 16 }}>
+            {inferenceSummary.bestOperator && (
+              <Col xs={12}>
+                <Card size="small" style={{ background: "#f6ffed", borderColor: "#b7eb8f" }}>
+                  <Text type="secondary">最佳算子</Text>
+                  <div><Text strong style={{ fontSize: 16 }}>{inferenceSummary.bestOperator}</Text></div>
+                  <Text style={{ color: "#52c41a", fontWeight: "bold" }}>{(inferenceSummary.bestScore || 0).toFixed(1)}%</Text>
+                </Card>
+              </Col>
+            )}
+            {inferenceSummary.worstOperator && (
+              <Col xs={12}>
+                <Card size="small" style={{ background: "#fff2f0", borderColor: "#ffccc7" }}>
+                  <Text type="secondary">最弱算子</Text>
+                  <div><Text strong style={{ fontSize: 16 }}>{inferenceSummary.worstOperator}</Text></div>
+                  <Text style={{ color: "#ff4d4f", fontWeight: "bold" }}>{(inferenceSummary.worstScore || 0).toFixed(1)}%</Text>
+                </Card>
+              </Col>
+            )}
+          </Row>
+        )}
+
+        {/* Inference cross-eval table */}
+        {inferenceOps.length > 0 && (
+          <>
+            <Title level={5}>推理算子横评</Title>
+            <Table
+              dataSource={inferenceOps}
+              columns={[
+                { title: "算子/模型", dataIndex: "testItem", key: "testItem",
+                  render: (t, r) => {
+                    const isPrefill = /prefill|encode|prompt/i.test(t);
+                    const isDecode = /decode|generate|token/i.test(t);
+                    return (
+                      <Space>
+                        <RocketOutlined />
+                        {t}
+                        {isPrefill && <Tag color="blue" size="small">Prefill</Tag>}
+                        {isDecode && <Tag color="purple" size="small">Decode</Tag>}
+                      </Space>
+                    );
+                  }
+                },
+                { title: "延迟(ms)", key: "latency", width: 100, align: "right",
+                  render: (_, r) => (r.latencyMean ?? 0).toFixed(2) },
+                { title: "P95(ms)", key: "p95", width: 100, align: "right",
+                  render: (_, r) => (r.latencyP95 ?? 0).toFixed(2) },
+                { title: "吞吐(ops/s)", dataIndex: "throughput", key: "throughput", width: 120, align: "right",
+                  render: v => (v ?? 0).toFixed(1) },
+                { title: "vs L40S", dataIndex: "score", key: "score", width: 100, align: "center",
+                  render: (v, r) => r.dataStatus === "NO_DATA" ? <Text type="secondary">—</Text>
+                    : <span style={{ color: scoreColor(v || 0), fontWeight: "bold" }}>{(v || 0).toFixed(1)}%</span> },
+                { title: "状态", key: "status", width: 80, align: "center",
+                  render: (_, r) => r.passed ? <Tag color="success">PASS</Tag> : <Tag color="error">FAIL</Tag> },
+              ]}
+              rowKey={(_, idx) => `inf-${idx}`}
+              pagination={false}
+              size="small"
+            />
+          </>
+        )}
+
+        {/* Decode vs Prefill separation */}
+        {inferenceOps.length > 0 && (() => {
+          const prefillOps = inferenceOps.filter(o => /prefill|encode|prompt/i.test(o.testItem || ""));
+          const decodeOps = inferenceOps.filter(o => /decode|generate|token/i.test(o.testItem || ""));
+          if (prefillOps.length === 0 && decodeOps.length === 0) return null;
+          return (
+            <>
+              <Divider />
+              <Title level={5}>Prefill / Decode 阶段对比</Title>
+              <Row gutter={16}>
+                <Col xs={24} md={12}>
+                  <Card size="small" title="Prefill 阶段" style={{ background: "#e6f7ff", borderColor: "#91d5ff" }}>
+                    {prefillOps.length > 0 ? prefillOps.map((op, i) => (
+                      <div key={i} style={{ marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
+                        <Text>{op.testItem}</Text>
+                        <Space>
+                          <Text type="secondary">{(op.latencyMean ?? 0).toFixed(2)}ms</Text>
+                          <Text strong style={{ color: scoreColor(op.score || 0) }}>{(op.score || 0).toFixed(1)}%</Text>
+                        </Space>
+                      </div>
+                    )) : <Text type="secondary">暂无 Prefill 阶段数据</Text>}
+                  </Card>
+                </Col>
+                <Col xs={24} md={12}>
+                  <Card size="small" title="Decode 阶段" style={{ background: "#f9f0ff", borderColor: "#d3adf7" }}>
+                    {decodeOps.length > 0 ? decodeOps.map((op, i) => (
+                      <div key={i} style={{ marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
+                        <Text>{op.testItem}</Text>
+                        <Space>
+                          <Text type="secondary">{(op.latencyMean ?? 0).toFixed(2)}ms</Text>
+                          <Text strong style={{ color: scoreColor(op.score || 0) }}>{(op.score || 0).toFixed(1)}%</Text>
+                        </Space>
+                      </div>
+                    )) : <Text type="secondary">暂无 Decode 阶段数据</Text>}
+                  </Card>
+                </Col>
+              </Row>
+            </>
+          );
+        })()}
+      </Card>
+
+      {/* ── Section 7: 瓶颈分析 (#165 增强) ── */}
       <Card
         title={<Space><WarningOutlined style={{ color: "#faad14" }} /> 瓶颈分析与优化建议</Space>}
         style={{ marginBottom: 24 }}
@@ -790,7 +1045,7 @@ export default function ChipReport() {
         </div>
       </Card>
 
-      {/* ── Section 6: 适用场景推荐 (#165) ── */}
+      {/* ── Section 8: 适用场景推荐 (#165) ── */}
       <Card title="适用场景推荐" style={{ marginBottom: 24 }}>
         {scenarioRecs.length > 0 ? (
           <Row gutter={16}>
@@ -828,7 +1083,7 @@ export default function ChipReport() {
         )}
       </Card>
 
-      {/* ── Section 7: 评测环境 (#165) ── */}
+      {/* ── Section 9: 评测环境 (#165) ── */}
       <Card
         title={<Space><ClockCircleOutlined /> 评测环境</Space>}
         style={{ marginBottom: 24 }}
