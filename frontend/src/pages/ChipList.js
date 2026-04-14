@@ -130,7 +130,7 @@ export default function ChipList() {
       computePower: techSpec.computePower || undefined,
       computePowerUnit: techSpec.computePowerUnit || "TFLOPS",
       memory: techSpec.memory || undefined,
-      memoryType: techSpec.memoryType || "HBM2e",
+      memoryTypeOld: techSpec.memoryType || "HBM2e",
       tdp: techSpec.tdp || undefined,
       frequency: techSpec.frequency || undefined,
       cores: techSpec.cores || undefined,
@@ -139,6 +139,22 @@ export default function ChipList() {
       frameworks: softwareStack.frameworks || [],
       tags: record.tags || "",
       remark: record.remark || "",
+      // #433: 扩展规格字段
+      peakGflopsFp32: record.peakGflopsFp32 || undefined,
+      peakGflopsFp16: record.peakGflopsFp16 || undefined,
+      fp64Tflops: record.fp64Tflops || undefined,
+      tf32Tflops: record.tf32Tflops || undefined,
+      bf16Tflops: record.bf16Tflops || undefined,
+      fp8Tflops: record.fp8Tflops || undefined,
+      int8Tops: record.int8Tops || undefined,
+      memoryGb: record.memoryGb || undefined,
+      memoryType: record.memoryType || undefined,
+      memoryBandwidthTbps: record.memoryBandwidthTbps || undefined,
+      interconnectBandwidthGbps: record.interconnectBandwidthGbps || undefined,
+      interconnectType: record.interconnectType || undefined,
+      tdpWatts: record.tdpWatts || undefined,
+      processNode: record.processNode || undefined,
+      supportedPrecisions: record.supportedPrecisions || undefined,
     });
     setCreateVisible(true);
   };
@@ -171,6 +187,22 @@ export default function ChipList() {
         softwareStack,
         tags: values.tags || "",
         remark: values.remark || "",
+        // #433: 扩展规格字段
+        peakGflopsFp32: values.peakGflopsFp32 || null,
+        peakGflopsFp16: values.peakGflopsFp16 || null,
+        fp64Tflops: values.fp64Tflops || null,
+        tf32Tflops: values.tf32Tflops || null,
+        bf16Tflops: values.bf16Tflops || null,
+        fp8Tflops: values.fp8Tflops || null,
+        int8Tops: values.int8Tops || null,
+        memoryGb: values.memoryGb || null,
+        memoryType: values.memoryType || null,
+        memoryBandwidthTbps: values.memoryBandwidthTbps || null,
+        interconnectBandwidthGbps: values.interconnectBandwidthGbps || null,
+        interconnectType: values.interconnectType || null,
+        tdpWatts: values.tdpWatts || null,
+        processNode: values.processNode || null,
+        supportedPrecisions: values.supportedPrecisions || null,
       };
 
       if (editRecord) {
@@ -389,64 +421,135 @@ export default function ChipList() {
             </Col>
           </Row>
 
-          {/* ── 技术规格区域（增强 #159） ── */}
+          {/* ── 算力规格（#433 扩展） ── */}
           <Card
             size="small"
-            title={<span><ThunderboltOutlined style={{ marginRight: 6 }} />技术规格</span>}
+            title={<span><ThunderboltOutlined style={{ marginRight: 6 }} />算力规格</span>}
             style={{ marginBottom: 16 }}
             type="inner"
           >
             <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item label="标称算力" style={{ marginBottom: 8 }}>
-                  <Space.Compact style={{ width: "100%" }}>
-                    <Form.Item name="computePower" noStyle>
-                      <InputNumber placeholder="如 312" style={{ width: "60%" }} min={0} />
-                    </Form.Item>
-                    <Form.Item name="computePowerUnit" noStyle initialValue="TFLOPS">
-                      <Select style={{ width: "40%" }}>
-                        <Option value="TOPS">TOPS</Option>
-                        <Option value="TFLOPS">TFLOPS</Option>
-                        <Option value="PFLOPS">PFLOPS</Option>
-                      </Select>
-                    </Form.Item>
-                  </Space.Compact>
+              <Col span={6}>
+                <Form.Item name="fp64Tflops" label="FP64 TFLOPS" style={{ marginBottom: 8 }}>
+                  <InputNumber placeholder="如 30" style={{ width: "100%" }} min={0} step={0.1} />
                 </Form.Item>
               </Col>
-              <Col span={12}>
-                <Form.Item label="显存/内存" style={{ marginBottom: 8 }}>
-                  <Space.Compact style={{ width: "100%" }}>
-                    <Form.Item name="memory" noStyle>
-                      <InputNumber placeholder="如 80" style={{ width: "60%" }} min={0} />
-                    </Form.Item>
-                    <Form.Item name="memoryType" noStyle initialValue="HBM2e">
-                      <Select style={{ width: "40%" }}>
-                        <Option value="HBM2e">GB HBM2e</Option>
-                        <Option value="HBM3">GB HBM3</Option>
-                        <Option value="GDDR6">GB GDDR6</Option>
-                        <Option value="GDDR6X">GB GDDR6X</Option>
-                        <Option value="DDR5">GB DDR5</Option>
-                        <Option value="LPDDR5">GB LPDDR5</Option>
-                      </Select>
-                    </Form.Item>
-                  </Space.Compact>
+              <Col span={6}>
+                <Form.Item name="peakGflopsFp32" label="FP32 TFLOPS" style={{ marginBottom: 8 }}>
+                  <InputNumber placeholder="如 91.6" style={{ width: "100%" }} min={0} step={0.1} />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="tf32Tflops" label="TF32 TFLOPS" style={{ marginBottom: 8 }}>
+                  <InputNumber placeholder="如 183" style={{ width: "100%" }} min={0} step={0.1} />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="peakGflopsFp16" label="FP16 TFLOPS" style={{ marginBottom: 8 }}>
+                  <InputNumber placeholder="如 183.2" style={{ width: "100%" }} min={0} step={0.1} />
                 </Form.Item>
               </Col>
             </Row>
             <Row gutter={16}>
               <Col span={8}>
-                <Form.Item name="tdp" label="TDP 功耗" style={{ marginBottom: 8 }}>
-                  <InputNumber placeholder="如 400" style={{ width: "100%" }} min={0} addonAfter="W" />
+                <Form.Item name="bf16Tflops" label="BF16 TFLOPS" style={{ marginBottom: 8 }}>
+                  <InputNumber placeholder="如 183.2" style={{ width: "100%" }} min={0} step={0.1} />
                 </Form.Item>
               </Col>
               <Col span={8}>
-                <Form.Item name="frequency" label="频率" style={{ marginBottom: 8 }}>
-                  <InputNumber placeholder="如 1.41" style={{ width: "100%" }} min={0} step={0.01} addonAfter="GHz" />
+                <Form.Item name="fp8Tflops" label="FP8 TFLOPS" style={{ marginBottom: 8 }}>
+                  <InputNumber placeholder="如 733" style={{ width: "100%" }} min={0} step={0.1} />
                 </Form.Item>
               </Col>
               <Col span={8}>
-                <Form.Item name="cores" label="核心数" style={{ marginBottom: 8 }}>
-                  <InputNumber placeholder="如 6912" style={{ width: "100%" }} min={0} />
+                <Form.Item name="int8Tops" label="INT8 TOPS" style={{ marginBottom: 8 }}>
+                  <InputNumber placeholder="如 733" style={{ width: "100%" }} min={0} step={0.1} />
+                </Form.Item>
+              </Col>
+            </Row>
+          </Card>
+
+          {/* ── 存储规格 ── */}
+          <Card
+            size="small"
+            title={<span><AppstoreOutlined style={{ marginRight: 6 }} />存储规格</span>}
+            style={{ marginBottom: 16 }}
+            type="inner"
+          >
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item name="memoryGb" label="显存容量 (GB)" style={{ marginBottom: 8 }}>
+                  <InputNumber placeholder="如 48" style={{ width: "100%" }} min={0} />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="memoryType" label="显存类型" style={{ marginBottom: 8 }}>
+                  <Select placeholder="选择显存类型" allowClear>
+                    <Option value="HBM2e">HBM2e</Option>
+                    <Option value="HBM3">HBM3</Option>
+                    <Option value="HBM3e">HBM3e</Option>
+                    <Option value="GDDR6">GDDR6</Option>
+                    <Option value="GDDR6X">GDDR6X</Option>
+                    <Option value="LPDDR5">LPDDR5</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="memoryBandwidthTbps" label="显存带宽 (TB/s)" style={{ marginBottom: 8 }}>
+                  <InputNumber placeholder="如 0.864" style={{ width: "100%" }} min={0} step={0.1} />
+                </Form.Item>
+              </Col>
+            </Row>
+          </Card>
+
+          {/* ── 互联与其他规格 ── */}
+          <Card
+            size="small"
+            title={<span><SwapOutlined style={{ marginRight: 6 }} />互联与其他规格</span>}
+            style={{ marginBottom: 16 }}
+            type="inner"
+          >
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item name="interconnectBandwidthGbps" label="互联带宽 (GB/s)" style={{ marginBottom: 8 }}>
+                  <InputNumber placeholder="如 63" style={{ width: "100%" }} min={0} />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="interconnectType" label="互联类型" style={{ marginBottom: 8 }}>
+                  <Select placeholder="选择互联类型" allowClear>
+                    <Option value="NVLink">NVLink</Option>
+                    <Option value="MUSA Link">MUSA Link</Option>
+                    <Option value="HiLink">HiLink</Option>
+                    <Option value="PCIe">PCIe</Option>
+                    <Option value="PCIe Gen4 x16">PCIe Gen4 x16</Option>
+                    <Option value="PCIe Gen5 x16">PCIe Gen5 x16</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="tdpWatts" label="TDP 功耗 (W)" style={{ marginBottom: 8 }}>
+                  <InputNumber placeholder="如 350" style={{ width: "100%" }} min={0} />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item name="processNode" label="制程工艺" style={{ marginBottom: 8 }}>
+                  <Select placeholder="选择制程" allowClear>
+                    <Option value="3nm">3nm</Option>
+                    <Option value="4nm">4nm</Option>
+                    <Option value="5nm">5nm</Option>
+                    <Option value="7nm">7nm</Option>
+                    <Option value="12nm">12nm</Option>
+                    <Option value="14nm">14nm</Option>
+                    <Option value="16nm">16nm</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={16}>
+                <Form.Item name="supportedPrecisions" label="支持精度" style={{ marginBottom: 8 }}>
+                  <Input placeholder="如 FP64,FP32,TF32,FP16,BF16,FP8,INT8" />
                 </Form.Item>
               </Col>
             </Row>

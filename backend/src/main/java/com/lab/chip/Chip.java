@@ -83,6 +83,46 @@ public class Chip {
     @Column(name = "peak_bandwidth_gbps")
     private Double peakBandwidthGbps;
 
+    /** #433: 扩展规格字段 */
+    @Column(name = "fp64_tflops")
+    private Double fp64Tflops;
+
+    @Column(name = "bf16_tflops")
+    private Double bf16Tflops;
+
+    @Column(name = "tf32_tflops")
+    private Double tf32Tflops;
+
+    @Column(name = "fp8_tflops")
+    private Double fp8Tflops;
+
+    @Column(name = "int8_tops")
+    private Double int8Tops;
+
+    @Column(name = "memory_gb")
+    private Double memoryGb;
+
+    @Column(name = "memory_type", length = 20)
+    private String memoryType;
+
+    @Column(name = "memory_bandwidth_tbps")
+    private Double memoryBandwidthTbps;
+
+    @Column(name = "interconnect_bandwidth_gbps")
+    private Double interconnectBandwidthGbps;
+
+    @Column(name = "interconnect_type", length = 50)
+    private String interconnectType;
+
+    @Column(name = "tdp_watts")
+    private Integer tdpWatts;
+
+    @Column(name = "process_node", length = 20)
+    private String processNode;
+
+    @Column(name = "supported_precisions", length = 200)
+    private String supportedPrecisions;
+
     private String tags;
     private String remark;
 

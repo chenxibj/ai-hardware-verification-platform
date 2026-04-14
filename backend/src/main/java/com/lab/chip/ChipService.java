@@ -132,6 +132,20 @@ public class ChipService {
         if (update.getPeakGflopsFp32() != null) chip.setPeakGflopsFp32(update.getPeakGflopsFp32());
         if (update.getPeakGflopsFp16() != null) chip.setPeakGflopsFp16(update.getPeakGflopsFp16());
         if (update.getPeakBandwidthGbps() != null) chip.setPeakBandwidthGbps(update.getPeakBandwidthGbps());
+        // #433: 扩展规格字段
+        if (update.getFp64Tflops() != null) chip.setFp64Tflops(update.getFp64Tflops());
+        if (update.getBf16Tflops() != null) chip.setBf16Tflops(update.getBf16Tflops());
+        if (update.getTf32Tflops() != null) chip.setTf32Tflops(update.getTf32Tflops());
+        if (update.getFp8Tflops() != null) chip.setFp8Tflops(update.getFp8Tflops());
+        if (update.getInt8Tops() != null) chip.setInt8Tops(update.getInt8Tops());
+        if (update.getMemoryGb() != null) chip.setMemoryGb(update.getMemoryGb());
+        if (update.getMemoryType() != null) chip.setMemoryType(update.getMemoryType());
+        if (update.getMemoryBandwidthTbps() != null) chip.setMemoryBandwidthTbps(update.getMemoryBandwidthTbps());
+        if (update.getInterconnectBandwidthGbps() != null) chip.setInterconnectBandwidthGbps(update.getInterconnectBandwidthGbps());
+        if (update.getInterconnectType() != null) chip.setInterconnectType(update.getInterconnectType());
+        if (update.getTdpWatts() != null) chip.setTdpWatts(update.getTdpWatts());
+        if (update.getProcessNode() != null) chip.setProcessNode(update.getProcessNode());
+        if (update.getSupportedPrecisions() != null) chip.setSupportedPrecisions(update.getSupportedPrecisions());
         // #367: Validate JSON fields before save
         validateJsonField(chip.getTechSpec(), "techSpec");
         validateJsonField(chip.getSoftwareStack(), "softwareStack");
@@ -272,6 +286,59 @@ public class ChipService {
         if (fields.containsKey("peakBandwidthGbps")) {
             Object v = fields.get("peakBandwidthGbps");
             chip.setPeakBandwidthGbps(v != null ? Double.parseDouble(v.toString()) : null);
+        }
+        // #433: 扩展规格字段 patch
+        if (fields.containsKey("fp64Tflops")) {
+            Object v = fields.get("fp64Tflops");
+            chip.setFp64Tflops(v != null ? Double.parseDouble(v.toString()) : null);
+        }
+        if (fields.containsKey("bf16Tflops")) {
+            Object v = fields.get("bf16Tflops");
+            chip.setBf16Tflops(v != null ? Double.parseDouble(v.toString()) : null);
+        }
+        if (fields.containsKey("tf32Tflops")) {
+            Object v = fields.get("tf32Tflops");
+            chip.setTf32Tflops(v != null ? Double.parseDouble(v.toString()) : null);
+        }
+        if (fields.containsKey("fp8Tflops")) {
+            Object v = fields.get("fp8Tflops");
+            chip.setFp8Tflops(v != null ? Double.parseDouble(v.toString()) : null);
+        }
+        if (fields.containsKey("int8Tops")) {
+            Object v = fields.get("int8Tops");
+            chip.setInt8Tops(v != null ? Double.parseDouble(v.toString()) : null);
+        }
+        if (fields.containsKey("memoryGb")) {
+            Object v = fields.get("memoryGb");
+            chip.setMemoryGb(v != null ? Double.parseDouble(v.toString()) : null);
+        }
+        if (fields.containsKey("memoryType")) {
+            Object v = fields.get("memoryType");
+            chip.setMemoryType(v != null ? v.toString() : null);
+        }
+        if (fields.containsKey("memoryBandwidthTbps")) {
+            Object v = fields.get("memoryBandwidthTbps");
+            chip.setMemoryBandwidthTbps(v != null ? Double.parseDouble(v.toString()) : null);
+        }
+        if (fields.containsKey("interconnectBandwidthGbps")) {
+            Object v = fields.get("interconnectBandwidthGbps");
+            chip.setInterconnectBandwidthGbps(v != null ? Double.parseDouble(v.toString()) : null);
+        }
+        if (fields.containsKey("interconnectType")) {
+            Object v = fields.get("interconnectType");
+            chip.setInterconnectType(v != null ? v.toString() : null);
+        }
+        if (fields.containsKey("tdpWatts")) {
+            Object v = fields.get("tdpWatts");
+            chip.setTdpWatts(v != null ? Integer.parseInt(v.toString()) : null);
+        }
+        if (fields.containsKey("processNode")) {
+            Object v = fields.get("processNode");
+            chip.setProcessNode(v != null ? v.toString() : null);
+        }
+        if (fields.containsKey("supportedPrecisions")) {
+            Object v = fields.get("supportedPrecisions");
+            chip.setSupportedPrecisions(v != null ? v.toString() : null);
         }
 
         // #367: Validate JSON fields before save
