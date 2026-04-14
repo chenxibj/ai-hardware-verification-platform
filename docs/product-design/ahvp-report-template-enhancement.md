@@ -138,36 +138,22 @@ v2 设计文档中报告页面（5.4 节）仅做了模块级大纲：
 
 #### 测试方法
 
-**测试工具映射：**
-
-| 芯片厂商 | 通信库 | 测试工具 | 测试命令 |
-|---------|--------|---------|----------|
-| NVIDIA | NCCL | nccl-tests | `all_reduce_perf` / `all_reduce_perf_mpi` |
-| 华为昇腾 | HCCL | hccl-tests | `all_reduce_test` |
-| 摩尔线程 | MCCL | mccl-tests | `all_reduce_perf` |
-| 其他国产 | 各只实现 | 对应测试工具 | 参数保持一致 |
-
 **标准测试命令：**
 
 ```bash
-# === NVIDIA GPU 机内 8 卡 AllReduce ===
-# 全范围扫描（8B~8GB）
+# 机内 8 卡 AllReduce，消息大小从 8B 扫描到 8GB，每次翴倍
 ./build/all_reduce_perf -b 8 -e 8G -f 2 -g 8 -n 20 -w 5
 
 # MPI 模式（单机 8 卡）
 mpirun --allow-run-as-root -bind-to none -map-by slot \
   all_reduce_perf_mpi -b 2048M -e 8192M -f 2 -g 1
-
-# === 华为昇腾 910C 机内 16 NPU AllReduce ===
-mpirun -np 16 all_reduce_test -p 16 -b 1G -e 16G -f 2 -w 5 -n 20 -c 1
 ```
 
-> 参考：[SenseCore ACP nccl-test 最佳实践](https://www.sensecore.cn/help/docs/cloud-foundation/compute/acp/acpBestPractices/Job-nccl_test)；910C D设施项目 HCCL 测试报告
+> 参考：[NVIDIA nccl-tests](https://github.com/NVIDIA/nccl-tests)；[SenseCore ACP nccl-test 最佳实践](https://www.sensecore.cn/help/docs/cloud-foundation/compute/acp/acpBestPractices/Job-nccl_test)
 
 **网络环境变量（RoCE v2 400G 场景）：**
 
 ```bash
-# NCCL 环境变量（根据实际网络方案调整）
 export NCCL_IB_GID_INDEX=5
 export NCCL_IB_TC=138
 export NCCL_IB_QPS_PER_CONNECTION=8
@@ -186,14 +172,6 @@ export NCCL_MIN_NCHANNELS=32
 | 预热迭代 | 5 | 排除冷启动影响 |
 | 数据类型 | float (FP32) | 默认，可额外测试 fp16/bf16 |
 | 操作 | AllReduce (Sum) | 训练场景最关键的集合通信 |
-
-#### 慢节点检测标准
-
-> 参考 SenseCore Network Diagnostic Toolkit 慢节点判定标准：
-
-- **基线值**：实测 `max_algbw` 的 **80%** 为最低基线
-- **慢节点判定**：单节点 busbw 低于基线值，则标记为疑似慢节点
-- **检测命令**：`bash everun_base.sh`（单机）/ `bash everun_dect.sh`（并行模式）
 
 #### 核心指标
 
