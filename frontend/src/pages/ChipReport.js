@@ -32,20 +32,21 @@ import { useParams, useNavigate } from "react-router-dom";
 const { Title, Text } = Typography;
 
 /* 评分颜色映射 */
+/* #434: color mapping for vs L40S percentage */
 function scoreColor(score) {
-  if (score >= 80) return "#52c41a";
-  if (score >= 60) return "#1890ff";
-  if (score >= 40) return "#faad14";
-  return "#ff4d4f";
+  if (score >= 100) return "#52c41a";  // >=100% green
+  if (score >= 80) return "#faad14";   // 80-99% yellow
+  return "#ff4d4f";                    // <80% red
 }
 
 /* 评级 (#165) — 5级星星 */
+/* #434: grading for vs L40S percentage */
 function scoreGrade(score) {
-  if (score >= 90) return { stars: 5, text: "卓越", color: "#52c41a", emoji: "🏆" };
-  if (score >= 80) return { stars: 4, text: "优秀", color: "#1890ff", emoji: "🥇" };
-  if (score >= 70) return { stars: 3, text: "良好", color: "#13c2c2", emoji: "👍" };
-  if (score >= 60) return { stars: 2, text: "一般", color: "#faad14", emoji: "⚡" };
-  return { stars: 1, text: "待改进", color: "#ff4d4f", emoji: "🔧" };
+  if (score >= 120) return { stars: 5, text: "远超基准", color: "#52c41a", emoji: "🏆" };
+  if (score >= 100) return { stars: 4, text: "达到基准", color: "#52c41a", emoji: "🥇" };
+  if (score >= 80) return { stars: 3, text: "接近基准", color: "#faad14", emoji: "👍" };
+  if (score >= 60) return { stars: 2, text: "低于基准", color: "#faad14", emoji: "⚡" };
+  return { stars: 1, text: "显著落后", color: "#ff4d4f", emoji: "🔧" };
 }
 
 function renderStars(count) {
@@ -86,10 +87,10 @@ function generateSummary(dimScores, overallScore) {
   const strongest = entries.reduce((a, b) => a.score > b.score ? a : b);
   const weakest = entries.reduce((a, b) => a.score < b.score ? a : b);
 
-  let text = `该芯片综合评分 ${overallScore.toFixed(1)} 分，评级为【${grade.text}】（${grade.stars}星）。`;
-  text += `其中 ${strongest.name} 表现最佳（${strongest.score.toFixed(1)}分）`;
+  let text = `该芯片综合评分 vs L40S ${overallScore.toFixed(1)}%，评级为【${grade.text}】（${grade.stars}星）。`;
+  text += `其中 ${strongest.name} 表现最佳（${strongest.score.toFixed(1)}%）`;
   if (weakest.score < 70) {
-    text += `，${weakest.name} 是当前主要瓶颈（${weakest.score.toFixed(1)}分），建议重点优化。`;
+    text += `，${weakest.name} 是当前主要瓶颈（${weakest.score.toFixed(1)}%），建议重点优化。`;
   } else {
     text += `，各维度表现均衡。`;
   }
@@ -220,7 +221,7 @@ export default function ChipReport() {
   const summary = generateSummary(dimScores, overallScore);
 
   // #287: 检测所有维度评分是否都 = 100（可能是后端评分异常）
-  const allScores100 = radarData.length > 0 && radarData.every(d => d.score === 100);
+  const allScores100 = radarData.length > 0 && false /* #434: 100% is normal for vs-baseline */;
 
   const totalOps = operators.length;
   const validOps = operators.filter(o => o.dataStatus === "VALID");
@@ -269,7 +270,7 @@ export default function ChipReport() {
       title: "评分", dataIndex: "score", key: "score", width: 100, align: "center",
       render: (v, record) => {
         if (record.dataStatus === "NO_DATA") return <Text type="secondary">—</Text>;
-        return <span style={{ color: scoreColor(v || 0), fontWeight: "bold" }}>{(v || 0).toFixed(1)}</span>;
+        return <span style={{ color: scoreColor(v || 0), fontWeight: "bold" }}>{(v || 0).toFixed(1)}%</span>;
       },
       sorter: (a, b) => (a.score || 0) - (b.score || 0),
     },
@@ -299,7 +300,7 @@ export default function ChipReport() {
     { title: "显存(GB)", dataIndex: "memoryUsage", key: "memoryUsage", width: 100, align: "right",
       render: v => v != null ? Number(v).toFixed(1) : "-" },
     { title: "评分", dataIndex: "score", key: "score", width: 80, align: "center",
-      render: v => <span style={{ color: scoreColor(v || 0), fontWeight: "bold" }}>{(v || 0).toFixed(1)}</span> },
+      render: v => <span style={{ color: scoreColor(v || 0), fontWeight: "bold" }}>{(v || 0).toFixed(1)}%</span> },
     { title: "状态", key: "status", width: 80, align: "center",
       render: (_, record) => {
         if (record.dataStatus === "NO_DATA") return <Tag color="warning">无数据</Tag>;
@@ -349,7 +350,7 @@ export default function ChipReport() {
       message.warning("暂无算子数据可导出");
       return;
     }
-    const headers = ["排名", "算子名", "维度", "延迟(ms)", "吞吐量", "评分", "数据状态", "通过"];
+    const headers = ["排名", "算子名", "维度", "延迟(ms)", "吞吐量", "评分(%)", "数据状态", "通过"];
     const rows = operators.map((op, idx) => [
       idx + 1,
       (op.testItem || op.name || "Unknown").replace(/,/g, " "),
@@ -486,13 +487,13 @@ export default function ChipReport() {
             <div style={{ textAlign: "center" }}>
               <Progress
                 type="circle"
-                percent={Math.round(overallScore)}
+                percent={Math.min(100, Math.round(overallScore))}
                 strokeColor={scoreColor(overallScore)}
                 size={160}
                 format={() => (
                   <div>
                     <div style={{ fontSize: 36, fontWeight: "bold", color: scoreColor(overallScore) }}>
-                      {overallScore.toFixed(1)}
+                      {overallScore.toFixed(1)}%
                     </div>
                     <div style={{ fontSize: 14, color: "#666" }}>
                       {grade.emoji} {grade.text}
@@ -501,7 +502,7 @@ export default function ChipReport() {
                 )}
               />
               <div style={{ marginTop: 8 }}>{renderStars(grade.stars)}</div>
-              <div style={{ marginTop: 4, fontSize: 12, color: "#999" }}>综合评分 · {grade.stars}星评级</div>
+              <div style={{ marginTop: 4, fontSize: 12, color: "#999" }}>vs L40S · {grade.stars}星评级</div>
             </div>
           </Col>
           <Col xs={24} md={16}>
@@ -578,7 +579,7 @@ export default function ChipReport() {
 
       {/* 雷达图 + 维度评分 */}
       {radarData.length > 0 && (
-        <Card title={<Space>六维能力画像 <Tooltip title="综合评分为六个维度得分的等权平均值。各维度得分基于评测算子的平均延迟计算：score = 100 - 20×log₁₀(latency_ms)。"><QuestionCircleOutlined style={{ color: "#999", fontSize: 14 }} /></Tooltip></Space>} style={{ marginBottom: 24 }}>
+        <Card title={<Space>能力画像 (vs L40S) <Tooltip title="综合评分为各维度 vs L40S 百分比的等权平均值。百分比 = (L40S基准延迟 / 被测芯片延迟) × 100%。≥30% 表示达到或超越 L40S。"><QuestionCircleOutlined style={{ color: "#999", fontSize: 14 }} /></Tooltip></Space>} style={{ marginBottom: 24 }}>
           <Alert
             type="info"
             showIcon={false}
@@ -777,7 +778,7 @@ export default function ChipReport() {
             };
             return (
               <div key={key} style={{ marginBottom: 8, padding: "8px 12px", background: score < 60 ? "#fff2f0" : "#fffbe6", borderRadius: 4 }}>
-                <Tag color={score < 60 ? "error" : "warning"}>{name} ({score.toFixed(1)}分)</Tag>
+                <Tag color={score < 60 ? "error" : "warning"}>{name} ({score.toFixed(1)}%)</Tag>
                 <Text style={{ fontSize: 13 }}>{suggestions[key] || "建议进一步分析该维度性能瓶颈"}</Text>
               </div>
             );

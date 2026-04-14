@@ -726,7 +726,7 @@ export default function ChipProfile() {
                               {r.createdAt ? new Date(r.createdAt).toLocaleDateString("zh-CN") : "-"}
                             </Text>
                             <Text style={{ marginLeft: 8, color: getScoreColor(r.overallScore || 0), fontWeight: "bold" }}>
-                              {(r.overallScore || 0).toFixed(1)} 分
+                              {(r.overallScore || 0).toFixed(1)}%
                             </Text>
                           </div>
                           <div style={{ marginTop: 4 }}>
@@ -947,7 +947,7 @@ export default function ChipProfile() {
               >
                 {reports.map(r => (
                   <Option key={r.id} value={r.id}>
-                    {r.reportNo} — {r.overallScore?.toFixed(1)}分 ({new Date(r.createdAt).toLocaleDateString("zh-CN")})
+                    {r.reportNo} — {r.overallScore?.toFixed(1)}% ({new Date(r.createdAt).toLocaleDateString("zh-CN")})
                   </Option>
                 ))}
               </Select>

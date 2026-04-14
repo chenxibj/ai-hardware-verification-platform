@@ -43,11 +43,11 @@ const TOP3_BG = {
 };
 
 function scoreGrade(score) {
-  if (score >= 90) return { stars: 5, text: "卓越", color: "#52c41a" };
-  if (score >= 80) return { stars: 4, text: "优秀", color: "#1890ff" };
-  if (score >= 70) return { stars: 3, text: "良好", color: "#13c2c2" };
-  if (score >= 60) return { stars: 2, text: "一般", color: "#faad14" };
-  return { stars: 1, text: "待改进", color: "#ff4d4f" };
+  if (score >= 120) return { stars: 5, text: "远超基准", color: "#52c41a" };
+  if (score >= 100) return { stars: 4, text: "达到基准", color: "#52c41a" };
+  if (score >= 80) return { stars: 3, text: "接近基准", color: "#faad14" };
+  if (score >= 60) return { stars: 2, text: "低于基准", color: "#faad14" };
+  return { stars: 1, text: "显著落后", color: "#ff4d4f" };
 }
 
 function renderStars(count) {
@@ -125,7 +125,7 @@ export default function Leaderboard() {
       render: (score) => {
         if (score == null) return "-";
         const pct = Math.min(score, 100);
-        const color = score >= 80 ? "#52c41a" : score >= 60 ? "#1890ff" : "#faad14";
+        const color = score >= 100 ? "#52c41a" : score >= 80 ? "#faad14" : "#ff4d4f";
         return (
           <Space style={{ width: "100%" }}>
             <Progress

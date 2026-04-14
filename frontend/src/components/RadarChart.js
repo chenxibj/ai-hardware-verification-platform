@@ -1,6 +1,6 @@
 /**
  * @file RadarChart.js
- * @description 六维能力雷达图组件 — 可复用于芯片档案页、报告页、对比页
+ * @description 能力雷达图组件 (#434: vs L40S 百分比) — 可复用于芯片档案页、报告页、对比页
  * Issue: #139, #140
  *
  * 单数据集模式 (向后兼容):
@@ -42,14 +42,23 @@ export default function RadarChart({
   fillOpacity = 0.25,
 }) {
   const option = useMemo(() => {
-    // 构建 indicator（固定 6 维，max=100）
-    const indicator = DIMENSIONS.map((dim) => ({
-      name: dim,
-      max: 100,
-    }));
-
     // 判断是多数据集模式还是单数据集模式
     const isMulti = datasets && datasets.length > 0;
+
+    // #434: dynamic max for vs L40S percentage (can exceed 100%)
+    const allData = isMulti ? datasets.flatMap(ds => ds.data || []) : (data || []);
+    const scoreMap = {};
+    allData.forEach(item => {
+      if (item && item.dimension != null) {
+        scoreMap[item.dimension] = Math.max(scoreMap[item.dimension] || 0, item.score || 0);
+      }
+    });
+    const globalMax = Math.max(100, ...Object.values(scoreMap)) * 1.15; // 15% headroom
+    const radarMax = Math.ceil(globalMax / 10) * 10; // round up to nearest 10
+    const indicator = DIMENSIONS.map((dim) => ({
+      name: dim,
+      max: radarMax,
+    }));
 
     // 辅助函数：将 data 数组转换为按 DIMENSIONS 顺序排列的 values
     // #288: 构建 dataStatus map 以区分 0 分 vs 未评测
@@ -99,7 +108,7 @@ export default function RadarChart({
           label: showLabel
             ? {
                 show: true,
-                formatter: (params) => (params.value == null ? "未评测" : params.value > 0 ? params.value : ""),
+                formatter: (params) => (params.value == null ? "未评测" : params.value > 0 ? params.value + "%" : ""),
                 fontSize: 11,
                 color: "#666",
               }
@@ -122,7 +131,7 @@ export default function RadarChart({
           label: showLabel
             ? {
                 show: true,
-                formatter: (params) => (params.value == null ? "未评测" : params.value > 0 ? params.value : ""),
+                formatter: (params) => (params.value == null ? "未评测" : params.value > 0 ? params.value + "%" : ""),
                 fontSize: 11,
                 color: "#666",
               }
@@ -145,10 +154,10 @@ export default function RadarChart({
                 <span style="color:#999;font-style:italic;margin-left:12px">未评测</span>
               </div>`;
             } else {
-              const barColor = v >= 80 ? "#52c41a" : v >= 60 ? "#faad14" : "#ff4d4f";
+              const barColor = v >= 100 ? "#52c41a" : v >= 80 ? "#faad14" : "#ff4d4f";
               html += `<div style="display:flex;justify-content:space-between;min-width:180px">
                 <span>${dim}</span>
-                <span style="color:${barColor};font-weight:bold;margin-left:12px">${v}</span>
+                <span style="color:${barColor};font-weight:bold;margin-left:12px">${v}%</span>
               </div>`;
             }
           });

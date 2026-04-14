@@ -67,7 +67,7 @@ public class ReportGenerator {
         }
 
         // 1. 综合评分
-        double overallScore = scoringService.calculateOverallScore(results);
+        double overallScore = scoringService.calculateOverallScore(results, tasks);
 
         // 2. 维度评分
         Map<String, Double> dimensionScores = scoringService.calculateDimensionScores(results, tasks);

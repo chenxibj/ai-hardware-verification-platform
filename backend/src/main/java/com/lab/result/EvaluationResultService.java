@@ -6,6 +6,7 @@ import com.lab.plan.EvaluationPlan;
 import com.lab.plan.EvaluationPlanRepository;
 import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
+import com.lab.scoring.ScoringService;
 import com.lab.node.ComputeNode;
 import com.lab.node.ComputeNodeRepository;
 import com.lab.chip.ChipRepository;
@@ -33,6 +34,7 @@ public class EvaluationResultService {
     private final EvaluationTaskRepository taskRepository;
     private final EvaluationPlanRepository planRepository;
     private final ObjectMapper objectMapper;
+    private final ScoringService scoringService;
     private final ApplicationEventPublisher eventPublisher;
     private final ComputeNodeRepository nodeRepository;
     private final ChipRepository chipRepository;
@@ -572,8 +574,10 @@ public class EvaluationResultService {
                 double lat = toDouble(flatM.getOrDefault("latency_ms_mean", flatM.getOrDefault("latency_mean", flatM.getOrDefault("latencyMean", flatM.getOrDefault("avg_latency_ms", 0)))));
                 // Only include entries with valid latency data in dimension scoring
                 if (lat <= 0) continue;
-                double score = Math.max(0, Math.min(100, 100 - 20 * Math.log10(lat)));
                 EvaluationTask task = taskMap.get(r.getTaskId());
+                // #434: use ScoringService for vs L40S percentage scoring
+                String testItem = task != null ? task.getTestItem() : null;
+                double score = scoringService.scoreFromMetrics(r.getMetricsSummary(), testItem);
                 String dimension = categorizeToDimension(task);
                 if (dimScores.containsKey(dimension)) {
                     dimScores.get(dimension).add(score);

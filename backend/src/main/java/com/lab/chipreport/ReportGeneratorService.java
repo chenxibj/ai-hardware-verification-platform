@@ -9,6 +9,7 @@ import com.lab.plan.EvaluationPlanRepository;
 import com.lab.result.EvaluationResult;
 import com.lab.result.EvaluationResultRepository;
 import com.lab.result.EvaluationResultService;
+import com.lab.scoring.ScoringService;
 import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
 import com.lab.node.ComputeNode;
@@ -44,6 +45,7 @@ public class ReportGeneratorService {
     private final EvaluationResultService resultService;
     private final ObjectMapper objectMapper;
     private final ComputeNodeRepository nodeRepository;
+    private final ScoringService scoringService;
 
     /* 六维度中文名称映射 */
     private static final Map<String, String> DIM_NAMES = new LinkedHashMap<>();
@@ -484,11 +486,11 @@ public class ReportGeneratorService {
                 double p95Latency = toDouble(flatMetrics.getOrDefault("latency_ms_p95", flatMetrics.getOrDefault("latency_p95", flatMetrics.getOrDefault("latencyP95", 0))));
                 double p99Latency = toDouble(flatMetrics.getOrDefault("latency_ms_p99", flatMetrics.getOrDefault("latency_p99", flatMetrics.getOrDefault("latencyP99", 0))));
                 double throughput = toDouble(flatMetrics.getOrDefault("throughput_qps", flatMetrics.getOrDefault("throughput_ops", flatMetrics.getOrDefault("throughput", flatMetrics.getOrDefault("avg_throughput_qps", 0)))));
-                // Three-state scoring: VALID / NO_DATA / FAILED
+                // Three-state scoring: VALID / NO_DATA / FAILED (#434: vs L40S percentage)
                 double score;
                 String dataStatus;
                 if (avgLatency > 0 && throughput > 0) {
-                    score = Math.max(0, Math.min(100, 100 - 20 * Math.log10(avgLatency)));
+                    score = scoringService.scoreFromMetrics(r.getMetricsSummary(), name);
                     dataStatus = "VALID";
                 } else if (r.getPassed() != null && r.getPassed()) {
                     // Agent reported passed but no perf data — valid execution, no metrics
@@ -512,7 +514,7 @@ public class ReportGeneratorService {
                 entry.put("latencyP99", Math.round(p99Latency * 100.0) / 100.0);
                 entry.put("throughput", Math.round(throughput * 100.0) / 100.0);
                 entry.put("score", dataStatus.equals("NO_DATA") ? null : Math.round(score * 10.0) / 10.0);
-                entry.put("passed", dataStatus.equals("VALID") && score >= 60.0);
+                entry.put("passed", dataStatus.equals("VALID") && score >= 80.0); // #434: 80% of L40S baseline
                 entry.put("dataStatus", dataStatus);
                 ranking.add(entry);
             } catch (Exception e) {
