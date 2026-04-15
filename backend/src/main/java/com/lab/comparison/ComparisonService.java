@@ -3,6 +3,7 @@ package com.lab.comparison;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import com.lab.dimension.DimensionRegistry;
 import java.util.stream.Collectors;
 
 /**
@@ -34,29 +35,7 @@ public class ComparisonService {
         Map.entry("passRate", "higher_better")
     );
 
-    // ── Dimension configuration ──
-
-    private static final Map<String, String> DIMENSION_PRIMARY_METRICS = Map.of(
-        "compute", "latencyMean",
-        "memory", "latencyMean",
-        "communication", "busBandwidth",
-        "op_compat", "latencyMean",
-        "training", "throughput",
-        "inference", "latencyMean",
-        "scalability", "scalingEfficiency",
-        "ecosystem", "passRate"
-    );
-
-    private static final Map<String, String> DIMENSION_DIRECTIONS = Map.of(
-        "compute", "lower_better",
-        "memory", "lower_better",
-        "communication", "higher_better",
-        "op_compat", "lower_better",
-        "training", "higher_better",
-        "inference", "lower_better",
-        "scalability", "higher_better",
-        "ecosystem", "higher_better"
-    );
+    // ── Dimension configuration ── #459: Delegates to DimensionRegistry
 
     // ── Core formula ──
 
@@ -89,11 +68,11 @@ public class ComparisonService {
     // ── Dimension config lookup ──
 
     public static String getDimensionPrimaryMetric(String dimensionKey) {
-        return DIMENSION_PRIMARY_METRICS.get(dimensionKey);
+        return DimensionRegistry.getPrimaryMetricByKey(dimensionKey);
     }
 
     public static String getDimensionDirection(String dimensionKey) {
-        return DIMENSION_DIRECTIONS.get(dimensionKey);
+        return DimensionRegistry.getDirectionByKey(dimensionKey);
     }
 
     // ── Dimension-level aggregation ──
@@ -110,8 +89,8 @@ public class ComparisonService {
     public Double calcDimensionVsPct(String dimensionKey,
                                      List<Map<String, Object>> baselineOps,
                                      List<Map<String, Object>> testOps) {
-        String primaryMetric = DIMENSION_PRIMARY_METRICS.get(dimensionKey);
-        String direction = DIMENSION_DIRECTIONS.get(dimensionKey);
+        String primaryMetric = DimensionRegistry.getPrimaryMetricByKey(dimensionKey);
+        String direction = DimensionRegistry.getDirectionByKey(dimensionKey);
         if (primaryMetric == null || direction == null) {
             return null;
         }
