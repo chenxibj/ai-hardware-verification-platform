@@ -17,6 +17,8 @@ import org.springframework.stereotype.Service;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import com.lab.dimension.DimensionRegistry;
+
 /**
  * 评分计算服务
  * Issue: #135, #139 (六维度增强), #434 (vs L40S 百分比)
@@ -35,60 +37,7 @@ public class ScoringService {
     /** Cached baseline latency map: testItem -> latency_ms_mean */
     private volatile Map<String, Double> baselineLatencyCache = null;
 
-    // 维度映射：testItem -> dimension（#435: 扩展为 8 维）
-    private static final Map<String, String> DIMENSION_MAP = new LinkedHashMap<>();
-    static {
-        // 计算
-        DIMENSION_MAP.put("MatMul", "计算");
-        DIMENSION_MAP.put("Conv2D", "计算");
-        DIMENSION_MAP.put("GEMM", "计算");
-        DIMENSION_MAP.put("Linear", "计算");
-        // 访存
-        DIMENSION_MAP.put("Transpose", "访存");
-        DIMENSION_MAP.put("Embedding", "访存");
-        DIMENSION_MAP.put("Concat", "访存");
-        DIMENSION_MAP.put("Gather", "访存");
-        DIMENSION_MAP.put("Scatter", "访存");
-        DIMENSION_MAP.put("Memcpy", "访存");
-        DIMENSION_MAP.put("Bandwidth", "访存");
-        // 通信
-        DIMENSION_MAP.put("AllReduce", "通信");
-        DIMENSION_MAP.put("AllGather", "通信");
-        DIMENSION_MAP.put("NCCL", "通信");
-        DIMENSION_MAP.put("P2P", "通信");
-        DIMENSION_MAP.put("Broadcast", "通信");
-        DIMENSION_MAP.put("ReduceScatter", "通信");
-        // 算子兼容
-        DIMENSION_MAP.put("ReLU", "算子兼容");
-        DIMENSION_MAP.put("GELU", "算子兼容");
-        DIMENSION_MAP.put("SiLU", "算子兼容");
-        DIMENSION_MAP.put("Sigmoid", "算子兼容");
-        DIMENSION_MAP.put("Tanh", "算子兼容");
-        DIMENSION_MAP.put("Softmax", "算子兼容");
-        DIMENSION_MAP.put("LayerNorm", "算子兼容");
-        DIMENSION_MAP.put("BatchNorm", "算子兼容");
-        DIMENSION_MAP.put("RMSNorm", "算子兼容");
-        DIMENSION_MAP.put("Add", "算子兼容");
-        DIMENSION_MAP.put("Mul", "算子兼容");
-        // 训练
-        DIMENSION_MAP.put("Backward", "训练");
-        DIMENSION_MAP.put("Gradient", "训练");
-        DIMENSION_MAP.put("Optimizer", "训练");
-        DIMENSION_MAP.put("Adam", "训练");
-        DIMENSION_MAP.put("SGD", "训练");
-        DIMENSION_MAP.put("MixedPrecision", "训练");
-        // 推理
-        DIMENSION_MAP.put("Attention", "推理");
-        DIMENSION_MAP.put("ScaledDotProduct", "推理");
-        DIMENSION_MAP.put("MLP", "推理");
-        DIMENSION_MAP.put("MLP-Small", "推理");
-        DIMENSION_MAP.put("MLP-Medium", "推理");
-        DIMENSION_MAP.put("MLP-Large", "推理");
-        DIMENSION_MAP.put("ResNet", "推理");
-        DIMENSION_MAP.put("BERT", "推理");
-        DIMENSION_MAP.put("LLaMA", "推理");
-        // 扩展性 和 生态 是非算子维度，基于芯片属性计算
-    }
+    
 
     /**
      * Navigate nested JSON to find actual metrics data.
@@ -317,7 +266,7 @@ public class ScoringService {
             EvaluationTask task = taskMap.get(result.getTaskId());
             if (task == null || task.getTestItem() == null) continue;
 
-            String dimension = DIMENSION_MAP.getOrDefault(task.getTestItem(), "其他");
+            String dimension = DimensionRegistry.getKeyByOperator(task.getTestItem());
             double score = scoreFromMetrics(result.getMetricsSummary(), task.getTestItem());
             dimScores.computeIfAbsent(dimension, k -> new ArrayList<>()).add(score);
         }
@@ -331,26 +280,11 @@ public class ScoringService {
     }
 
     /**
-     * 获取 testItem 对应的维度名称
+     * 获取 testItem 对应的维度 key（英文）
+     * #459: Delegates to DimensionRegistry
      */
     public String getDimension(String testItem) {
-        if (testItem == null) return "其他";
-        String dim = DIMENSION_MAP.get(testItem);
-        if (dim != null) return dim;
-        for (Map.Entry<String, String> entry : DIMENSION_MAP.entrySet()) {
-            if (testItem.startsWith(entry.getKey())) return entry.getValue();
-        }
-        String lower = testItem.toLowerCase();
-        if (lower.contains("mlp") || lower.contains("resnet") || lower.contains("bert") || lower.contains("llama") || lower.contains("model") || lower.contains("inference")) {
-            return "推理";
-        }
-        if (lower.contains("allreduce") || lower.contains("nccl") || lower.contains("p2p") || lower.contains("broadcast")) {
-            return "通信";
-        }
-        if (lower.contains("backward") || lower.contains("gradient") || lower.contains("optimizer") || lower.contains("train")) {
-            return "训练";
-        }
-        return "其他";
+        return DimensionRegistry.getKeyByOperator(testItem);
     }
 
     /**
@@ -368,7 +302,7 @@ public class ScoringService {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("taskId", result.getTaskId());
             item.put("testItem", testItem != null ? testItem : "Unknown");
-            item.put("dimension", testItem != null ? getDimension(testItem) : "其他");
+            item.put("dimension", testItem != null ? getDimension(testItem) : "compute");
             item.put("passed", result.getPassed() != null && result.getPassed());
             item.put("score", scoreFromMetrics(result.getMetricsSummary(), testItem));
 
