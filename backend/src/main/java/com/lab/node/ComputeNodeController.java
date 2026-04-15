@@ -551,4 +551,39 @@ public class ComputeNodeController {
         return ApiResponse.ok(result);
     }
 
+
+    /**
+     * POST /api/nodes/{nodeId}/reject-task/{taskId} — Agent 退回无法执行的任务
+     * #443: 当 Agent worker 已满，poll 到的任务无法执行时，退回为 QUEUED 状态
+     */
+    @PostMapping("/{nodeId}/reject-task/{taskId}")
+    public ApiResponse<String> rejectTask(
+            @PathVariable Long nodeId,
+            @PathVariable Long taskId,
+            @RequestBody(required = false) Map<String, Object> body) {
+        
+        EvaluationTask task = taskRepository.findById(taskId).orElse(null);
+        if (task == null) {
+            return ApiResponse.error(404, "Task not found: " + taskId);
+        }
+        
+        // 只有 RUNNING 或 DISPATCHED 状态的任务才能退回
+        if (task.getStatus() != EvaluationTask.TaskStatus.RUNNING &&
+            task.getStatus() != EvaluationTask.TaskStatus.DISPATCHED) {
+            return ApiResponse.error(400, "Task " + taskId + " is " + task.getStatus() + ", cannot reject");
+        }
+        
+        // 退回为 QUEUED，清除分配信息
+        String reason = body != null ? (String) body.getOrDefault("reason", "worker full") : "worker full";
+        log.info("Agent {} rejecting task {} ({}): {}", nodeId, task.getTaskNo(), taskId, reason);
+        
+        task.setStatus(EvaluationTask.TaskStatus.QUEUED);
+        task.setAssignedNodeId(null);
+        task.setStartedAt(null);
+        task.setLastHeartbeatAt(null);
+        taskRepository.save(task);
+        
+        return ApiResponse.ok("Task " + taskId + " rejected back to QUEUED");
+    }
+
 }

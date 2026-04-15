@@ -242,6 +242,15 @@ class HeartbeatThread(threading.Thread):
                                     task_id, self.executor.active_task_count, self.executor.max_workers)
                     except RuntimeError as e:
                         logger.warning("#402 批量拉取: 任务 %s 执行失败: %s", task_id, e)
+                        # #443: 通知后端退回任务（RUNNING → QUEUED）
+                        try:
+                            reject_url = "{}/nodes/{}/reject-task/{}".format(
+                                self.platform_url, self.node_id, task_id)
+                            requests.post(reject_url, headers=headers,
+                                          json={"reason": str(e)}, timeout=5)
+                            logger.info("已通知后端退回任务 %s", task_id)
+                        except Exception as re:
+                            logger.warning("退回任务 %s 通知失败: %s", task_id, re)
                         break
 
                 if submitted == 0:
