@@ -81,6 +81,14 @@ public class ReportGeneratorService {
         // 1. 计算维度评分
         Map<String, Double> dimScores = resultService.calculateDimensionScores(planId);
 
+        // #444: 如果被测芯片就是 L40S baseline，强制所有有数据维度评分为 100%
+        Chip targetChip = chipRepository.findById(plan.getChipId()).orElse(null);
+        boolean isBaselineChip = targetChip != null && "CHIP-BASELINE-L40S".equals(targetChip.getChipNo());
+        if (isBaselineChip) {
+            dimScores.replaceAll((k, v) -> v > 0 ? 100.0 : 0.0);
+            log.info("Plan {} targets baseline chip L40S, forcing dimension scores to 100%", planId);
+        }
+
         // #435: 计算扩展性和生态维度（基于芯片属性 vs L40S）
         try {
             Chip chip = chipRepository.findById(plan.getChipId()).orElse(null);
@@ -97,6 +105,16 @@ public class ReportGeneratorService {
 
         // 2. 生成算子排行 (with three-state: VALID/NO_DATA/FAILED)
         List<Map<String, Object>> operatorRanking = buildOperatorRanking(planId);
+
+        // #444: baseline chip -> 所有 VALID 算子评分强制 100%
+        if (isBaselineChip) {
+            for (Map<String, Object> op : operatorRanking) {
+                if ("VALID".equals(op.get("dataStatus"))) {
+                    op.put("score", 100.0);
+                    op.put("passed", true);
+                }
+            }
+        }
 
         // 2.1 Recalculate overallScore based on VALID entries only
         double overallScore = operatorRanking.stream()
