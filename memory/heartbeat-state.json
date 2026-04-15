@@ -1,9 +1,9 @@
 {
-  "lastKnownOpenIssue": 276,
   "lastChecks": {
-    "github": "2026-04-09T17:23:00",
-    "patrol": "2026-04-09T17:23:00"
+    "github": "2026-04-14T22:43:00+08:00",
+    "devServer": null,
+    "subagents": "2026-04-14T22:43:00+08:00"
   },
-  "note": "Only #276 open (数字资产管理总览). GPU eval sub-agent running (task-011). BDD test task-010 failed earlier, pending retry.",
-  "activeSubAgents": ["gpu-node-register-eval"]
+  "lastAlertSent": null,
+  "lastRecoverySent": null
 }

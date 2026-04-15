@@ -12,6 +12,7 @@
 
 - **🔴 不造假（第零准则）** —— 绝不绕过正常流程伪造测试结果。功能没跑通就说没跑通，不包装不糊弄。"数据真但流程假"也是造假。这是道德底线。
 - **🔴 每 20 分钟汇报工作进展（第一准则）** — 对所有工作、所有 session 生效，最高优先级，不可跳过。
+- **🔴 工作未完成不停止（2026-04-13 铁律）** — chenxi 明确要求：把工作全部完成，在此之前不要停止。任务没做完就继续干，不等下个心跳、不等下个 session。
 - **🔴 Take Action, Not Report（2026-04-09 铁律，多次强化）** — 巡检发现问题必须直接处理，处理完汇报结果。禁止"需要关注""建议检查""需主 session 确认"等甩锅措辞。agent 停了就拉，bug 发现就修，7×24 自主恢复。
   - **Sub-agent 超时/停止 → 直接重启，不汇报问题本身** — 只在任务最终完成时汇报结果
   - **巡检报告 → 自己消化处理** — cron 发现的问题由主 agent 直接修复，不转发给 chenxi
@@ -213,7 +214,19 @@
 - **串行修复，不并行** — 除非修的是完全不同的模块（前端 vs 后端 vs Agent）
 - **每个修复单独 commit** — 方便 revert 和追溯
 
+### 空闲日不等于无事可做（2026-04-14 反思）
+- **没有 open issue ≠ 没有工作** — 产品经理应主动找活：review 产品反馈、拆解设计建议为开发 issue、补测试、code review
+- **被动等 issue 是最差状态** — 一整天有效工作为零是不可接受的，说明缺乏主动规划
+- **心跳空窗 19 小时** — 巡检 cron 可能异常，必须排查。白天无人值守 = 系统无人看管
+- **空闲日标准动作：** ①review 产品 issue/反馈 ②系统健康检查 ③补测试 ④代码质量 review
+
 ### 巡检模式经验（2026-04-06 复盘提炼）
+
+### Cron 运维经验（2026-04-14 排查总结）
+- **delivery.channel: "last" 不可靠** — 如果 cron session 没有前序对话，"last" channel 解析失败。必须显式指定 `channel: feishu` + `to: chat:xxx`
+- **cron 投递失败是静默的** — 14 天日报没送达但 cron 状态显示 `ok`（因为"生成"成功了只是"投递"失败）。定期检查 `openclaw cron runs --id xxx` 确认 `delivered: true`
+- **cron jobs 可能被意外删除** — `ahvp-health-check` 不知何时消失，要定期 `openclaw cron list` 验证
+- **日报 payload 不要硬编码日期** — 让 agent 自己确认当天日期
 - **issue 关闭 ≠ 完成** — Standing Task 已有此规则，但今天 16 个 issue 关闭时只记录未验收，说明执行不够坚决。明天必须验收。
 - **commit 归因要明确** — 巡检报告中的 commit 应标注 author，避免"疑似"这种模糊描述。
 - **监控日不能只监控** — 即使不主动开发，也应利用空闲时间验收已关闭 issue，而非等到第二天。
@@ -244,7 +257,54 @@
 - 开箱即用：预置模板让新用户零配置直接跑
 - 真实数据 > Mock 数据：所有接口必须走真实数据链路
 
-### 项目当前状态（2026-04-11 19:00 更新）
+### 路由与前端架构经验（2026-04-13 复盘新增）
+- **架构级问题要架构级解决** — #411 pushState 同步补丁治标不治本，#423/#424 React Router 重构彻底解决。识别问题层级很重要：代码 bug 打补丁，架构缺陷要重构
+- **重复 Controller 是 bug 温床** — ReportController 和 ChipReportController 服务同一数据但 enrich 逻辑不一致（#428）。同类数据应收敛到一个 Controller 或提取公共 Service
+- **验收测试 ROI 极高** — 44 项控制台测试花 27 分钟，发现 3 个隐藏 bug（#425/#426/#427）。控制台全流程验收应成为每次大改后的标准步骤
+- **API 契约不一致是隐形杀手** — Users 页面白屏（API 返回分页对象 vs 前端期望数组），#428 enrichReport 缺失。前后端协议需要明确文档化
+- **evalConfig 双重序列化** — Java Entity String 字段传入时必须是 JSON 字符串（双重序列化），不能传 JSON 对象。这是 Java + JSON API 的常见坑
+- **方案→review→实施→验收 闭环** — 路由改造一天内完成全生命周期，关键在于先写方案让麦克雷 review，采纳反馈后再实施，避免返工
+
+### 测试账号/环境管理经验（2026-04-12 复盘新增）
+- **验收前先验证登录** — 不要假设测试账号可用，密码可能被改过
+- **TRUNCATE 后必须重启后端** — JPA 缓存的 @Version 和 DB 不同步会导致乐观锁异常
+- **长表单流程需要 Token 刷新** — 7-8 步创建向导中 token 过期跳回登录，严重 UX 问题（待提 issue）
+
+### 架构改造经验（2026-04-12 复盘新增）
+- **Push→Pull 是正确方向** — Agent 主动拉取任务，消除了对安全组/防火墙的依赖，大幅降低运维成本
+- **BUSY 标记模型不适合并发** — 改用 GPU Slot + SELECT FOR UPDATE 控制并发是正确的
+- **dispatch 前必须检查资源余量** — 先检查 slot 余量再分配，不能先分发再补分配
+- **设计文档提纲先 review** — 27KB 文档写完才 review 会导致大量返工，应先 review 提纲/关键决策
+
+### 项目当前状态（2026-04-13 23:00 更新）
+- **Open issue = 0** 🎉
+- **Playwright 测试: 30 个全绿**
+- **路由系统彻底重构** — React Router v6 替代手写 pushState，21 个路由页面全部正常
+- **控制台验收 95% 通过** — 44 项测试覆盖全流程
+- **L40S 评测 17/17 COMPLETED** — 报告自动生成 ✅
+- **CPU 评测 12/17** — 5 个算子超时（MatMul/Conv2D/Softmax/ReLU/LayerNorm >5min）
+- **今日关闭 8 个 issue**: #416 #424 #425 #426 #427 #428 #429 #430
+- **测试账号**: admin@ahvp.com / Test1234, test@ahvp.com / Test1234 (super_admin)
+
+### 项目当前状态（旧 2026-04-12 20:50）
+- **Open issue = 0**（#398 RunSpec 前端已修，#400-#403 全部已修）
+- **Pull-based dispatch 已上线** — Agent 心跳时 poll-tasks 拉取 DISPATCHED 任务，不需要开安全组
+- **Agent systemd 服务化** — kill -9 后 5s 自动重启，两台机器都部署
+- **Agent 并发执行** — 线程池 max_workers=4，任务完成立即 re-poll
+- **任务取消/暂停/恢复** — 后端 API + 前端按钮 + 确认弹窗
+- **GPU Slot 即时释放** — submitResult/submitFailure 路径修复
+- **芯片亲和性调度已上线** — 硬约束，三级调度（指定节点→芯片匹配→任意）
+- **GPU Slot 并发控制已上线** — dispatch 前检查 slot 余量，满则排队，SELECT FOR UPDATE 并发安全
+- **RunSpec 运行规格已上线** — 9 种预置，前端 8 步创建向导
+- **设计文档**：resource-scheduling-design.md v1.1 + k8s-scheduling-design.md
+- **L40S pull-based 验证通过** — Plan 657 全 9/9 COMPLETED → Plan 666 17/17 COMPLETED
+- **CPU 评测** — Plan 667, 12/17 COMPLETED, 5 FAILED（MatMul/Conv2D/Softmax/ReLU/LayerNorm 超时 >5min，CPU 算力限制属预期）
+- **控制台验收测试通过** — 44 项测试 / 39 通过 / 95% 通过率，3 个 bug 已修
+- **路由架构重构完成** — React Router v6 全面迁移，手写 pushState 伪路由彻底移除
+- **Playwright 测试: 30 个全绿**
+- **测试账号密码** — admin@ahvp.com / test123, test@ahvp.com / Test1234（04-13 重置）
+
+### 项目当前状态（旧 2026-04-11 19:00）
 - **Open issue = 0**
 - **K8s 自动扩缩容完成** — discovery-only 模式，2 轮测试通过
 - **ACK 集群 ahvp-k8s** — 当前 1 节点（cn-beijing），按需扩缩容
@@ -278,6 +338,80 @@
 - 团队：菜菜子（全栈 + 验收）+ chenxi（核心开发）+ 东哥（硬件 PM）
 - **下一步重点：** 重构类 issue (#83 #86) + 安全加固 (#85 CORS) + 测试用例 (#87-#92) + E2E 规划 (#104)
 
+## 🏗️ 调度模块开发最佳实践（2026-04-12 沉淀）
+
+> 从 pull-based dispatch + GPU Slot + RunSpec 开发中提炼的通用工程准则。
+
+### 原则 1：状态变更必须收敛到统一路径
+- **反面案例：** `submitResult()` 直接改 task 状态为 COMPLETED，绕过了 `updateStatus()` 里的 GPU Slot 释放（#403）
+- **最佳实践：** 任何终态变更（COMPLETED/FAILED/CANCELLED）必须走同一个 `updateStatus()` 方法。在该方法中集中处理所有副作用：释放 GPU Slot、释放节点、更新 Plan 进度、发事件
+- **检查清单：** 新增终态路径时，grep `setStatus(.*COMPLETED\|FAILED\|CANCELLED)` 确认没有绕路的
+
+### 原则 2：有状态资源需要三道防线
+- GPU Slot、节点锁等有状态资源的释放不能只靠一条路径
+  1. **正常路径释放** — 任务完成/取消时主动释放
+  2. **异常回调释放** — 任务失败/超时回调中释放
+  3. **定时兜底扫描** — TaskRecoveryScheduler 周期扫描泄漏的 Slot
+- **反面案例：** 任务删除后 Slot 残留 ALLOCATED，后续任务全排队
+
+### 原则 3：改架构模式必须全量搜索旧模式引用
+- **反面案例：** push→pull 改造后，`findAvailableNode` 里残留 `isAgentReachable()` 检查（HTTP 连 agent 端口），导致所有任务卡 QUEUED
+- **最佳实践：** 架构模式变更时，`grep -rn "旧模式关键词"` 找出所有引用点，逐个确认是否需要修改。不能只改主流程
+- **关键词示例：** `isAgentReachable`, `HTTP POST.*agent`, `dispatch.*reachable`
+
+### 原则 4：乐观锁 + 高频调度 = 必须有异常隔离
+- **反面案例：** 调度器每 30s 扫 QUEUED 任务，旧任务 `@Version` 冲突连环爆，事务积压阻塞 register 请求
+- **最佳实践：**
+  - 调度循环中每个任务独立 try-catch，一个失败不影响整批
+  - 旧数据（已删除 Plan 的任务）要及时清理
+  - 乐观锁冲突后 skip 而非 retry（下轮再来）
+
+### 原则 5：前后端字段语义必须对齐
+- **反面案例：** 前端传 `chipType="GPU"` 作为 RunSpec category 过滤，但 RunSpec category 是 `operator/model/training`，过滤结果为空
+- **最佳实践：** API 联调时先 curl 验证参数+返回值，不要假设字段含义一致。不同模型的同名字段（如 category）可能有完全不同的枚举值
+
+### 原则 6：@Transactional 内禁止外部调用
+- **铁律：永远不要在 @Transactional 方法里做 HTTP/RPC 调用**
+- 外部调用超时 → DB 连接不释放 → 连接池耗尽 → 全系统瘫痪
+- 应该：先在事务内更新状态 → 提交事务 → 再做外部调用
+
+### 原则 7：Agent 进程管理 Day 1 就要 systemd 化
+- SSH session 断开 = 进程死亡 = 节点离线
+- `systemd service` + `Restart=always` + `RestartSec=5` 是标配
+- `screen`/`tmux` 只是临时方案，不是长期方案
+
+### 原则 8：并发模型必须显式设计
+- **反面案例：** 单线程 Agent + 30s 轮询 = 8 张 GPU 只有 1 张在干活
+- **最佳实践：** 多 GPU 节点必须线程池并发（workers = min(GPU数, 配置上限)），任务完成后立即 re-poll 而非等下次心跳
+
+### 原则 9：控制台验收 > API 验收
+- **curl 返回 200 ≠ 功能正常**
+- 必须走完整的 UI 路径：登录 → 创建任务 → 执行 → 查看结果
+- 特别是创建流程的多步向导，任何一步卡住都等于功能不可用
+
+### 原则 10：Bug 修复要溯因不要打补丁
+- **打地鼠模式（反面）：** IP 过滤 #349→#355→#357→#360，改一个引入一个
+- **系统性修复（正面）：** 一次想清楚"正确的前置条件是什么"，写成函数统一调用
+- **方法：** 问"为什么会有这个 bug"而不是"怎么修这个 bug"
+
+---
+
+### 重复 Controller 是 bug 温床（2026-04-13）
+- ReportController 和 ChipReportController 服务同一数据但 enrich 逻辑不一致，导致 #428（chipName/planName null）
+- **铁律：同类数据收敛到一个 Controller 或提取公共 Service，不要两个 Controller 各自实现**
+
+### 架构级 vs 代码级问题（2026-04-13）
+- 路由问题打补丁（#411 pushState 同步）不如重构（#423/#424 React Router）
+- 识别问题是架构级还是代码级很重要，架构级问题打再多补丁也修不好
+
+### 验收测试 ROI 极高（2026-04-13）
+- 44 项控制台验收测试花 27 分钟，发现 3 个没人注意到的 bug
+- **控制台验收 > API 验收**，始终如此
+
+### evalConfig 双重序列化（2026-04-13）
+- JSON 字符串字段传入 Spring Boot 时必须是字符串而非 JSON 对象
+- 即 `"evalConfig": "{\"key\":\"value\"}"` 而非 `"evalConfig": {"key":"value"}`
+
 ## Coding Lessons (Bug 复盘)
 
 1. **全链路一致性** — 改枚举/字段/接口前先 grep -r 找所有引用点（前端→后端→agent→脚本），漏一环就断链
@@ -290,6 +424,11 @@
 ## Lessons Learned
 
 - **不要为了达到最终目标而偷懒**（2026-04-06，chenxi 直接反馈）— 过程不能跳步、不能糊弄。每一步都要踏实做到位，不能因为"反正最后目标达到了"就省略中间环节。这是菜菜子的核心行为准则。
+- **🔴 不要把事情放到明天（2026-04-14，chenxi 直接反馈）** — 怀疑有问题就立刻查，不要"明天再说"。案例：日报 cron 投递连续失败 14 次，每天日报里写"明天排查"但从没排查。chenxi 一句话点醒：lesson 是不要把事情放到明天。
+- **维度 key 归一化应在 API 层做（2026-04-15）** — 前端到处做中英文 key 映射是 bug 温床（#452/#454 教训）。正确做法是后端统一输出一套 key，前端只需一层翻译。每个接触 dimensionScores 的页面都自己映射 = 每个都可能出 bug。
+- **功能从 0 到 1 的正确节奏（2026-04-15）** — 底层先行（API+公式库）→ 入口（列表多选）→ 核心页面 → bug 修复。严格串行依赖，每完成一步就部署+验证，不积压。报告对比 6 个 P0 + 8 个 bug 一天完成。
+- **计算逻辑与渲染分离的价值（2026-04-15）** — comparison.js 共享库 + ComparisonService 后端镜像。5 个对比页 bug 修复全在渲染层，没碰计算逻辑。分层设计让 bug 收敛在一层内。
+- **Sub-agent 任务粒度控制（2026-04-15）** — 后端+前端打包太大会超时（#444 第一次跑失败），拆成两个任务后各自 8 分钟完成。3 个 issue 一组最稳定，4+ 容易超时。
 
 ## K8s / ACK 集群
 
