@@ -41,8 +41,8 @@ const STATUS_OPTIONS = [
 
 /* ── 维度名映射 ── */
 const DIM_CN = {
-  compute: "计算性能", memory: "访存性能", op_compat: "数学函数",
-  attention: "Attention", op_compat: "归一化", inference: "模型推理",
+  compute: "计算性能", memory: "访存性能", math_func: "数学函数",
+  attention: "Attention", normalization: "归一化", inference: "模型推理",
 };
 
 /* ── 版本趋势图 ── */

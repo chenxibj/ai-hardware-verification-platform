@@ -32,7 +32,7 @@ const MAX_CHIPS = 5;
 /* 维度映射 */
 const DIMENSION_MAP = {
   compute: "计算",
-  op_compat: "归一化",
+  normalization: "归一化",
   op_compat: "算子兼容",
   attention: "Attention",
   memory: "访存",
