@@ -1,7 +1,7 @@
 /**
  * @file ChipReport.js
  * @description 完整芯片评价报告页面
- * Issue: #141, #165 增强
+ * Issue: #141, #165 增强, #446 对比入口
  *
  * 1. 报告头部信息（报告编号、芯片、时间等）
  * 2. 算子精度（dtype通过率表）
@@ -23,7 +23,7 @@ import {
   SafetyCertificateOutlined, ClockCircleOutlined,
   DownloadOutlined,
   ThunderboltOutlined, RocketOutlined, ShareAltOutlined, FileExcelOutlined,
-  BulbOutlined,
+  BulbOutlined, SwapOutlined,
 } from "@ant-design/icons";
 import api from "../utils/api";
 import { exportToPdf, generateReportFilename } from "../utils/exportPdf";
@@ -415,6 +415,10 @@ export default function ChipReport() {
           </Button>
           <Button icon={<ShareAltOutlined />} onClick={handleShareLink}>
             分享链接
+          </Button>
+          <Button icon={<SwapOutlined />}
+            onClick={() => navigate(`/reports/compare?ids=${report.id || reportId}`)}>
+            与其他报告对比
           </Button>
           {report.isBaseline ? (
             <Tag color="blue" style={{ lineHeight: '30px', fontSize: 14 }}>🏷️ 可采信基线</Tag>

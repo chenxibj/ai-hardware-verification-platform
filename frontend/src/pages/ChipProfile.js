@@ -1,7 +1,7 @@
 /**
  * @file ChipProfile.js
  * @description 芯片档案页 — 4 Tab 完整版（增强版）
- * Issues: #138 MVP-1, #160 芯片档案页增强
+ * Issues: #138 MVP-1, #160 芯片档案页增强, #449 快速对比入口
  *
  * Tab 1: 能力画像（默认 Tab）— 雷达图 + 维度评分 + 综合评分 + 场景推荐
  * Tab 2: 基本信息（技术规格增强 + 软件栈增强 + 编辑）
@@ -283,7 +283,7 @@ export default function ChipProfile() {
   /* 维度中文映射 */
   const DIM_CN = {
     compute: "计算性能", memory: "访存性能", op_compat: "数学函数",
-    attention: "Attention能力", op_compat: "归一化性能", inference: "模型推理",
+    attention: "Attention能力", normalization: "归一化性能", inference: "模型推理",
   };
 
   /* ── 评测历史列 ── */
@@ -937,6 +937,28 @@ export default function ChipProfile() {
       label: <span><ProfileOutlined /> 评价报告</span>,
       children: (
         <div>
+          {/* #449 快速对比入口 */}
+          {reports.length >= 2 && (
+            <Alert
+              type="info"
+              showIcon
+              icon={<SwapOutlined />}
+              style={{ marginBottom: 16 }}
+              message={
+                <Space>
+                  <span>该芯片共有 {reports.length} 份评测报告，支持横向对比分析</span>
+                  <Button
+                    type="primary"
+                    size="small"
+                    icon={<SwapOutlined />}
+                    onClick={() => navigate(`/reports/compare?ids=${reports.map(r => r.id).join(",")}`)}
+                  >
+                    📊 对比历史报告
+                  </Button>
+                </Space>
+              }
+            />
+          )}
           {reports.length > 1 && (
             <div style={{ marginBottom: 16 }}>
               <Text style={{ marginRight: 8 }}>选择报告：</Text>

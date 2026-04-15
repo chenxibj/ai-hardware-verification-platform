@@ -1,7 +1,7 @@
 /**
  * @file ReportList.js
- * @description 评测报告查看与管理 — 列表 + 筛选 + 搜索 + 多选对比
- * Issue: #169
+ * @description 评测报告查看与管理 — 列表 + 筛选 + 搜索 + 多选对比 + 浮动操作栏
+ * Issue: #169, #446 多选对比入口
  */
 import React, { useState, useEffect, useCallback } from "react";
 import {
@@ -10,7 +10,7 @@ import {
 } from "antd";
 import {
   EyeOutlined, DeleteOutlined, DownloadOutlined,
-  SearchOutlined, FilterOutlined, SwapOutlined,
+  SearchOutlined, FilterOutlined, SwapOutlined, CloseCircleOutlined,
   StarFilled, FileTextOutlined, ReloadOutlined,
 } from "@ant-design/icons";
 import api from "../utils/api";
@@ -125,8 +125,8 @@ export default function ReportList() {
       message.warning("请至少选择2份报告进行对比");
       return;
     }
-    if (selectedRowKeys.length > 4) {
-      message.warning("最多支持4份报告对比");
+    if (selectedRowKeys.length > 5) {
+      message.warning("最多支持5份报告对比");
       return;
     }
     if (true) {
@@ -200,6 +200,30 @@ export default function ReportList() {
 
   return (
     <div>
+      {/* #446 多选浮动操作栏 */}
+      {selectedRowKeys.length >= 2 && (
+        <div style={{
+          position: "sticky", top: 0, zIndex: 100,
+          background: "linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%)",
+          border: "1px solid #91d5ff", borderRadius: 6,
+          padding: "10px 20px", marginBottom: 16,
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          boxShadow: "0 2px 8px rgba(24,144,255,0.15)",
+        }}>
+          <Text strong style={{ fontSize: 14, color: "#1890ff" }}>
+            已选 {selectedRowKeys.length} 份报告
+          </Text>
+          <Space>
+            <Button type="primary" icon={<SwapOutlined />} onClick={handleCompare}>
+              📊 对比分析
+            </Button>
+            <Button icon={<CloseCircleOutlined />} onClick={() => setSelectedRowKeys([])}>
+              ✕ 取消
+            </Button>
+          </Space>
+        </div>
+      )}
+
       <Card style={{ marginBottom: 16 }}>
         <Row gutter={[16, 12]} align="middle">
           <Col flex="auto">
@@ -260,8 +284,8 @@ export default function ReportList() {
           rowSelection={{
             selectedRowKeys,
             onChange: (keys) => {
-              if (keys.length > 4) {
-                message.warning("最多选择4份报告");
+              if (keys.length > 5) {
+                message.warning("最多选择5份报告");
                 return;
               }
               setSelectedRowKeys(keys);
