@@ -189,6 +189,22 @@ public class TaskDispatcher {
             return false;
         }
 
+        // #451: 防止同一节点堆积过多 DISPATCHED 任务（agent 可能来不及 poll）
+        long pendingOnNode = taskRepository.findByStatusAndAssignedNodeId(
+                EvaluationTask.TaskStatus.DISPATCHED, node.getId()).size();
+        if (pendingOnNode >= 3) {
+            // 该节点已有 3+ 个 DISPATCHED 未被 poll，不再堆积
+            String reason = String.format("节点 %s 已有 %d 个待拉取任务，等待 Agent 消化",
+                    node.getName(), pendingOnNode);
+            task.setQueueReason(reason);
+            if (task.getStatus() != EvaluationTask.TaskStatus.QUEUED) {
+                task.setStatus(EvaluationTask.TaskStatus.QUEUED);
+            }
+            taskRepository.save(task);
+            log.info("#451: {}", reason);
+            return false;
+        }
+
         // 3. 直接设 DISPATCHED + save（一次 save，乐观锁保护）
         try {
             task.setStatus(EvaluationTask.TaskStatus.DISPATCHED);

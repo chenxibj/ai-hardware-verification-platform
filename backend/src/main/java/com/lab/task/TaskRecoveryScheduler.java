@@ -58,7 +58,7 @@ public class TaskRecoveryScheduler {
 
     @PostConstruct
     public void init() {
-        log.info("TaskRecoveryScheduler initialized - scanning every 60s (fixedDelay, lastHeartbeatAt-based, progress=0 timeout: 5min, general timeout: 15min)");
+        log.info("TaskRecoveryScheduler initialized - scanning every 60s (fixedDelay, lastHeartbeatAt-based, DISPATCHED timeout: 2min, progress=0 timeout: 5min, general timeout: 15min)");
     }
 
     @Scheduled(fixedDelay = 60000)
@@ -66,6 +66,7 @@ public class TaskRecoveryScheduler {
         log.debug("TaskRecoveryScheduler scan cycle started");
         try {
             migratePendingToQueued();
+            recoverStaleDispatchedTasks();  // #451: DISPATCHED but never polled
             recoverStaleRunningTasks();
             recoverOfflineNodeTasks();
             cleanupStalePendingTasks();
@@ -98,6 +99,48 @@ public class TaskRecoveryScheduler {
             } catch (Exception e) {
                 log.debug("Post-migration dispatch failed: {}", e.getMessage());
             }
+        }
+    }
+
+    /**
+     * #451: DISPATCHED 超时回退 → QUEUED（任务分发后 Agent 从未 poll）
+     * DISPATCHED + lastHeartbeatAt 超过 2 分钟 → 回退为 QUEUED 重新排队
+     * 这解决了任务被分发但 agent 没 poll 到、或并发分发竞态导致的卡死问题
+     */
+    @Transactional
+    public void recoverStaleDispatchedTasks() {
+        Instant threshold2 = Instant.now().minus(2, ChronoUnit.MINUTES);
+
+        List<EvaluationTask> staleDispatched = taskRepository.findByStatusAndLastHeartbeatAtBefore(
+                EvaluationTask.TaskStatus.DISPATCHED, threshold2);
+
+        if (staleDispatched.isEmpty()) return;
+
+        for (EvaluationTask task : staleDispatched) {
+            log.warn("#451: Task {} ({}) stuck in DISPATCHED for >2min (never polled), rolling back to QUEUED",
+                    task.getId(), task.getTaskNo());
+            task.setStatus(EvaluationTask.TaskStatus.QUEUED);
+            task.setAssignedNodeId(null);
+            task.setStartedAt(null);
+            task.setLastHeartbeatAt(null);
+            task.setQueueReason("DISPATCHED 超时（>2min 未被 Agent 拉取），回退重新排队");
+            taskRepository.save(task);
+
+            // Release GPU slots if allocated
+            try {
+                gpuSlotService.releaseGpuSlots(task.getId());
+            } catch (Exception e) {
+                log.warn("Failed to release GPU slots for stale dispatched task {}: {}", task.getId(), e.getMessage());
+            }
+        }
+
+        log.info("#451: Recovered {} stale DISPATCHED tasks -> QUEUED", staleDispatched.size());
+
+        // Try to re-dispatch
+        try {
+            taskDispatcher.tryDispatchNext();
+        } catch (Exception e) {
+            log.debug("Post-dispatched-recovery dispatch failed: {}", e.getMessage());
         }
     }
 
