@@ -21,7 +21,7 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @RestController
-@RequestMapping("/api/comparisons")
+@RequestMapping("/comparisons")
 @RequiredArgsConstructor
 public class ComparisonController {
 
