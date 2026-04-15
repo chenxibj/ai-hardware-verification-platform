@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.LinkedHashMap;
+import com.lab.dimension.DimensionRegistry;
 import java.util.ArrayList;
 
 /**
@@ -312,8 +313,12 @@ public class ChipReportController {
             // Calculate changes between consecutive reports
             List<Map<String, Object>> changes = new ArrayList<>();
             if (reportData.size() >= 2) {
-                String[] dimKeys = {"compute_perf", "memory_perf", "math_func", "attention", "normalization", "model_inference"};
-                String[] dimNames = {"计算性能", "访存性能", "数学函数", "Attention能力", "归一化性能", "模型推理"};
+                // #459: Use DimensionRegistry for dimension keys and labels
+                List<String> dimKeysList = DimensionRegistry.allKeys();
+                String[] dimKeys = dimKeysList.toArray(new String[0]);
+                String[] dimNames = dimKeysList.stream()
+                    .map(DimensionRegistry::getLabelByKey)
+                    .toArray(String[]::new);
 
                 Map<String, Object> firstDims = (Map<String, Object>) reportData.get(0).getOrDefault("dimensions", Map.of());
                 Map<String, Object> lastDims = (Map<String, Object>) reportData.get(reportData.size() - 1).getOrDefault("dimensions", Map.of());
