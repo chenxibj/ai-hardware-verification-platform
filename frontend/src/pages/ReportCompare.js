@@ -10,7 +10,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Card, Row, Col, Table, Tag, Typography, Spin, Empty, Button,
-  Space, message, Select, Alert, Divider, Tooltip,
+  Space, message, Select, Alert, Divider, Tooltip, Descriptions, Statistic,
 } from "antd";
 import {
   ArrowLeftOutlined, SwapOutlined, StarFilled, DownloadOutlined,
@@ -92,6 +92,71 @@ function getReportLabel(r) {
 }
 
 /* ── 组件 ── */
+
+
+/** #457: 格式化 summary 对象为可读的描述列表 */
+function SummaryCard({ summary, label, color }) {
+  if (!summary || typeof summary !== "object") return null;
+
+  // 如果有 summary/description 文本字段，单独展示
+  const textDesc = summary.summary || summary.description;
+
+  // 已知数值字段映射 — 中英文兼容
+  const FIELD_MAP = [
+    { keys: ["bestOperator", "best_operator", "最佳算子"], label: "最佳算子", format: (v) => v },
+    { keys: ["validCount", "valid_count", "有效算子数"], label: "有效算子数", format: (v) => v, suffix: "个" },
+    { keys: ["totalCount", "total_count", "总算子数"], label: "总算子数", format: (v) => v, suffix: "个" },
+    { keys: ["avgLatencyMs", "avg_latency_ms", "avgLatency", "平均延迟"], label: "平均延迟", format: (v) => typeof v === "number" ? v.toFixed(2) : v, suffix: "ms" },
+    { keys: ["avgThroughput", "avg_throughput", "平均吞吐"], label: "平均吞吐", format: (v) => typeof v === "number" ? v.toFixed(1) : v, suffix: "ops/s" },
+    { keys: ["overallScore", "overall_score", "score", "综合评分"], label: "综合评分", format: (v) => typeof v === "number" ? v.toFixed(1) : v },
+    { keys: ["passRate", "pass_rate", "通过率"], label: "通过率", format: (v) => typeof v === "number" ? (v * 100).toFixed(1) : v, suffix: "%" },
+    { keys: ["bestLatencyMs", "best_latency_ms", "最佳延迟"], label: "最佳延迟", format: (v) => typeof v === "number" ? v.toFixed(2) : v, suffix: "ms" },
+    { keys: ["worstLatencyMs", "worst_latency_ms", "最差延迟"], label: "最差延迟", format: (v) => typeof v === "number" ? v.toFixed(2) : v, suffix: "ms" },
+    { keys: ["maxThroughput", "max_throughput", "最大吞吐"], label: "最大吞吐", format: (v) => typeof v === "number" ? v.toFixed(1) : v, suffix: "ops/s" },
+  ];
+
+  // 匹配已知字段
+  const matched = [];
+  const matchedKeys = new Set(["summary", "description", "operators", "items"]);
+  FIELD_MAP.forEach((field) => {
+    for (const k of field.keys) {
+      if (summary[k] != null && summary[k] !== "") {
+        matched.push({ label: field.label, value: field.format(summary[k]), suffix: field.suffix || "" });
+        matchedKeys.add(k);
+        break;
+      }
+    }
+  });
+
+  // 剩余未匹配的简单值字段
+  const extra = [];
+  Object.entries(summary).forEach(([k, v]) => {
+    if (matchedKeys.has(k)) return;
+    if (v == null || typeof v === "object") return; // 跳过嵌套对象/数组
+    extra.push({ label: k, value: String(v), suffix: "" });
+  });
+
+  const allFields = [...matched, ...extra];
+
+  if (allFields.length === 0 && !textDesc) return null;
+
+  return (
+    <div style={{ marginBottom: 4 }}>
+      <Tag color={color} style={{ marginBottom: 8 }}>{label}</Tag>
+      {textDesc && <div style={{ marginBottom: 8, color: "#666" }}>{textDesc}</div>}
+      {allFields.length > 0 && (
+        <Descriptions size="small" column={{ xs: 1, sm: 2, md: 3 }} bordered>
+          {allFields.map((f, idx) => (
+            <Descriptions.Item key={idx} label={f.label}>
+              <span style={{ fontWeight: 500 }}>{f.value}</span>
+              {f.suffix && <span style={{ color: "#999", marginLeft: 2 }}>{f.suffix}</span>}
+            </Descriptions.Item>
+          ))}
+        </Descriptions>
+      )}
+    </div>
+  );
+}
 
 export default function ReportCompare() {
   const [searchParams] = useSearchParams();
@@ -619,18 +684,19 @@ export default function ReportCompare() {
                 style={{ marginBottom: 12 }}
                 message="训练摘要"
                 description={
-                  <Row gutter={16}>
+                  <div>
                     {parsed.map((p, i) => {
                       if (!p.trainingSummary) return null;
-                      const s = p.trainingSummary;
                       return (
-                        <Col key={i}>
-                          <Tag color={COMPARE_COLORS[i % COMPARE_COLORS.length]}>{p.label}</Tag>
-                          {s.summary || s.description || JSON.stringify(s).slice(0, 120)}
-                        </Col>
+                        <SummaryCard
+                          key={i}
+                          summary={p.trainingSummary}
+                          label={p.label}
+                          color={COMPARE_COLORS[i % COMPARE_COLORS.length]}
+                        />
                       );
                     })}
-                  </Row>
+                  </div>
                 }
               />
             )}
@@ -681,18 +747,19 @@ export default function ReportCompare() {
                 style={{ marginBottom: 12 }}
                 message="推理摘要"
                 description={
-                  <Row gutter={16}>
+                  <div>
                     {parsed.map((p, i) => {
                       if (!p.inferenceSummary) return null;
-                      const s = p.inferenceSummary;
                       return (
-                        <Col key={i}>
-                          <Tag color={COMPARE_COLORS[i % COMPARE_COLORS.length]}>{p.label}</Tag>
-                          {s.summary || s.description || JSON.stringify(s).slice(0, 120)}
-                        </Col>
+                        <SummaryCard
+                          key={i}
+                          summary={p.inferenceSummary}
+                          label={p.label}
+                          color={COMPARE_COLORS[i % COMPARE_COLORS.length]}
+                        />
                       );
                     })}
-                  </Row>
+                  </div>
                 }
               />
             )}
