@@ -21,11 +21,14 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import com.lab.dimension.DimensionRegistry;
 
 /**
- * 报告自动生成服务
+ * 报告自动生成服务（旧版 — 被 ReportGeneratorService 替代）
  * Issue: #135, #165 (增强推荐+评级)
+ * @deprecated Use {@link com.lab.chipreport.ReportGeneratorService} instead.
  */
+@Deprecated
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -40,16 +43,7 @@ public class ReportGenerator {
     private final ObjectMapper objectMapper;
     private final ComputeNodeRepository nodeRepository;
 
-    /* 维度中英映射 */
-    private static final Map<String, String> DIM_CN = new LinkedHashMap<>();
-    static {
-        DIM_CN.put("compute_perf", "计算性能");
-        DIM_CN.put("memory_perf", "访存性能");
-        DIM_CN.put("math_func", "数学函数");
-        DIM_CN.put("attention", "Attention能力");
-        DIM_CN.put("normalization", "归一化性能");
-        DIM_CN.put("model_inference", "模型推理");
-    }
+    /* #459: DIM_CN removed — use DimensionRegistry.getLabelByKey() */
 
     @Transactional
     public ChipReport generateReport(Long planId) {
@@ -160,7 +154,7 @@ public class ReportGenerator {
                 String level = e.getValue() < 50 ? "error" : "warning";
                 item.put("level", level);
                 item.put("type", "weak_dimension");
-                String dimName = DIM_CN.getOrDefault(e.getKey(), e.getKey());
+                String dimName = DimensionRegistry.getLabelByKey(DimensionRegistry.normalizeKey(e.getKey()));
                 item.put("title", dimName + " 维度偏低");
                 item.put("detail", String.format("%s 评分 %.1f 分，低于基准线 70 分，建议优化该维度算子实现",
                         dimName, e.getValue()));
