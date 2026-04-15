@@ -7,6 +7,7 @@ import com.lab.plan.EvaluationPlanRepository;
 import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
 import com.lab.scoring.ScoringService;
+import com.lab.dimension.DimensionRegistry;
 import com.lab.node.ComputeNode;
 import com.lab.node.ComputeNodeRepository;
 import com.lab.chip.ChipRepository;
@@ -612,9 +613,8 @@ public class EvaluationResultService {
     }
 
     /**
-     * 根据任务的 testItem 分类到六维度
+     * #459: Delegates to DimensionRegistry
      */
-    /* #435: 8-dimension categorization */
     private String categorizeToDimension(EvaluationTask task) {
         if (task == null) return "compute";
         String item = task.getTestItem();
@@ -622,22 +622,7 @@ public class EvaluationResultService {
             return task.getTestSubject() == EvaluationTask.TestSubject.MODEL
                     ? "inference" : "compute";
         }
-        String lower = item.toLowerCase();
-        if (lower.contains("matmul") || lower.contains("conv") || lower.contains("gemm") || lower.contains("linear")) return "compute";
-        if (lower.contains("transpose") || lower.contains("embedding") || lower.contains("concat") ||
-            lower.contains("gather") || lower.contains("scatter") || lower.contains("memcpy") || lower.contains("bandwidth")) return "memory";
-        if (lower.contains("allreduce") || lower.contains("allgather") || lower.contains("nccl") ||
-            lower.contains("p2p") || lower.contains("broadcast") || lower.contains("reducescatter")) return "communication";
-        if (lower.contains("relu") || lower.contains("gelu") || lower.contains("silu") || lower.contains("sigmoid") ||
-            lower.contains("tanh") || lower.contains("softmax") || lower.contains("layernorm") ||
-            lower.contains("batchnorm") || lower.contains("rmsnorm") || lower.contains("norm") ||
-            lower.contains("add") || lower.contains("mul")) return "op_compat";
-        if (lower.contains("backward") || lower.contains("gradient") || lower.contains("optimizer") ||
-            lower.contains("adam") || lower.contains("sgd") || lower.contains("train") || lower.contains("mixedprecision")) return "training";
-        if (lower.contains("attention") || lower.contains("scaleddotproduct") || lower.contains("flash") ||
-            lower.contains("mlp") || lower.contains("resnet") || lower.contains("bert") || lower.contains("llama") ||
-            lower.contains("model") || lower.contains("inference")) return "inference";
-        return "compute";
+        return DimensionRegistry.getKeyByOperator(item);
     }
 
     private double toDouble(Object val) {
