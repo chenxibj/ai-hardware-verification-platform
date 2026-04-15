@@ -36,8 +36,26 @@ const safeParse = (str) => {
   try { return JSON.parse(str); } catch { return null; }
 };
 
+/** #452 + #454: 英文→中文维度映射表 */
+const DIMENSION_KEY_MAP = {
+  compute: "计算",
+  memory: "访存",
+  training: "训练",
+  inference: "推理",
+  op_compat: "算子兼容",
+  scalability: "扩展性",
+  ecosystem: "生态",
+  communication: "通信",
+};
+
+/** 将维度 key 统一为中文显示 */
+function normalizeDimKey(key) {
+  if (!key) return "其他";
+  return DIMENSION_KEY_MAP[key] || key;
+}
+
 /** 统一的维度 key 列表（中文，与后端 dimensionScores 一致） */
-const ALL_DIMENSIONS = ["计算", "访存", "推理", "算子兼容", "通信", "训练", "可扩展性", "生态", "其他"];
+const ALL_DIMENSIONS = ["计算", "访存", "推理", "算子兼容", "通信", "训练", "扩展性", "生态", "其他"];
 
 /** 评分颜色 */
 function scoreColor(score) {
@@ -48,12 +66,12 @@ function scoreColor(score) {
   return "#ff4d4f";
 }
 
-/** 评分星级 */
+/** 评分星级 — #456: 修正边界值，100分=5星 */
 function scoreGrade(score) {
-  if (score >= 120) return { stars: 5, text: "远超基准" };
-  if (score >= 100) return { stars: 4, text: "达到基准" };
-  if (score >= 80) return { stars: 3, text: "接近基准" };
-  if (score >= 60) return { stars: 2, text: "低于基准" };
+  if (score >= 100) return { stars: 5, text: "达到/超越基准" };
+  if (score >= 80) return { stars: 4, text: "接近基准" };
+  if (score >= 60) return { stars: 3, text: "中等水平" };
+  if (score >= 40) return { stars: 2, text: "低于基准" };
   return { stars: 1, text: "显著落后" };
 }
 
@@ -112,18 +130,34 @@ export default function ReportCompare() {
     }).finally(() => setLoading(false));
   }, [reportIds]);
 
-  /* ── 解析每份报告 ── */
+  /* ── 解析每份报告 — #452: 统一维度 key 为中文 ── */
   const parsed = useMemo(() => reports.map((r) => {
-    const dimScores = safeParse(r.dimensionScores) || {};
+    const rawDimScores = safeParse(r.dimensionScores) || {};
     const operators = safeParse(r.operatorRanking) || [];
     const trainingSummary = safeParse(r.trainingSummary);
     const inferenceSummary = safeParse(r.inferenceSummary);
     const label = getReportLabel(r);
 
+    // 将英文维度 key 映射为中文并合并同一维度
+    const dimScores = {};
+    Object.entries(rawDimScores).forEach(([k, v]) => {
+      const normalKey = normalizeDimKey(k);
+      // 如果同一中文维度已存在，取较高值（两套体系合并）
+      if (dimScores[normalKey] == null || (v != null && v > dimScores[normalKey])) {
+        dimScores[normalKey] = v;
+      }
+    });
+
+    // 算子维度 key 同样归一化
+    const normalizedOps = (Array.isArray(operators) ? operators : []).map((op) => ({
+      ...op,
+      dimension: normalizeDimKey(op.dimension),
+    }));
+
     return {
       ...r,
       dimScores,
-      operators: Array.isArray(operators) ? operators : [],
+      operators: normalizedOps,
       trainingSummary,
       inferenceSummary,
       label,
@@ -199,7 +233,7 @@ export default function ReportCompare() {
     return Object.values(opMap);
   }, [parsed]);
 
-  /* ── 训练/推理维度对比数据 ── */
+  /* ── 训练/推理维度对比数据 — #453: 同时从 summary 和 operators 中提取 ── */
   const buildSummaryData = useCallback((summaryKey) => {
     const allItems = {};
     parsed.forEach((p, i) => {
@@ -218,11 +252,32 @@ export default function ReportCompare() {
     return Object.values(allItems);
   }, [parsed]);
 
-  const trainingData = useMemo(() => buildSummaryData("trainingSummary"), [buildSummaryData]);
-  const inferenceData = useMemo(() => buildSummaryData("inferenceSummary"), [buildSummaryData]);
+  /** #453: 从 operators 中按维度过滤出训练/推理类算子 */
+  const buildOpsByDimension = useCallback((dimName) => {
+    const opMap = {};
+    parsed.forEach((p, i) => {
+      p.operators.forEach((op) => {
+        if (op.dimension !== dimName) return;
+        const key = op.testItem || op.name;
+        if (!key) return;
+        if (!opMap[key]) opMap[key] = { key, testItem: key, dimension: op.dimension || "—" };
+        opMap[key]["latency_" + i] = op.latencyMean;
+        opMap[key]["throughput_" + i] = op.throughput;
+        opMap[key]["score_" + i] = op.score;
+        opMap[key]["passed_" + i] = op.passed;
+        opMap[key]["dataStatus_" + i] = op.dataStatus;
+      });
+    });
+    return Object.values(opMap);
+  }, [parsed]);
 
-  const hasTraining = trainingData.length > 0;
-  const hasInference = inferenceData.length > 0;
+  const trainingSummaryData = useMemo(() => buildSummaryData("trainingSummary"), [buildSummaryData]);
+  const inferenceSummaryData = useMemo(() => buildSummaryData("inferenceSummary"), [buildSummaryData]);
+  const trainingOps = useMemo(() => buildOpsByDimension("训练"), [buildOpsByDimension]);
+  const inferenceOps = useMemo(() => buildOpsByDimension("推理"), [buildOpsByDimension]);
+
+  const hasTraining = trainingSummaryData.length > 0 || trainingOps.length > 0;
+  const hasInference = inferenceSummaryData.length > 0 || inferenceOps.length > 0;
 
   /* ── 关键差异摘要 ── */
   const diffSummary = useMemo(() => {
@@ -345,7 +400,12 @@ export default function ReportCompare() {
         align: "center",
         sorter: (a, b) => (a["score_" + i] ?? 0) - (b["score_" + i] ?? 0),
         render: (v, row) => {
+          // #455: FAILED/NO_DATA 算子显示 "—" 而非红色 "0"
+          const dataStatus = row["dataStatus_" + i];
+          if (dataStatus === "FAILED" || dataStatus === "NO_DATA") return "—";
           if (v == null) return "—";
+          // score 为 0 且吞吐也为 0 或 null，视为无效数据
+          if (v === 0 && (!row["throughput_" + i])) return "—";
           const passed = row["passed_" + i];
           const color = passed === false ? "#ff4d4f" : scoreColor(v);
           return <span style={{ color, fontWeight: 500 }}>{round2(v)}</span>;
@@ -547,33 +607,129 @@ export default function ReportCompare() {
         )}
       </Card>
 
-      {/* ── Section 4: 训练性能对比 ── */}
-      {hasTraining && (
-        <Card title="🏋️ 训练性能对比" style={{ marginBottom: 16 }}>
-          <Table
-            dataSource={trainingData}
-            columns={buildSummaryColumns("训练")}
-            pagination={false}
-            size="small"
-            bordered
-            scroll={{ x: "max-content" }}
-          />
-        </Card>
-      )}
+      {/* ── Section 4: 训练性能对比 — #453: 展示 summary + 按维度过滤的算子 ── */}
+      <Card title="🏋️ 训练性能对比" style={{ marginBottom: 16 }}>
+        {hasTraining ? (
+          <>
+            {/* 训练摘要卡（如果有 trainingSummary） */}
+            {parsed.some((p) => p.trainingSummary) && (
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="训练摘要"
+                description={
+                  <Row gutter={16}>
+                    {parsed.map((p, i) => {
+                      if (!p.trainingSummary) return null;
+                      const s = p.trainingSummary;
+                      return (
+                        <Col key={i}>
+                          <Tag color={COMPARE_COLORS[i % COMPARE_COLORS.length]}>{p.label}</Tag>
+                          {s.summary || s.description || JSON.stringify(s).slice(0, 120)}
+                        </Col>
+                      );
+                    })}
+                  </Row>
+                }
+              />
+            )}
+            {/* 训练 Summary 数据表 */}
+            {trainingSummaryData.length > 0 && (
+              <>
+                <Text strong style={{ display: "block", marginBottom: 8 }}>训练 Summary 数据</Text>
+                <Table
+                  dataSource={trainingSummaryData}
+                  columns={buildSummaryColumns("训练")}
+                  pagination={false}
+                  size="small"
+                  bordered
+                  scroll={{ x: "max-content" }}
+                  style={{ marginBottom: 16 }}
+                />
+              </>
+            )}
+            {/* 训练维度算子 */}
+            {trainingOps.length > 0 && (
+              <>
+                <Text strong style={{ display: "block", marginBottom: 8 }}>训练维度算子对比</Text>
+                <Table
+                  dataSource={trainingOps}
+                  columns={operatorColumns}
+                  pagination={{ pageSize: 10, showTotal: (t) => "共 " + t + " 个算子" }}
+                  size="small"
+                  bordered
+                  scroll={{ x: "max-content" }}
+                />
+              </>
+            )}
+          </>
+        ) : (
+          <Empty description="暂无训练性能数据" />
+        )}
+      </Card>
 
-      {/* ── Section 5: 推理性能对比 ── */}
-      {hasInference && (
-        <Card title="🚀 推理性能对比" style={{ marginBottom: 16 }}>
-          <Table
-            dataSource={inferenceData}
-            columns={buildSummaryColumns("推理")}
-            pagination={false}
-            size="small"
-            bordered
-            scroll={{ x: "max-content" }}
-          />
-        </Card>
-      )}
+      {/* ── Section 5: 推理性能对比 — #453: 展示 summary + 按维度过滤的算子 ── */}
+      <Card title="🚀 推理性能对比" style={{ marginBottom: 16 }}>
+        {hasInference ? (
+          <>
+            {/* 推理摘要卡 */}
+            {parsed.some((p) => p.inferenceSummary) && (
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="推理摘要"
+                description={
+                  <Row gutter={16}>
+                    {parsed.map((p, i) => {
+                      if (!p.inferenceSummary) return null;
+                      const s = p.inferenceSummary;
+                      return (
+                        <Col key={i}>
+                          <Tag color={COMPARE_COLORS[i % COMPARE_COLORS.length]}>{p.label}</Tag>
+                          {s.summary || s.description || JSON.stringify(s).slice(0, 120)}
+                        </Col>
+                      );
+                    })}
+                  </Row>
+                }
+              />
+            )}
+            {/* 推理 Summary 数据表 */}
+            {inferenceSummaryData.length > 0 && (
+              <>
+                <Text strong style={{ display: "block", marginBottom: 8 }}>推理 Summary 数据</Text>
+                <Table
+                  dataSource={inferenceSummaryData}
+                  columns={buildSummaryColumns("推理")}
+                  pagination={false}
+                  size="small"
+                  bordered
+                  scroll={{ x: "max-content" }}
+                  style={{ marginBottom: 16 }}
+                />
+              </>
+            )}
+            {/* 推理维度算子 */}
+            {inferenceOps.length > 0 && (
+              <>
+                <Text strong style={{ display: "block", marginBottom: 8 }}>推理维度算子对比</Text>
+                <Table
+                  dataSource={inferenceOps}
+                  columns={operatorColumns}
+                  pagination={{ pageSize: 10, showTotal: (t) => "共 " + t + " 个算子" }}
+                  size="small"
+                  bordered
+                  scroll={{ x: "max-content" }}
+                />
+              </>
+            )}
+          </>
+        ) : (
+          <Empty description="暂无推理性能数据" />
+        )}
+      </Card>
 
       {/* ── Section 6: 关键差异摘要 ── */}
       {diffSummary && (
