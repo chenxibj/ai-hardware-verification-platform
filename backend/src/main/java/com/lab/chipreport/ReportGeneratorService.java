@@ -323,7 +323,7 @@ public class ReportGeneratorService {
 
     /**
      * 构建六维雷达图数据（含维度说明）
-     * 输出: [{dimension: "计算性能", score: 82.1, dimKey: "compute_perf", detail: {...}}, ...]
+     * 输出: [{dimension: "计算", score: 82.1, dimKey: "compute", detail: {...}}, ...]
      */
     private List<Map<String, Object>> buildRadarData(Map<String, Double> dimScores) {
         List<Map<String, Object>> radarData = new ArrayList<>();
