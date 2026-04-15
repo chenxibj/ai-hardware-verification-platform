@@ -84,16 +84,32 @@ const DIM_CN = {
 function generateSummary(dimScores, overallScore) {
   if (!dimScores || Object.keys(dimScores).length === 0) return null;
   const grade = scoreGrade(overallScore);
-  const entries = Object.entries(DIM_CN).map(([k, v]) => ({ key: k, name: v, score: dimScores[k] || 0 }));
-  const strongest = entries.reduce((a, b) => a.score > b.score ? a : b);
-  const weakest = entries.reduce((a, b) => a.score < b.score ? a : b);
+
+  const entries = Object.entries(DIM_CN).map(([k, v]) => {
+    // 兼容英文 key 和中文 key（旧报告存的是中文 key）
+    const score = dimScores[k] ?? dimScores[v] ?? 0;
+    return { key: k, name: v, score };
+  });
+
+  // 只考虑有数据的维度
+  const validEntries = entries.filter(e => e.score > 0);
+  if (validEntries.length === 0) return "暂无维度评分数据";
+
+  const strongest = validEntries.reduce((a, b) => a.score > b.score ? a : b);
+  const weakest = validEntries.reduce((a, b) => a.score < b.score ? a : b);
 
   let text = `该芯片综合评分 vs L40S ${overallScore.toFixed(1)}%，评级为【${grade.text}】（${grade.stars}星）。`;
-  text += `其中 ${strongest.name} 表现最佳（${strongest.score.toFixed(1)}%）`;
-  if (weakest.score < 70) {
-    text += `，${weakest.name} 是当前主要瓶颈（${weakest.score.toFixed(1)}%），建议重点优化。`;
+
+  // #440: 如果最强和最弱是同一个维度（只有一个有数据），或分数相同，显示均衡
+  if (strongest.key === weakest.key || Math.abs(strongest.score - weakest.score) < 1) {
+    text += `各维度表现均衡（${strongest.score.toFixed(1)}%）。`;
   } else {
-    text += `，各维度表现均衡。`;
+    text += `其中 ${strongest.name} 表现最佳（${strongest.score.toFixed(1)}%）`;
+    if (weakest.score < 70) {
+      text += `，${weakest.name} 是当前主要瓶颈（${weakest.score.toFixed(1)}%），建议重点优化。`;
+    } else {
+      text += `，各维度表现均衡。`;
+    }
   }
   return text;
 }
@@ -222,7 +238,15 @@ export default function ChipReport() {
   // 解析各项数据
   const operators = (safeParse(report.operatorRanking) || []).map(op => ({ ...op, dataStatus: inferDataStatus(op) }));
   const radarData = safeParse(report.radarData) || [];
-  const dimScores = safeParse(report.dimensionScores) || {};
+  const rawDimScores = safeParse(report.dimensionScores) || {};
+  // #441: 向后兼容旧报告中文 key → 英文 key
+  const CN_TO_EN = { "计算": "compute", "访存": "memory", "通信": "communication",
+    "算子兼容": "op_compat", "训练": "training", "推理": "inference",
+    "扩展性": "scalability", "生态": "ecosystem" };
+  const dimScores = {};
+  for (const [k, v] of Object.entries(rawDimScores)) {
+    dimScores[CN_TO_EN[k] || k] = v;
+  }
   const bottleneckData = safeParse(report.bottleneckAnalysis) || [];
   const scenarioRecs = safeParse(report.scenarioRecommendations) || [];
   const trainingSummary = safeParse(report.trainingSummary);
