@@ -60,6 +60,7 @@ public class SecurityConfig {
                 .requestMatchers("/actuator/**").permitAll()
                 .requestMatchers("/error").permitAll()
                 .requestMatchers("/dashboard/**").permitAll()
+                .requestMatchers("/dimensions", "/dimensions/**").permitAll()  // #459
                 .requestMatchers("/community/**").permitAll()
                 .requestMatchers("/nodes/*/heartbeat", "/nodes/*/poll-tasks").permitAll()
                 .requestMatchers("/nodes/register").permitAll()
