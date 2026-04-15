@@ -25,7 +25,7 @@ const METRIC_DIRECTIONS = {
   passRate: 'higher_better',
 };
 
-// ── Dimension configuration ──
+// ── Dimension configuration ── (#459: synced with DimensionRegistry.java)
 
 const DIMENSION_CONFIG = {
   compute:       { primaryMetric: 'latencyMean',      direction: 'lower_better'  },

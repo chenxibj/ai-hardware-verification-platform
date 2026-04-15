@@ -280,10 +280,11 @@ export default function ChipProfile() {
   const bottleneckData = safeParse(selectedReport?.bottleneckAnalysis) || safeParse(latestReport?.bottleneckAnalysis) || [];
   const operatorRanking = safeParse(selectedReport?.operatorRanking) || safeParse(latestReport?.operatorRanking) || [];
 
-  /* 维度中文映射 */
+  /* #459: 维度映射 — synced with DimensionRegistry.java */
   const DIM_CN = {
-    compute: "计算性能", memory: "访存性能", op_compat: "数学函数",
-    attention: "Attention能力", normalization: "归一化性能", inference: "模型推理",
+    compute: "计算", memory: "访存", communication: "通信",
+    op_compat: "算子兼容", training: "训练", inference: "推理",
+    scalability: "扩展性", ecosystem: "生态",
   };
 
   /* ── 评测历史列 ── */
@@ -780,8 +781,8 @@ export default function ChipProfile() {
               {/* 雷达图叠加 */}
               {compareData.reports.length > 0 && compareData.reports[0].radarData && (() => {
                 const colors = ["#1890ff", "#f5222d", "#52c41a", "#fa8c16", "#722ed1"];
-                const dimLabels = ["计算性能", "访存性能", "数学函数", "Attention能力", "归一化性能", "模型推理"];
-                const dimKeys = ["compute", "memory", "op_compat", "inference", "op_compat", "inference"];
+                const dimLabels = ["计算", "访存", "通信", "算子兼容", "训练", "推理", "扩展性", "生态"];
+                const dimKeys = ["compute", "memory", "communication", "op_compat", "training", "inference", "scalability", "ecosystem"];
 
                 const radarOption = {
                   tooltip: {},

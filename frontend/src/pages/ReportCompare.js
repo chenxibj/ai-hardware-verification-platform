@@ -36,26 +36,29 @@ const safeParse = (str) => {
   try { return JSON.parse(str); } catch { return null; }
 };
 
-/** #452 + #454: 英文→中文维度映射表 */
+/**
+ * #459: Dimension key→label mapping — synced with DimensionRegistry.java
+ * Frontend fallback; canonical source is /api/dimensions
+ */
 const DIMENSION_KEY_MAP = {
   compute: "计算",
   memory: "访存",
+  communication: "通信",
+  op_compat: "算子兼容",
   training: "训练",
   inference: "推理",
-  op_compat: "算子兼容",
   scalability: "扩展性",
   ecosystem: "生态",
-  communication: "通信",
 };
 
-/** 将维度 key 统一为中文显示 */
-function normalizeDimKey(key) {
-  if (!key) return "其他";
+/** Dimension English key → Chinese display label */
+function dimLabel(key) {
+  if (!key) return key;
   return DIMENSION_KEY_MAP[key] || key;
 }
 
-/** 统一的维度 key 列表（中文，与后端 dimensionScores 一致） */
-const ALL_DIMENSIONS = ["计算", "访存", "推理", "算子兼容", "通信", "训练", "扩展性", "生态", "其他"];
+/** Ordered list of all dimension ENGLISH keys */
+const ALL_DIMENSION_KEYS = ["compute", "memory", "communication", "op_compat", "training", "inference", "scalability", "ecosystem"];
 
 /** 评分颜色 */
 function scoreColor(score) {
@@ -195,7 +198,7 @@ export default function ReportCompare() {
     }).finally(() => setLoading(false));
   }, [reportIds]);
 
-  /* ── 解析每份报告 — #452: 统一维度 key 为中文 ── */
+  /* ── 解析每份报告 — #459: 维度 key 保持英文，显示时用 dimLabel() 转中文 ── */
   const parsed = useMemo(() => reports.map((r) => {
     const rawDimScores = safeParse(r.dimensionScores) || {};
     const operators = safeParse(r.operatorRanking) || [];
@@ -203,21 +206,11 @@ export default function ReportCompare() {
     const inferenceSummary = safeParse(r.inferenceSummary);
     const label = getReportLabel(r);
 
-    // 将英文维度 key 映射为中文并合并同一维度
-    const dimScores = {};
-    Object.entries(rawDimScores).forEach(([k, v]) => {
-      const normalKey = normalizeDimKey(k);
-      // 如果同一中文维度已存在，取较高值（两套体系合并）
-      if (dimScores[normalKey] == null || (v != null && v > dimScores[normalKey])) {
-        dimScores[normalKey] = v;
-      }
-    });
+    // dimScores 直接使用英文 key（后端已统一）
+    const dimScores = { ...rawDimScores };
 
-    // 算子维度 key 同样归一化
-    const normalizedOps = (Array.isArray(operators) ? operators : []).map((op) => ({
-      ...op,
-      dimension: normalizeDimKey(op.dimension),
-    }));
+    // operators dimension 字段也已是英文 key
+    const normalizedOps = Array.isArray(operators) ? operators : [];
 
     return {
       ...r,
@@ -229,14 +222,14 @@ export default function ReportCompare() {
     };
   }), [reports]);
 
-  /* ── 收集所有出现过的维度 ── */
+  /* ── 收集所有出现过的维度（英文 key） ── */
   const activeDimensions = useMemo(() => {
     const dimSet = new Set();
     parsed.forEach((p) => {
       Object.keys(p.dimScores).forEach((k) => dimSet.add(k));
     });
-    // 保持 ALL_DIMENSIONS 的顺序，过滤只保留实际出现的
-    const ordered = ALL_DIMENSIONS.filter((d) => dimSet.has(d));
+    // 保持 ALL_DIMENSION_KEYS 的顺序，过滤只保留实际出现的
+    const ordered = ALL_DIMENSION_KEYS.filter((d) => dimSet.has(d));
     // 如果有未预定义的维度，追加到末尾
     dimSet.forEach((d) => { if (!ordered.includes(d)) ordered.push(d); });
     return ordered;
@@ -256,7 +249,7 @@ export default function ReportCompare() {
     if (parsed.length < 2) return [];
     const baseline = parsed[baselineIdx];
     return activeDimensions.map((dim) => {
-      const row = { key: dim, dimension: dim };
+      const row = { key: dim, dimension: dimLabel(dim) };
       parsed.forEach((p, i) => {
         const score = p.dimScores[dim];
         row["score_" + i] = score != null ? round2(score) : null;
@@ -338,8 +331,8 @@ export default function ReportCompare() {
 
   const trainingSummaryData = useMemo(() => buildSummaryData("trainingSummary"), [buildSummaryData]);
   const inferenceSummaryData = useMemo(() => buildSummaryData("inferenceSummary"), [buildSummaryData]);
-  const trainingOps = useMemo(() => buildOpsByDimension("训练"), [buildOpsByDimension]);
-  const inferenceOps = useMemo(() => buildOpsByDimension("推理"), [buildOpsByDimension]);
+  const trainingOps = useMemo(() => buildOpsByDimension("training"), [buildOpsByDimension]);
+  const inferenceOps = useMemo(() => buildOpsByDimension("inference"), [buildOpsByDimension]);
 
   const hasTraining = trainingSummaryData.length > 0 || trainingOps.length > 0;
   const hasInference = inferenceSummaryData.length > 0 || inferenceOps.length > 0;
@@ -435,7 +428,8 @@ export default function ReportCompare() {
     },
     {
       title: "维度", dataIndex: "dimension", key: "dimension", width: 100,
-      filters: [...new Set(operatorTableData.map((r) => r.dimension))].map((d) => ({ text: d, value: d })),
+      render: (dim) => dimLabel(dim),
+      filters: [...new Set(operatorTableData.map((r) => r.dimension))].map((d) => ({ text: dimLabel(d), value: d })),
       onFilter: (value, record) => record.dimension === value,
     },
     ...parsed.flatMap((p, i) => [
@@ -547,7 +541,7 @@ export default function ReportCompare() {
   ];
 
   /* 修正雷达图: 需要自定义 DIMENSION_LABELS 来适配动态维度 */
-  const radarLabels = activeDimensions;
+  const radarLabels = activeDimensions.map(dimLabel);
 
   return (
     <div ref={contentRef}>
@@ -824,7 +818,7 @@ export default function ReportCompare() {
                 <InfoCircleOutlined style={{ color: "#faad14", marginRight: 8 }} />
                 <strong>共同薄弱点：</strong>
                 {diffSummary.weakDims.map((d) => (
-                  <Tag key={d} color="warning" style={{ marginRight: 4 }}>{d}</Tag>
+                  <Tag key={d} color="warning" style={{ marginRight: 4 }}>{dimLabel(d)}</Tag>
                 ))}
                 <span style={{ color: "#999" }}>（所有报告该维度均 &lt; 70 分）</span>
               </p>
@@ -836,9 +830,9 @@ export default function ReportCompare() {
               {diffSummary.perReport.map((pr, i) => (
                 <div key={i} style={{ marginTop: 4 }}>
                   <Tag color={COMPARE_COLORS[i % COMPARE_COLORS.length]}>{pr.label}</Tag>
-                  最强维度：<strong>{pr.strongest || "—"}</strong>
+                  最强维度：<strong>{pr.strongest ? dimLabel(pr.strongest) : "—"}</strong>
                   （{pr.maxS != null && pr.maxS !== -1 ? round2(pr.maxS) + "分" : "—"}）
-                  {" "}| 最弱维度：<strong>{pr.weakest || "—"}</strong>
+                  {" "}| 最弱维度：<strong>{pr.weakest ? dimLabel(pr.weakest) : "—"}</strong>
                   （{pr.minS != null && pr.minS !== Infinity ? round2(pr.minS) + "分" : "—"}）
                 </div>
               ))}

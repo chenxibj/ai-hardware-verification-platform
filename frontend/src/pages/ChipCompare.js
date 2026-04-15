@@ -29,14 +29,16 @@ const COLORS = ["#1890ff", "#f5222d", "#52c41a", "#fa8c16", "#722ed1"];
 const COLOR_NAMES = ["蓝", "红", "绿", "橙", "紫"];
 const MAX_CHIPS = 5;
 
-/* 维度映射 */
+/* #459: 维度映射 — synced with DimensionRegistry.java */
 const DIMENSION_MAP = {
   compute: "计算",
-  normalization: "归一化",
-  op_compat: "算子兼容",
-  attention: "Attention",
   memory: "访存",
+  communication: "通信",
+  op_compat: "算子兼容",
+  training: "训练",
   inference: "推理",
+  scalability: "扩展性",
+  ecosystem: "生态",
 };
 const DIMENSION_KEYS = Object.keys(DIMENSION_MAP);
 const DIMENSION_LABELS = Object.values(DIMENSION_MAP);

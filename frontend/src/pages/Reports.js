@@ -39,10 +39,11 @@ const STATUS_OPTIONS = [
   { value: "PUBLISHED", label: "已发布" },
 ];
 
-/* ── 维度名映射 ── */
+/* #459: 维度名映射 — synced with DimensionRegistry.java */
 const DIM_CN = {
-  compute: "计算性能", memory: "访存性能", math_func: "数学函数",
-  attention: "Attention", normalization: "归一化", inference: "模型推理",
+  compute: "计算", memory: "访存", communication: "通信",
+  op_compat: "算子兼容", training: "训练", inference: "推理",
+  scalability: "扩展性", ecosystem: "生态",
 };
 
 /* ── 版本趋势图 ── */

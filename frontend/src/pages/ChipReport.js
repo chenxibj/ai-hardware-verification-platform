@@ -31,6 +31,14 @@ import { useParams, useNavigate } from "react-router-dom";
 
 const { Title, Text } = Typography;
 
+/* #459: Dimension key→label mapping — synced with DimensionRegistry.java */
+const DIM_LABEL = {
+  compute: "计算", memory: "访存", communication: "通信",
+  op_compat: "算子兼容", training: "训练", inference: "推理",
+  scalability: "扩展性", ecosystem: "生态",
+};
+const dimLabel = (key) => DIM_LABEL[key] || key;
+
 /* 评分颜色映射 — 用于算子表/训练/推理中 vs L40S 百分比着色 */
 function scoreColor(score) {
   if (score >= 100) return "#52c41a";
@@ -171,8 +179,8 @@ export default function ChipReport() {
   const baselineChipName = report.baselineChip || "L40S";
 
   // Split operators by category
-  const trainingOps = operators.filter(o => o.dimension === "训练");
-  const inferenceOps = operators.filter(o => o.dimension === "推理");
+  const trainingOps = operators.filter(o => o.dimension === "training");
+  const inferenceOps = operators.filter(o => o.dimension === "inference");
 
   const totalOps = operators.length;
   const validOps = operators.filter(o => o.dataStatus === "VALID");
@@ -201,7 +209,7 @@ export default function ChipReport() {
         <Space>
           <ExperimentOutlined />
           <span>{text || record.name || "Unknown"}</span>
-          <Tag>{record.dimension || "其他"}</Tag>
+          <Tag>{dimLabel(record.dimension) || "其他"}</Tag>
         </Space>
       ),
     },
@@ -304,7 +312,7 @@ export default function ChipReport() {
     const rows = operators.map((op, idx) => [
       idx + 1,
       (op.testItem || op.name || "Unknown").replace(/,/g, " "),
-      (op.dimension || "其他").replace(/,/g, " "),
+      (dimLabel(op.dimension) || "其他").replace(/,/g, " "),
       (op.latencyMean ?? op.avgLatency ?? 0).toFixed(2),
       (op.throughput ?? 0).toFixed(1),
       op.dataStatus === "NO_DATA" ? "—" : (op.score ?? 0).toFixed(1),
