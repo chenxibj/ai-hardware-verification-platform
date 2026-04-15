@@ -565,11 +565,11 @@ export default function ChipReport() {
             description="当前评测计划未包含训练相关算子（Backward/Gradient/Optimizer等），如需评估训练性能请添加训练类评测任务。" style={{ marginBottom: 16 }} />
         ) : null}
 
-        {/* Best/Worst training operators */}
+        {/* Best/Worst training operators (#440: skip if best == worst to avoid contradiction) */}
         {trainingSummary && (trainingSummary.bestOperator || trainingSummary.worstOperator) && (
           <Row gutter={16} style={{ marginBottom: 16 }}>
             {trainingSummary.bestOperator && (
-              <Col xs={12}>
+              <Col xs={trainingSummary.worstOperator && trainingSummary.worstOperator !== trainingSummary.bestOperator ? 12 : 24}>
                 <Card size="small" style={{ background: "#f6ffed", borderColor: "#b7eb8f" }}>
                   <Text type="secondary">最佳算子</Text>
                   <div><Text strong style={{ fontSize: 16 }}>{trainingSummary.bestOperator}</Text></div>
@@ -577,7 +577,7 @@ export default function ChipReport() {
                 </Card>
               </Col>
             )}
-            {trainingSummary.worstOperator && (
+            {trainingSummary.worstOperator && trainingSummary.worstOperator !== trainingSummary.bestOperator && (
               <Col xs={12}>
                 <Card size="small" style={{ background: "#fff2f0", borderColor: "#ffccc7" }}>
                   <Text type="secondary">最弱算子</Text>
@@ -642,11 +642,11 @@ export default function ChipReport() {
             description="当前评测计划未包含推理相关算子（Attention/MLP/BERT等），如需评估推理性能请添加推理类评测任务。" style={{ marginBottom: 16 }} />
         ) : null}
 
-        {/* Best/Worst inference operators */}
+        {/* Best/Worst inference operators (#440: skip if best == worst to avoid contradiction) */}
         {inferenceSummary && (inferenceSummary.bestOperator || inferenceSummary.worstOperator) && (
           <Row gutter={16} style={{ marginBottom: 16 }}>
             {inferenceSummary.bestOperator && (
-              <Col xs={12}>
+              <Col xs={inferenceSummary.worstOperator && inferenceSummary.worstOperator !== inferenceSummary.bestOperator ? 12 : 24}>
                 <Card size="small" style={{ background: "#f6ffed", borderColor: "#b7eb8f" }}>
                   <Text type="secondary">最佳算子</Text>
                   <div><Text strong style={{ fontSize: 16 }}>{inferenceSummary.bestOperator}</Text></div>
@@ -654,7 +654,7 @@ export default function ChipReport() {
                 </Card>
               </Col>
             )}
-            {inferenceSummary.worstOperator && (
+            {inferenceSummary.worstOperator && inferenceSummary.worstOperator !== inferenceSummary.bestOperator && (
               <Col xs={12}>
                 <Card size="small" style={{ background: "#fff2f0", borderColor: "#ffccc7" }}>
                   <Text type="secondary">最弱算子</Text>

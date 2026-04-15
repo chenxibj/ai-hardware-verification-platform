@@ -153,9 +153,9 @@ public class ReportGenerator {
                                                List<EvaluationTask> tasks) {
         List<Map<String, Object>> items = new ArrayList<>();
 
-        // 找薄弱维度 (< 70 分)
+        // 找薄弱维度 (< 70 分) (#440: skip 0.0 — means no data, not weakness)
         for (Map.Entry<String, Double> e : dimScores.entrySet()) {
-            if (e.getValue() < 70) {
+            if (e.getValue() > 0 && e.getValue() < 70) {
                 Map<String, Object> item = new LinkedHashMap<>();
                 String level = e.getValue() < 50 ? "error" : "warning";
                 item.put("level", level);
@@ -278,11 +278,17 @@ public class ReportGenerator {
                     Arrays.asList("综合评分")));
         }
 
-        // 保证至少有 1 条推荐
-        if (recs.stream().noneMatch(r -> "recommended".equals(r.get("type")))) {
+        // 保证至少有 1 条推荐 (#440: skip if all scores are 0 — no data)
+        boolean hasAnyData = dimScores.values().stream().anyMatch(v -> v > 0);
+        if (hasAnyData && recs.stream().noneMatch(r -> "recommended".equals(r.get("type")))) {
             recs.add(makeRec("recommended", "轻量级推理服务",
                     "综合能力可满足轻量级推理场景",
                     Arrays.asList("计算性能", "模型推理")));
+        }
+        if (!hasAnyData) {
+            recs.add(makeRec("unverified", "所有场景",
+                    "所有维度暂无评测数据，无法给出场景推荐",
+                    Collections.emptyList()));
         }
 
         try {

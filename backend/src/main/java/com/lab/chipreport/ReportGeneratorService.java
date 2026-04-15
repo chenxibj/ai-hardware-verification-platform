@@ -415,9 +415,9 @@ public class ReportGeneratorService {
             analysis.add(item);
         }
 
-        // 3. 薄弱维度警告
+        // 3. 薄弱维度警告 (#440: skip dimensions with 0.0 — means no data, not weakness)
         for (Map.Entry<String, Double> entry : dimScores.entrySet()) {
-            if (entry.getValue() < 60) {
+            if (entry.getValue() > 0 && entry.getValue() < 60) {
                 String dimName = DIM_NAMES.getOrDefault(entry.getKey(), entry.getKey());
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("type", "weak_dimension");
@@ -447,7 +447,7 @@ public class ReportGeneratorService {
 
         // #439: 5. 显存带宽瓶颈（访存低+推理低 → 显存带宽可能是瓶颈）
         double memScore = dimScores.getOrDefault("memory", 0.0);
-        if (memScore < 80 && infScore > 0 && infScore < 90) {
+        if (memScore > 0 && memScore < 80 && infScore > 0 && infScore < 90) {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("type", "memory_bottleneck");
             item.put("level", memScore < 60 ? "error" : "warning");
@@ -459,7 +459,7 @@ public class ReportGeneratorService {
         // #439: 6. 通信瓶颈检测（多卡分布式训练风险）
         double commScore = dimScores.getOrDefault("communication", 0.0);
         double scaleScore = dimScores.getOrDefault("scalability", 0.0);
-        if (commScore < 50 || scaleScore < 50) {
+        if ((commScore > 0 && commScore < 50) || (scaleScore > 0 && scaleScore < 50)) {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("type", "comm_bottleneck");
             item.put("level", "warning");
@@ -796,12 +796,17 @@ public class ReportGeneratorService {
                     summary.put("bestScore", toDouble(best.get("score")));
                 });
 
+        // #440: Only show worstOperator if it differs from bestOperator
         operators.stream()
                 .filter(op -> op.get("score") != null && toDouble(op.get("score")) > 0)
                 .min((a, b) -> Double.compare(toDouble(a.get("score")), toDouble(b.get("score"))))
                 .ifPresent(worst -> {
-                    summary.put("worstOperator", worst.get("testItem"));
-                    summary.put("worstScore", toDouble(worst.get("score")));
+                    String worstName = (String) worst.get("testItem");
+                    Object bestName = summary.get("bestOperator");
+                    if (bestName == null || !bestName.equals(worstName)) {
+                        summary.put("worstOperator", worstName);
+                        summary.put("worstScore", toDouble(worst.get("score")));
+                    }
                 });
 
         // Average latency and throughput
