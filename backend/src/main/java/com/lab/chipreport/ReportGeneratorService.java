@@ -27,6 +27,8 @@ import com.lab.plan.PlanCompletedEvent;
 import org.springframework.context.event.EventListener;
 import java.util.stream.Collectors;
 
+import com.lab.dimension.DimensionRegistry;
+
 /**
  * 报告生成服务 - 规则引擎（不用 AI）
  * #136 - 计划完成后自动生成芯片评价报告
@@ -47,18 +49,7 @@ public class ReportGeneratorService {
     private final ComputeNodeRepository nodeRepository;
     private final ScoringService scoringService;
 
-    /* #435: 八维度中文名称映射 */
-    private static final Map<String, String> DIM_NAMES = new LinkedHashMap<>();
-    static {
-        DIM_NAMES.put("compute", "计算");
-        DIM_NAMES.put("memory", "访存");
-        DIM_NAMES.put("communication", "通信");
-        DIM_NAMES.put("op_compat", "算子兼容");
-        DIM_NAMES.put("training", "训练");
-        DIM_NAMES.put("inference", "推理");
-        DIM_NAMES.put("scalability", "扩展性");
-        DIM_NAMES.put("ecosystem", "生态");
-    }
+    /* #459: DIM_NAMES removed — use DimensionRegistry.getLabelByKey() */
 
     /**
      * 事件监听：计划完成后自动生成报告
@@ -206,11 +197,11 @@ public class ReportGeneratorService {
             }
 
             // Build training summary from training-related results
-            Map<String, Object> trainSummary = buildCategorySummary(operatorRanking, "训练", dimScores.getOrDefault("training", 0.0));
+            Map<String, Object> trainSummary = buildCategorySummary(operatorRanking, "training", dimScores.getOrDefault("training", 0.0));
             report.setTrainingSummary(objectMapper.writeValueAsString(trainSummary));
 
             // Build inference summary from inference-related results
-            Map<String, Object> infSummary = buildCategorySummary(operatorRanking, "推理", dimScores.getOrDefault("inference", 0.0));
+            Map<String, Object> infSummary = buildCategorySummary(operatorRanking, "inference", dimScores.getOrDefault("inference", 0.0));
             report.setInferenceSummary(objectMapper.writeValueAsString(infSummary));
         } catch (Exception e) {
             log.warn("#436: Failed to fill training/inference summary: {}", e.getMessage());
@@ -336,12 +327,11 @@ public class ReportGeneratorService {
      */
     private List<Map<String, Object>> buildRadarData(Map<String, Double> dimScores) {
         List<Map<String, Object>> radarData = new ArrayList<>();
-        for (Map.Entry<String, String> entry : DIM_NAMES.entrySet()) {
-            String key = entry.getKey();
-            String name = entry.getValue();
+        for (String key : DimensionRegistry.allKeys()) {
+            String label = DimensionRegistry.getLabelByKey(key);
             double score = dimScores.getOrDefault(key, 0.0);
             Map<String, Object> item = new LinkedHashMap<>();
-            item.put("dimension", name);
+            item.put("dimension", label);
             item.put("dimKey", key);
             item.put("score", Math.round(score * 10.0) / 10.0);
             // Add dimension detail
@@ -418,7 +408,7 @@ public class ReportGeneratorService {
         // 3. 薄弱维度警告 (#440: skip dimensions with 0.0 — means no data, not weakness)
         for (Map.Entry<String, Double> entry : dimScores.entrySet()) {
             if (entry.getValue() > 0 && entry.getValue() < 60) {
-                String dimName = DIM_NAMES.getOrDefault(entry.getKey(), entry.getKey());
+                String dimName = DimensionRegistry.getLabelByKey(entry.getKey());
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("type", "weak_dimension");
                 item.put("level", entry.getValue() < 40 ? "error" : "warning");
@@ -512,7 +502,7 @@ public class ReportGeneratorService {
         List<Map.Entry<String, Double>> highDims = dimScores.entrySet().stream()
                 .filter(e -> e.getValue() >= 120).collect(Collectors.toList());
         if (highDims.size() >= 1 && highDims.size() <= 2) {
-            String dims = highDims.stream().map(e -> DIM_NAMES.getOrDefault(e.getKey(), e.getKey()) + "(" + String.format("%.0f%%", e.getValue()) + ")")
+            String dims = highDims.stream().map(e -> DimensionRegistry.getLabelByKey(e.getKey()) + "(" + String.format("%.0f%%", e.getValue()) + ")")
                     .collect(Collectors.joining("、"));
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("type", "single_strength");
@@ -738,36 +728,12 @@ public class ReportGeneratorService {
         return flat;
     }
 
-        /**
-     * 根据任务的 testItem 分类到六维度中文名
+    /**
+     * #459: Delegates to DimensionRegistry — returns English key
      */
-    /* #435: 八维度分类 */
     private String categorizeToDimension(EvaluationTask task) {
-        if (task == null) return "计算";
-        String item = task.getTestItem();
-        if (item == null) return "计算";
-        String lower = item.toLowerCase();
-        if (lower.contains("matmul") || lower.contains("conv") || lower.contains("gemm") || lower.contains("linear"))
-            return "计算";
-        if (lower.contains("transpose") || lower.contains("embedding") || lower.contains("concat") ||
-            lower.contains("gather") || lower.contains("scatter") || lower.contains("memcpy") || lower.contains("bandwidth"))
-            return "访存";
-        if (lower.contains("allreduce") || lower.contains("allgather") || lower.contains("nccl") ||
-            lower.contains("p2p") || lower.contains("broadcast") || lower.contains("reducescatter"))
-            return "通信";
-        if (lower.contains("relu") || lower.contains("gelu") || lower.contains("silu") || lower.contains("sigmoid") ||
-            lower.contains("tanh") || lower.contains("softmax") || lower.contains("layernorm") ||
-            lower.contains("batchnorm") || lower.contains("rmsnorm") || lower.contains("norm") ||
-            lower.contains("add") || lower.contains("mul"))
-            return "算子兼容";
-        if (lower.contains("backward") || lower.contains("gradient") || lower.contains("optimizer") ||
-            lower.contains("adam") || lower.contains("sgd") || lower.contains("train") || lower.contains("mixedprecision"))
-            return "训练";
-        if (lower.contains("attention") || lower.contains("scaleddotproduct") || lower.contains("flash") ||
-            lower.contains("mlp") || lower.contains("resnet") || lower.contains("bert") || lower.contains("llama") ||
-            lower.contains("model") || lower.contains("inference"))
-            return "推理";
-        return "计算";
+        if (task == null) return "compute";
+        return DimensionRegistry.getKeyByOperator(task.getTestItem());
     }
 
     /**
