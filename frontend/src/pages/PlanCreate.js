@@ -277,10 +277,11 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
     }
   }, [current, selectedChipId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When entering step 5 (ResourcePool), fetch pools
+  // When entering step 5 (ResourcePool), fetch pools and nodes
   useEffect(() => {
     if (current === 4 && selectedChip) {
       fetchPoolsWithAvailability(selectedChip.chipType || "GPU");
+      fetchNodes(); // #442: 自动加载节点列表，资源池步骤直接展示
     }
   }, [current, selectedChipId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -870,8 +871,8 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
         )}
 
         {/* 高级模式: 手动选节点 */}
-        <Collapse ghost style={{ marginTop: 16 }}>
-          <Panel header="🔧 高级模式：手动选择节点" key="manual-nodes">
+        <Collapse ghost style={{ marginTop: 16 }} defaultActiveKey={["manual-nodes"]}>
+          <Panel header="📋 池内节点详情（可手动选择）" key="manual-nodes">
             <div style={{ marginBottom: 12, display: "flex", gap: 8, alignItems: "center" }}>
               <Button size="small" onClick={() => { if (nodes.length === 0) fetchNodes(); }}>
                 {nodesLoading ? "加载中..." : nodes.length > 0 ? `已加载 ${nodes.length} 节点` : "加载节点列表"}
