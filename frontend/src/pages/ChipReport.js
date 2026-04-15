@@ -1,62 +1,41 @@
 /**
  * @file ChipReport.js
- * @description 完整芯片评价报告页面 — 7 板块
+ * @description 完整芯片评价报告页面
  * Issue: #141, #165 增强
  *
- * 1. 能力总览（综合评分 + 评级星星 + 雷达图）
+ * 1. 报告头部信息（报告编号、芯片、时间等）
  * 2. 算子精度（dtype通过率表）
  * 3. 算子性能（延迟柱状图排行 + 吞吐表）
  * 4. 模型评测（模型性能表）
- * 5. 瓶颈分析 + 优化建议
- * 6. 适用场景推荐
- * 7. 评测环境
+ * 5. 训练性能
+ * 6. 推理性能
+ * 7. 瓶颈分析 + 优化建议
+ * 8. 评测环境
  */
 import React, { useState, useEffect, useRef } from "react";
 import {
   Card, Row, Col, Statistic, Progress, Table, Tag, Typography,
-  Spin, Button, Space, Divider, message, Descriptions, Alert, Empty, Collapse, Tooltip, Radio,
+  Spin, Button, Space, Divider, message, Descriptions, Alert, Empty, Tooltip,
 } from "antd";
 import {
   ArrowLeftOutlined, TrophyOutlined, CheckCircleOutlined,
   CloseCircleOutlined, ExperimentOutlined, WarningOutlined,
   SafetyCertificateOutlined, ClockCircleOutlined,
-  DownloadOutlined, StarFilled, BulbOutlined,
+  DownloadOutlined,
   ThunderboltOutlined, RocketOutlined, ShareAltOutlined, FileExcelOutlined,
-  InfoCircleOutlined, QuestionCircleOutlined,
+  BulbOutlined,
 } from "@ant-design/icons";
-import RadarChart from "../components/RadarChart";
 import api from "../utils/api";
 import { exportToPdf, generateReportFilename } from "../utils/exportPdf";
 import { useParams, useNavigate } from "react-router-dom";
 
 const { Title, Text } = Typography;
 
-/* 评分颜色映射 */
-/* #434: color mapping for vs L40S percentage */
+/* 评分颜色映射 — 用于算子表/训练/推理中 vs L40S 百分比着色 */
 function scoreColor(score) {
-  if (score >= 100) return "#52c41a";  // >=100% green
-  if (score >= 80) return "#faad14";   // 80-99% yellow
-  return "#ff4d4f";                    // <80% red
-}
-
-/* 评级 (#165) — 5级星星 */
-/* #434: grading for vs L40S percentage */
-function scoreGrade(score) {
-  if (score >= 120) return { stars: 5, text: "远超基准", color: "#52c41a", emoji: "🏆" };
-  if (score >= 100) return { stars: 4, text: "达到基准", color: "#52c41a", emoji: "🥇" };
-  if (score >= 80) return { stars: 3, text: "接近基准", color: "#faad14", emoji: "👍" };
-  if (score >= 60) return { stars: 2, text: "低于基准", color: "#faad14", emoji: "⚡" };
-  return { stars: 1, text: "显著落后", color: "#ff4d4f", emoji: "🔧" };
-}
-
-function renderStars(count) {
-  return (
-    <span>
-      {Array.from({ length: 5 }, (_, i) => (
-        <StarFilled key={i} style={{ color: i < count ? "#fadb14" : "#e8e8e8", fontSize: 18, marginRight: 2 }} />
-      ))}
-    </span>
-  );
+  if (score >= 100) return "#52c41a";
+  if (score >= 80) return "#faad14";
+  return "#ff4d4f";
 }
 
 const safeParse = (str) => {
@@ -73,51 +52,9 @@ function inferDataStatus(op) {
   return "NO_DATA";
 }
 
-/* 维度键 -> 中文名 */
-/* #435: 8-dimension mapping */
-const DIM_CN = {
-  compute: "计算", memory: "访存", communication: "通信", op_compat: "算子兼容",
-  training: "训练", inference: "推理", scalability: "扩展性", ecosystem: "生态",
-};
-
-/* 生成能力摘要文字 */
-function generateSummary(dimScores, overallScore) {
-  if (!dimScores || Object.keys(dimScores).length === 0) return null;
-  const grade = scoreGrade(overallScore);
-
-  const entries = Object.entries(DIM_CN).map(([k, v]) => {
-    // 兼容英文 key 和中文 key（旧报告存的是中文 key）
-    const score = dimScores[k] ?? dimScores[v] ?? 0;
-    return { key: k, name: v, score };
-  });
-
-  // 只考虑有数据的维度
-  const validEntries = entries.filter(e => e.score > 0);
-  if (validEntries.length === 0) return "暂无维度评分数据";
-
-  const strongest = validEntries.reduce((a, b) => a.score > b.score ? a : b);
-  const weakest = validEntries.reduce((a, b) => a.score < b.score ? a : b);
-
-  let text = `该芯片综合评分 vs L40S ${overallScore.toFixed(1)}%，评级为【${grade.text}】（${grade.stars}星）。`;
-
-  // #440: 如果最强和最弱是同一个维度（只有一个有数据），或分数相同，显示均衡
-  if (strongest.key === weakest.key || Math.abs(strongest.score - weakest.score) < 1) {
-    text += `各维度表现均衡（${strongest.score.toFixed(1)}%）。`;
-  } else {
-    text += `其中 ${strongest.name} 表现最佳（${strongest.score.toFixed(1)}%）`;
-    if (weakest.score < 70) {
-      text += `，${weakest.name} 是当前主要瓶颈（${weakest.score.toFixed(1)}%），建议重点优化。`;
-    } else {
-      text += `，各维度表现均衡。`;
-    }
-  }
-  return text;
-}
-
 /* 从真实评测数据提取精度信息（不使用随机数） */
 function extractAccuracyData(operators, report) {
   if (!operators || operators.length === 0) return [];
-  // 1. 尝试从 report 的 metrics_summary 提取 accuracy_checks
   const metricsSummary = safeParse(report?.metricsSummary);
   if (metricsSummary?.accuracy_checks && Array.isArray(metricsSummary.accuracy_checks)) {
     return metricsSummary.accuracy_checks.map(check => ({
@@ -127,7 +64,6 @@ function extractAccuracyData(operators, report) {
       rate: check.total > 0 ? ((check.passed / check.total) * 100).toFixed(1) : "0",
     }));
   }
-  // 2. 从算子 pass/fail 状态汇总（排除 NO_DATA 项）
   const validOps = operators.filter(o => o.dataStatus !== "NO_DATA");
   const totalOps = validOps.length;
   const passedOps = validOps.filter(o => o.passed).length;
@@ -169,9 +105,7 @@ export default function ChipReport() {
   const [plan, setPlan] = useState(null);
   const reportRef = useRef(null);
   const [exporting, setExporting] = useState(false);
-  const [weightMode, setWeightMode] = useState("equal");
   const [settingBaseline, setSettingBaseline] = useState(false);
-  const [baselineChip, setBaselineChip] = useState(null);
 
   useEffect(() => {
     if (!reportId) return;
@@ -198,12 +132,6 @@ export default function ChipReport() {
               setChip(cr.data.data);
               setChipName(cr.data.data.name || "芯片#" + r.chipId);
             }
-          }).catch(() => {});
-          // Fetch L40S baseline chip for comparison (#438)
-          api.get("/chips", { params: { keyword: "L40S", page: 0, size: 10 } }).then(cr => {
-            const chips = cr.data?.data || [];
-            const baseline = chips.find(c => c.chipNo === "CHIP-BASELINE-L40S") || chips[0];
-            if (baseline) setBaselineChip(baseline);
           }).catch(() => {});
         }
         if (r.planId) {
@@ -237,18 +165,7 @@ export default function ChipReport() {
 
   // 解析各项数据
   const operators = (safeParse(report.operatorRanking) || []).map(op => ({ ...op, dataStatus: inferDataStatus(op) }));
-  const radarData = safeParse(report.radarData) || [];
-  const rawDimScores = safeParse(report.dimensionScores) || {};
-  // #441: 向后兼容旧报告中文 key → 英文 key
-  const CN_TO_EN = { "计算": "compute", "访存": "memory", "通信": "communication",
-    "算子兼容": "op_compat", "训练": "training", "推理": "inference",
-    "扩展性": "scalability", "生态": "ecosystem" };
-  const dimScores = {};
-  for (const [k, v] of Object.entries(rawDimScores)) {
-    dimScores[CN_TO_EN[k] || k] = v;
-  }
   const bottleneckData = safeParse(report.bottleneckAnalysis) || [];
-  const scenarioRecs = safeParse(report.scenarioRecommendations) || [];
   const trainingSummary = safeParse(report.trainingSummary);
   const inferenceSummary = safeParse(report.inferenceSummary);
   const baselineChipName = report.baselineChip || "L40S";
@@ -256,40 +173,12 @@ export default function ChipReport() {
   // Split operators by category
   const trainingOps = operators.filter(o => o.dimension === "训练");
   const inferenceOps = operators.filter(o => o.dimension === "推理");
-  const overallScore = report.overallScore || 0;
-  // #439: Scenario-weighted score calculation
-  const WEIGHT_PRESETS = {
-    equal: { label: "均衡", weights: { compute: 1, memory: 1, communication: 1, op_compat: 1, training: 1, inference: 1, scalability: 1, ecosystem: 1 } },
-    inference: { label: "推理优先", weights: { compute: 0.8, memory: 1.2, communication: 0.5, op_compat: 1.0, training: 0.3, inference: 2.0, scalability: 0.5, ecosystem: 0.7 } },
-    training: { label: "训练优先", weights: { compute: 1.2, memory: 1.0, communication: 1.5, op_compat: 0.8, training: 2.0, inference: 0.3, scalability: 1.5, ecosystem: 0.7 } },
-    mixed: { label: "混合负载", weights: { compute: 1.2, memory: 1.2, communication: 1.0, op_compat: 1.0, training: 1.2, inference: 1.2, scalability: 1.0, ecosystem: 0.8 } },
-  };
-  const currentWeights = WEIGHT_PRESETS[weightMode].weights;
-  const weightedScore = (() => {
-    const entries = Object.entries(currentWeights);
-    let totalWeight = 0, totalWeightedScore = 0;
-    for (const [key, w] of entries) {
-      const s = dimScores[key] || 0;
-      if (s > 0) {
-        totalWeight += w;
-        totalWeightedScore += s * w;
-      }
-    }
-    return totalWeight > 0 ? totalWeightedScore / totalWeight : overallScore;
-  })();
-  const displayScore = weightMode === "equal" ? overallScore : weightedScore;
-  const grade = scoreGrade(displayScore);
-  const summary = generateSummary(dimScores, displayScore);
-
-  // #287: 检测所有维度评分是否都 = 100（可能是后端评分异常）
-  const allScores100 = radarData.length > 0 && false /* #434: 100% is normal for vs-baseline */;
 
   const totalOps = operators.length;
   const validOps = operators.filter(o => o.dataStatus === "VALID");
   const noDataOps = operators.filter(o => o.dataStatus === "NO_DATA");
   const failedOps = operators.filter(o => o.dataStatus === "FAILED");
   const passedOps = operators.filter(o => o.passed).length;
-  const coverageData = (safeParse(report.bottleneckAnalysis) || []).find(b => b.type === "coverage");
   const accuracyData = extractAccuracyData(operators, report);
   const modelData = extractModelData(operators);
 
@@ -328,7 +217,7 @@ export default function ChipReport() {
       render: v => v != null ? v.toFixed(1) : "-",
     },
     {
-      title: "评分", dataIndex: "score", key: "score", width: 100, align: "center",
+      title: "vs L40S", dataIndex: "score", key: "score", width: 100, align: "center",
       render: (v, record) => {
         if (record.dataStatus === "NO_DATA") return <Text type="secondary">—</Text>;
         return <span style={{ color: scoreColor(v || 0), fontWeight: "bold" }}>{(v || 0).toFixed(1)}%</span>;
@@ -360,7 +249,7 @@ export default function ChipReport() {
       render: v => v != null ? Number(v).toFixed(1) : "-" },
     { title: "显存(GB)", dataIndex: "memoryUsage", key: "memoryUsage", width: 100, align: "right",
       render: v => v != null ? Number(v).toFixed(1) : "-" },
-    { title: "评分", dataIndex: "score", key: "score", width: 80, align: "center",
+    { title: "vs L40S", dataIndex: "score", key: "score", width: 80, align: "center",
       render: v => <span style={{ color: scoreColor(v || 0), fontWeight: "bold" }}>{(v || 0).toFixed(1)}%</span> },
     { title: "状态", key: "status", width: 80, align: "center",
       render: (_, record) => {
@@ -411,7 +300,7 @@ export default function ChipReport() {
       message.warning("暂无算子数据可导出");
       return;
     }
-    const headers = ["排名", "算子名", "维度", "延迟(ms)", "吞吐量", "评分(%)", "数据状态", "通过"];
+    const headers = ["排名", "算子名", "维度", "延迟(ms)", "吞吐量", "vs L40S(%)", "数据状态", "通过"];
     const rows = operators.map((op, idx) => [
       idx + 1,
       (op.testItem || op.name || "Unknown").replace(/,/g, " "),
@@ -452,26 +341,25 @@ export default function ChipReport() {
     }
   };
 
-    const handleSetBaseline = async () => {
-      setSettingBaseline(true);
-      try {
-        const res = await api.put("/chip-reports/" + (report.id || reportId) + "/set-baseline");
-        if (res.data?.code === 0) {
-          message.success("✅ 已标记为可采信基线，芯片画像已更新");
-          // Refresh report data
-          const rr = await api.get("/chip-reports/" + (report.id || reportId));
-          if (rr.data?.code === 0) setReport(rr.data.data);
-        } else {
-          message.error(res.data?.message || "标记失败");
-        }
-      } catch (err) {
-        message.error("标记失败: " + (err.response?.data?.message || err.message));
-      } finally {
-        setSettingBaseline(false);
+  const handleSetBaseline = async () => {
+    setSettingBaseline(true);
+    try {
+      const res = await api.put("/chip-reports/" + (report.id || reportId) + "/set-baseline");
+      if (res.data?.code === 0) {
+        message.success("✅ 已标记为可采信基线，芯片画像已更新");
+        const rr = await api.get("/chip-reports/" + (report.id || reportId));
+        if (rr.data?.code === 0) setReport(rr.data.data);
+      } else {
+        message.error(res.data?.message || "标记失败");
       }
-    };
+    } catch (err) {
+      message.error("标记失败: " + (err.response?.data?.message || err.message));
+    } finally {
+      setSettingBaseline(false);
+    }
+  };
 
-    const reportTime = report.createdAt ? new Date(report.createdAt).toLocaleString("zh-CN") : "-";
+  const reportTime = report.createdAt ? new Date(report.createdAt).toLocaleString("zh-CN") : "-";
 
   /* 延迟柱状图（纯CSS实现） */
   const renderLatencyBar = () => {
@@ -541,44 +429,10 @@ export default function ChipReport() {
 
       <div ref={reportRef}>
 
-      {/* ── Section 1: 能力总览 (#165) ── */}
+      {/* ── 报告头部信息 ── */}
       <Card style={{ marginBottom: 24 }}>
         <Row gutter={[24, 16]} align="middle">
-          <Col xs={24} md={8}>
-            <div style={{ textAlign: "center" }}>
-              {/* #439: Scenario weighting selector */}
-              <Radio.Group value={weightMode} onChange={e => setWeightMode(e.target.value)}
-                size="small" buttonStyle="solid" style={{ marginBottom: 12 }}>
-                {Object.entries(WEIGHT_PRESETS).map(([k, v]) => (
-                  <Radio.Button key={k} value={k}>{v.label}</Radio.Button>
-                ))}
-              </Radio.Group>
-              <Progress
-                type="circle"
-                percent={Math.min(100, Math.round(displayScore))}
-                strokeColor={scoreColor(displayScore)}
-                size={160}
-                format={() => (
-                  <div>
-                    <div style={{ fontSize: 36, fontWeight: "bold", color: scoreColor(displayScore) }}>
-                      {displayScore.toFixed(1)}%
-                    </div>
-                    <div style={{ fontSize: 14, color: "#666" }}>
-                      {grade.emoji} {grade.text}
-                    </div>
-                    {weightMode !== "equal" && (
-                      <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>
-                        {WEIGHT_PRESETS[weightMode].label}加权
-                      </div>
-                    )}
-                  </div>
-                )}
-              />
-              <div style={{ marginTop: 8 }}>{renderStars(grade.stars)}</div>
-              <div style={{ marginTop: 4, fontSize: 12, color: "#999" }}>vs L40S · {grade.stars}星评级</div>
-            </div>
-          </Col>
-          <Col xs={24} md={16}>
+          <Col xs={24}>
             <Title level={4} style={{ marginBottom: 16 }}>
               <TrophyOutlined style={{ color: "#faad14", marginRight: 8 }} />
               芯片评测报告
@@ -603,27 +457,6 @@ export default function ChipReport() {
               </Col>
             </Row>
             <Divider style={{ margin: "16px 0" }} />
-            {summary && (
-              <Alert type="info" showIcon icon={<SafetyCertificateOutlined />}
-                message="能力摘要" description={summary} style={{ marginBottom: 16 }} />
-            )}
-            {allScores100 && (
-              <Alert type="warning" showIcon icon={<WarningOutlined />}
-                message="评分异常提示"
-                description="该报告所有维度评分均为 100 分，可能存在评分计算异常。请结合实际评测数据核实，或使用真实硬件重新评测。"
-                style={{ marginBottom: 16 }}
-              />
-            )}
-            {coverageData && coverageData.coverage && (
-              <Alert
-                type={coverageData.coverage.isComplete ? "success" : "warning"}
-                showIcon
-                icon={coverageData.coverage.isComplete ? <CheckCircleOutlined /> : <WarningOutlined />}
-                message={coverageData.title}
-                description={coverageData.detail}
-                style={{ marginBottom: 16 }}
-              />
-            )}
             <Row gutter={16}>
               <Col span={6}>
                 <Statistic title="有效数据"
@@ -650,183 +483,7 @@ export default function ChipReport() {
         </Row>
       </Card>
 
-      {/* 雷达图 + 维度评分 */}
-      {radarData.length > 0 && (
-        <Card title={<Space>能力画像 (vs L40S) <Tooltip title="综合评分为各维度 vs L40S 百分比的等权平均值。百分比 = (L40S基准延迟 / 被测芯片延迟) × 100%。≥30% 表示达到或超越 L40S。"><QuestionCircleOutlined style={{ color: "#999", fontSize: 14 }} /></Tooltip></Space>} style={{ marginBottom: 24 }}>
-          <Alert
-            type="info"
-            showIcon={false}
-            message={<Text style={{ fontSize: 12 }}>📐 <strong>评分公式：</strong>score = 100 - 20×log₁₀(avg_latency_ms) &nbsp;|&nbsp; <strong>等级标准：</strong><span style={{ color: "#52c41a" }}>≥80 优秀</span> · <span style={{ color: "#1890ff" }}>60-79 良好</span> · <span style={{ color: "#faad14" }}>40-59 一般</span> · <span style={{ color: "#ff4d4f" }}>&lt;40 较差</span> &nbsp;|&nbsp; <strong>综合评分</strong> = 六维等权平均</Text>}
-            style={{ marginBottom: 16 }}
-          />
-          {/* #298: scoring ceiling warning */}
-          {overallScore >= 99 && (
-            <Alert
-              type="warning"
-              showIcon
-              message={<Text style={{ fontSize: 12 }}><strong>⚠️ 评分触及上限</strong>：当前芯片所有算子延迟极低（&lt;0.1ms），评分公式结果超过 100 后被截断至满分。高端 GPU 在标准负载下差异无法体现，建议增加大 batch / 大模型等压力测试以获得更有区分度的评分。</Text>}
-              style={{ marginBottom: 16 }}
-            />
-          )}
-          <Row gutter={24} align="middle">
-            <Col xs={24} md={12}>
-              <RadarChart data={radarData} height={350} />
-            </Col>
-            <Col xs={24} md={12}>
-              {Object.entries(DIM_CN).map(([key, name]) => {
-                const score = dimScores[key] || 0;
-                return (
-                  <div key={key} style={{ marginBottom: 12 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                      <Text>{name}</Text>
-                      <Text strong style={{ color: scoreColor(score) }}>{score.toFixed ? score.toFixed(1) : score}</Text>
-                    </div>
-                    <Progress percent={Math.round(score)} strokeColor={scoreColor(score)} showInfo={false} size="small" />
-                  </div>
-                );
-              })}
-            </Col>
-          </Row>
-
-          {/* 评测方法说明 */}
-          <Divider style={{ margin: "16px 0 8px" }} />
-          <Collapse ghost size="small" items={radarData.filter(d => d.detail).map((d) => ({
-            key: d.dimKey || d.dimension,
-            label: (
-              <Space>
-                <Tag color={scoreColor(d.score)}>{d.dimension}</Tag>
-                <Text type="secondary" style={{ fontSize: 12 }}>{d.detail?.description}</Text>
-              </Space>
-            ),
-            children: (
-              <div style={{ paddingLeft: 16, fontSize: 13 }}>
-                <Row gutter={[16, 8]}>
-                  <Col span={24}>
-                    <Text type="secondary">评测方法：</Text>
-                    <Text>{d.detail?.evalMethod}</Text>
-                  </Col>
-                  <Col span={24}>
-                    <Text type="secondary">打分依据：</Text>
-                    <Text>{d.detail?.scoringBasis}</Text>
-                  </Col>
-                  <Col span={24}>
-                    <Text type="secondary">评分标准：</Text>
-                    <Text>{d.detail?.scoringStandard}</Text>
-                  </Col>
-                  <Col span={24}>
-                    <Text type="secondary">覆盖算子：</Text>
-                    <Space size={[4, 4]} wrap>
-                      {(d.detail?.coveredOperators || []).map(op => <Tag key={op} size="small">{op}</Tag>)}
-                    </Space>
-                  </Col>
-                </Row>
-              </div>
-            ),
-          }))} />
-        </Card>
-      )}
-
-      {/* ── Section 2: 芯片规格卡片 (#438) ── */}
-      {chip && (
-        <Card
-          title={<Space><ExperimentOutlined style={{ color: "#1890ff" }} /> 芯片规格卡片</Space>}
-          extra={baselineChip ? <Tag color="blue">vs {baselineChip.name}</Tag> : null}
-          style={{ marginBottom: 24 }}
-        >
-          <Row gutter={[24, 16]}>
-            <Col xs={24} md={baselineChip ? 12 : 24}>
-              <Title level={5} style={{ marginBottom: 12 }}>
-                {chip.name} <Tag color="geekblue">{chip.chipType || "GPU"}</Tag>
-              </Title>
-              <Descriptions column={2} size="small" bordered>
-                <Descriptions.Item label="厂商">{chip.manufacturer || "-"}</Descriptions.Item>
-                <Descriptions.Item label="架构">{chip.architecture || "-"}</Descriptions.Item>
-                <Descriptions.Item label="工艺制程">{chip.processNode || "-"}</Descriptions.Item>
-                <Descriptions.Item label="TDP">{chip.tdpWatts ? `${chip.tdpWatts}W` : "-"}</Descriptions.Item>
-                <Descriptions.Item label="显存">{chip.memoryGb ? `${chip.memoryGb}GB ${chip.memoryType || ""}` : "-"}</Descriptions.Item>
-                <Descriptions.Item label="显存带宽">{chip.memoryBandwidthTbps ? `${chip.memoryBandwidthTbps} TB/s` : "-"}</Descriptions.Item>
-                <Descriptions.Item label="FP32">{chip.peakGflopsFp32 ? `${chip.peakGflopsFp32} TFLOPS` : "-"}</Descriptions.Item>
-                <Descriptions.Item label="FP16">{chip.peakGflopsFp16 ? `${chip.peakGflopsFp16} TFLOPS` : "-"}</Descriptions.Item>
-                <Descriptions.Item label="BF16">{chip.bf16Tflops ? `${chip.bf16Tflops} TFLOPS` : "-"}</Descriptions.Item>
-                <Descriptions.Item label="FP8">{chip.fp8Tflops ? `${chip.fp8Tflops} TFLOPS` : "-"}</Descriptions.Item>
-                <Descriptions.Item label="INT8">{chip.int8Tops ? `${chip.int8Tops} TOPS` : "-"}</Descriptions.Item>
-                <Descriptions.Item label="互联">{chip.interconnectType || "-"}{chip.interconnectBandwidthGbps ? ` (${chip.interconnectBandwidthGbps} Gbps)` : ""}</Descriptions.Item>
-                <Descriptions.Item label="精度支持" span={2}>{chip.supportedPrecisions || "-"}</Descriptions.Item>
-              </Descriptions>
-            </Col>
-            {baselineChip && (
-              <Col xs={24} md={12}>
-                <Title level={5} style={{ marginBottom: 12 }}>
-                  {baselineChip.name} <Tag color="orange">基准</Tag>
-                </Title>
-                <Descriptions column={2} size="small" bordered>
-                  <Descriptions.Item label="厂商">{baselineChip.manufacturer || "-"}</Descriptions.Item>
-                  <Descriptions.Item label="架构">{baselineChip.architecture || "-"}</Descriptions.Item>
-                  <Descriptions.Item label="工艺制程">{baselineChip.processNode || "-"}</Descriptions.Item>
-                  <Descriptions.Item label="TDP">{baselineChip.tdpWatts ? `${baselineChip.tdpWatts}W` : "-"}</Descriptions.Item>
-                  <Descriptions.Item label="显存">{baselineChip.memoryGb ? `${baselineChip.memoryGb}GB ${baselineChip.memoryType || ""}` : "-"}</Descriptions.Item>
-                  <Descriptions.Item label="显存带宽">{baselineChip.memoryBandwidthTbps ? `${baselineChip.memoryBandwidthTbps} TB/s` : "-"}</Descriptions.Item>
-                  <Descriptions.Item label="FP32">{baselineChip.peakGflopsFp32 ? `${baselineChip.peakGflopsFp32} TFLOPS` : "-"}</Descriptions.Item>
-                  <Descriptions.Item label="FP16">{baselineChip.peakGflopsFp16 ? `${baselineChip.peakGflopsFp16} TFLOPS` : "-"}</Descriptions.Item>
-                  <Descriptions.Item label="BF16">{baselineChip.bf16Tflops ? `${baselineChip.bf16Tflops} TFLOPS` : "-"}</Descriptions.Item>
-                  <Descriptions.Item label="FP8">{baselineChip.fp8Tflops ? `${baselineChip.fp8Tflops} TFLOPS` : "-"}</Descriptions.Item>
-                  <Descriptions.Item label="INT8">{baselineChip.int8Tops ? `${baselineChip.int8Tops} TOPS` : "-"}</Descriptions.Item>
-                  <Descriptions.Item label="互联">{baselineChip.interconnectType || "-"}{baselineChip.interconnectBandwidthGbps ? ` (${baselineChip.interconnectBandwidthGbps} Gbps)` : ""}</Descriptions.Item>
-                  <Descriptions.Item label="精度支持" span={2}>{baselineChip.supportedPrecisions || "-"}</Descriptions.Item>
-                </Descriptions>
-              </Col>
-            )}
-          </Row>
-
-          {/* Comparison table */}
-          {baselineChip && (
-            <>
-              <Divider style={{ margin: "16px 0" }} />
-              <Title level={5}>关键指标对比</Title>
-              <Table
-                dataSource={[
-                  { key: "fp32", metric: "FP32 算力", tested: chip.peakGflopsFp32, baseline: baselineChip.peakGflopsFp32, unit: "TFLOPS" },
-                  { key: "fp16", metric: "FP16 算力", tested: chip.peakGflopsFp16, baseline: baselineChip.peakGflopsFp16, unit: "TFLOPS" },
-                  { key: "bf16", metric: "BF16 算力", tested: chip.bf16Tflops, baseline: baselineChip.bf16Tflops, unit: "TFLOPS" },
-                  { key: "fp8", metric: "FP8 算力", tested: chip.fp8Tflops, baseline: baselineChip.fp8Tflops, unit: "TFLOPS" },
-                  { key: "int8", metric: "INT8 算力", tested: chip.int8Tops, baseline: baselineChip.int8Tops, unit: "TOPS" },
-                  { key: "mem", metric: "显存容量", tested: chip.memoryGb, baseline: baselineChip.memoryGb, unit: "GB" },
-                  { key: "bw", metric: "显存带宽", tested: chip.memoryBandwidthTbps, baseline: baselineChip.memoryBandwidthTbps, unit: "TB/s" },
-                  { key: "ic", metric: "互联带宽", tested: chip.interconnectBandwidthGbps, baseline: baselineChip.interconnectBandwidthGbps, unit: "Gbps" },
-                  { key: "tdp", metric: "TDP", tested: chip.tdpWatts, baseline: baselineChip.tdpWatts, unit: "W" },
-                ].filter(r => r.tested != null || r.baseline != null)}
-                columns={[
-                  { title: "指标", dataIndex: "metric", key: "metric", width: 120 },
-                  { title: chip.name || "被测芯片", key: "tested", width: 150, align: "right",
-                    render: (_, r) => r.tested != null ? <Text strong>{r.tested} {r.unit}</Text> : <Text type="secondary">—</Text> },
-                  { title: baselineChip.name || "基准", key: "baseline", width: 150, align: "right",
-                    render: (_, r) => r.baseline != null ? <Text>{r.baseline} {r.unit}</Text> : <Text type="secondary">—</Text> },
-                  { title: "对比", key: "ratio", width: 120, align: "center",
-                    render: (_, r) => {
-                      if (r.tested == null || r.baseline == null || r.baseline === 0) return <Text type="secondary">—</Text>;
-                      // For TDP, lower is better
-                      const isTdp = r.key === "tdp";
-                      const ratio = r.tested / r.baseline;
-                      const pct = (ratio * 100).toFixed(0);
-                      const color = isTdp
-                        ? (ratio <= 1 ? "#52c41a" : ratio <= 1.2 ? "#faad14" : "#ff4d4f")
-                        : (ratio >= 1 ? "#52c41a" : ratio >= 0.8 ? "#faad14" : "#ff4d4f");
-                      const arrow = isTdp
-                        ? (ratio < 1 ? "↓" : ratio > 1 ? "↑" : "=")
-                        : (ratio > 1 ? "↑" : ratio < 1 ? "↓" : "=");
-                      return <Text strong style={{ color }}>{pct}% {arrow}</Text>;
-                    }
-                  },
-                ]}
-                pagination={false}
-                size="small"
-              />
-            </>
-          )}
-        </Card>
-      )}
-
-      {/* ── Section 3: 算子精度 (#165) ── */}
+      {/* ── Section 2: 算子精度 ── */}
       {accuracyData.length > 0 && operators.length > 0 && (
         <Card
           title={<Space><SafetyCertificateOutlined style={{ color: "#1890ff" }} /> 算子精度</Space>}
@@ -847,17 +504,15 @@ export default function ChipReport() {
         </Card>
       )}
 
-      {/* ── Section 4: 算子性能（延迟柱状图 + 排行表） (#165) ── */}
+      {/* ── Section 3: 算子性能（延迟柱状图 + 排行表） ── */}
       {operators.length > 0 && (
         <Card
           title={<Space><ThunderboltOutlined style={{ color: "#faad14" }} /> 算子性能排行</Space>}
           style={{ marginBottom: 24 }}
         >
-          {/* 延迟柱状图 */}
           <Title level={5} style={{ marginBottom: 12 }}>延迟排行</Title>
           {renderLatencyBar()}
           <Divider />
-          {/* 详细表 */}
           <Table
             dataSource={operators}
             columns={columns}
@@ -868,7 +523,7 @@ export default function ChipReport() {
         </Card>
       )}
 
-      {/* ── Section 5: 模型评测 (#165) ── */}
+      {/* ── Section 4: 模型评测 ── */}
       {modelData.length > 0 && (
         <Card
           title={<Space><RocketOutlined style={{ color: "#722ed1" }} /> 模型评测</Space>}
@@ -884,31 +539,23 @@ export default function ChipReport() {
         </Card>
       )}
 
-      {/* ── Section 6: 训练性能 (#437) ── */}
+      {/* ── Section 5: 训练性能 ── */}
       <Card
         title={<Space><ExperimentOutlined style={{ color: "#1890ff" }} /> 训练性能分析</Space>}
-        extra={<Tag color={dimScores.training >= 100 ? "green" : dimScores.training >= 80 ? "orange" : "red"}>
-          评分: {(dimScores.training || 0).toFixed(1)}% vs {baselineChipName}
-        </Tag>}
         style={{ marginBottom: 24 }}
       >
         {/* Training Summary */}
         {trainingSummary ? (
           <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-            <Col xs={12} md={6}>
+            <Col xs={12} md={8}>
               <Statistic title="训练算子数" value={trainingSummary.operatorCount || 0}
                 suffix={`/ ${trainingSummary.validCount || 0} 有效`} />
             </Col>
-            <Col xs={12} md={6}>
-              <Statistic title="综合评分" value={(trainingSummary.overallScore || 0).toFixed(1)}
-                suffix="% vs L40S"
-                valueStyle={{ color: scoreColor(trainingSummary.overallScore || 0) }} />
-            </Col>
-            <Col xs={12} md={6}>
+            <Col xs={12} md={8}>
               <Statistic title="平均延迟" value={(trainingSummary.avgLatencyMs || 0).toFixed(3)}
                 suffix="ms" />
             </Col>
-            <Col xs={12} md={6}>
+            <Col xs={12} md={8}>
               <Statistic title="平均吞吐" value={(trainingSummary.avgThroughput || 0).toFixed(1)}
                 suffix="ops/s" />
             </Col>
@@ -955,7 +602,7 @@ export default function ChipReport() {
                   render: (_, r) => (r.latencyMean ?? 0).toFixed(2) },
                 { title: "吞吐(ops/s)", dataIndex: "throughput", key: "throughput", width: 120, align: "right",
                   render: v => (v ?? 0).toFixed(1) },
-                { title: "评分", dataIndex: "score", key: "score", width: 100, align: "center",
+                { title: "vs L40S", dataIndex: "score", key: "score", width: 100, align: "center",
                   render: (v, r) => r.dataStatus === "NO_DATA" ? <Text type="secondary">—</Text>
                     : <span style={{ color: scoreColor(v || 0), fontWeight: "bold" }}>{(v || 0).toFixed(1)}%</span> },
                 { title: "状态", key: "status", width: 80, align: "center",
@@ -967,56 +614,25 @@ export default function ChipReport() {
             />
           </>
         )}
-
-        {/* Scalability info */}
-        {dimScores.scalability > 0 && (
-          <>
-            <Divider />
-            <Title level={5}>扩展性评估</Title>
-            <Row gutter={16}>
-              <Col xs={12} md={8}>
-                <Statistic title="扩展性评分" value={(dimScores.scalability || 0).toFixed(1)}
-                  suffix="% vs L40S"
-                  valueStyle={{ color: scoreColor(dimScores.scalability || 0) }} />
-              </Col>
-              <Col xs={12} md={16}>
-                <Alert type={dimScores.scalability >= 100 ? "success" : dimScores.scalability >= 80 ? "warning" : "error"}
-                  showIcon
-                  message={dimScores.scalability >= 100 ? "多卡扩展性达到或超越 L40S 基准" :
-                    dimScores.scalability >= 80 ? "多卡扩展性接近 L40S 基准" :
-                    "多卡扩展性低于 L40S 基准，分布式训练效率可能受限"}
-                />
-              </Col>
-            </Row>
-          </>
-        )}
       </Card>
 
-      {/* ── Section 7: 推理性能 (#437) ── */}
+      {/* ── Section 6: 推理性能 ── */}
       <Card
         title={<Space><RocketOutlined style={{ color: "#722ed1" }} /> 推理性能分析</Space>}
-        extra={<Tag color={dimScores.inference >= 100 ? "green" : dimScores.inference >= 80 ? "orange" : "red"}>
-          评分: {(dimScores.inference || 0).toFixed(1)}% vs {baselineChipName}
-        </Tag>}
         style={{ marginBottom: 24 }}
       >
         {/* Inference Summary */}
         {inferenceSummary ? (
           <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-            <Col xs={12} md={6}>
+            <Col xs={12} md={8}>
               <Statistic title="推理算子数" value={inferenceSummary.operatorCount || 0}
                 suffix={`/ ${inferenceSummary.validCount || 0} 有效`} />
             </Col>
-            <Col xs={12} md={6}>
-              <Statistic title="综合评分" value={(inferenceSummary.overallScore || 0).toFixed(1)}
-                suffix="% vs L40S"
-                valueStyle={{ color: scoreColor(inferenceSummary.overallScore || 0) }} />
-            </Col>
-            <Col xs={12} md={6}>
+            <Col xs={12} md={8}>
               <Statistic title="平均延迟" value={(inferenceSummary.avgLatencyMs || 0).toFixed(3)}
                 suffix="ms" />
             </Col>
-            <Col xs={12} md={6}>
+            <Col xs={12} md={8}>
               <Statistic title="平均吞吐" value={(inferenceSummary.avgThroughput || 0).toFixed(1)}
                 suffix="ops/s" />
             </Col>
@@ -1132,7 +748,7 @@ export default function ChipReport() {
         })()}
       </Card>
 
-      {/* ── Section 8: 瓶颈分析 (#165 增强) ── */}
+      {/* ── Section 7: 瓶颈分析 ── */}
       <Card
         title={<Space><WarningOutlined style={{ color: "#faad14" }} /> 瓶颈分析与优化建议</Space>}
         style={{ marginBottom: 24 }}
@@ -1163,14 +779,6 @@ export default function ChipReport() {
                     <div style={{ marginTop: 4 }}>
                       <Text type="secondary" style={{ fontSize: 12 }}>{item.detail}</Text>
                     </div>
-                    {item.score != null && (
-                      <div style={{ marginTop: 8 }}>
-                        <Text style={{ fontSize: 20, fontWeight: "bold", color: scoreColor(item.score) }}>
-                          {item.score}
-                        </Text>
-                        <Text type="secondary" style={{ fontSize: 12, marginLeft: 4 }}>分</Text>
-                      </div>
-                    )}
                   </Card>
                 </Col>
               );
@@ -1186,69 +794,27 @@ export default function ChipReport() {
         <Divider />
         <Title level={5}><BulbOutlined style={{ color: "#faad14" }} /> 优化建议</Title>
         <div>
-          {Object.entries(DIM_CN).map(([key, name]) => {
-            const score = dimScores[key] || 0;
-            if (score >= 80) return null;
-            const suggestions = {
-              compute: "建议优化矩阵运算核函数，使用 Tensor Core / 硬件加速指令，增大计算并行度",
-              memory: "建议优化数据布局减少 cache miss，使用异步拷贝和内存合并访问",
-              op_compat: "建议使用快速数学近似实现，检查激活函数是否有硬件原生支持",
-              attention: "建议使用 FlashAttention 或分块注意力机制，降低显存占用",
-              op_compat: "建议融合归一化与前后算子，减少内存读写次数",
-              inference: "建议优化模型图编译，使用算子融合和量化技术提升端到端性能",
-            };
-            return (
-              <div key={key} style={{ marginBottom: 8, padding: "8px 12px", background: score < 60 ? "#fff2f0" : "#fffbe6", borderRadius: 4 }}>
-                <Tag color={score < 60 ? "error" : "warning"}>{name} ({score.toFixed(1)}%)</Tag>
-                <Text style={{ fontSize: 13 }}>{suggestions[key] || "建议进一步分析该维度性能瓶颈"}</Text>
-              </div>
-            );
-          }).filter(Boolean)}
-          {Object.entries(DIM_CN).every(([key]) => (dimScores[key] || 0) >= 80) && (
-            <Alert type="success" message="所有维度评分均在 80 分以上，整体表现优秀！" showIcon />
+          {Array.isArray(bottleneckData) && bottleneckData.filter(item => item.type !== "coverage" && item.level !== "info").length > 0 ? (
+            bottleneckData.filter(item => item.type !== "coverage" && item.level !== "info").map((item, idx) => {
+              const suggestions = {
+                worst_operator: "建议优化该算子的核函数实现，检查是否存在不必要的内存拷贝或计算冗余",
+                high_volatility: "建议检查系统负载稳定性，排除其他进程干扰，增加评测轮次取平均值",
+                weak_dimension: "建议针对该维度进行专项优化，参考基准芯片的实现方案",
+              };
+              return (
+                <div key={idx} style={{ marginBottom: 8, padding: "8px 12px", background: item.level === "error" ? "#fff2f0" : "#fffbe6", borderRadius: 4 }}>
+                  <Tag color={item.level === "error" ? "error" : "warning"}>{item.title}</Tag>
+                  <Text style={{ fontSize: 13 }}>{suggestions[item.type] || "建议进一步分析该项性能瓶颈"}</Text>
+                </div>
+              );
+            })
+          ) : (
+            <Alert type="success" message="未发现明显性能瓶颈，整体表现良好！" showIcon />
           )}
         </div>
       </Card>
 
-      {/* ── Section 9: 适用场景推荐 (#165) ── */}
-      <Card title="适用场景推荐" style={{ marginBottom: 24 }}>
-        {scenarioRecs.length > 0 ? (
-          <Row gutter={16}>
-            {["recommended", "caution", "unverified"].map(type => {
-              const items = scenarioRecs.filter(r => r.type === type);
-              if (items.length === 0) return null;
-              const config = {
-                recommended: { title: "✅ 推荐场景", bg: "#f6ffed", border: "#b7eb8f" },
-                caution:     { title: "⚠️ 需关注场景", bg: "#fffbe6", border: "#ffe58f" },
-                unverified:  { title: "❌ 待验证场景", bg: "#fff2f0", border: "#ffccc7" },
-              }[type];
-              return (
-                <Col xs={24} md={8} key={type}>
-                  <Card size="small" title={config.title}
-                    style={{ background: config.bg, borderColor: config.border, height: "100%" }}>
-                    {items.map((item, idx) => (
-                      <div key={idx} style={{ marginBottom: idx < items.length - 1 ? 16 : 0 }}>
-                        <Text strong style={{ fontSize: 14 }}>{item.scenario}</Text>
-                        <br />
-                        <Text type="secondary" style={{ fontSize: 12 }}>{item.reason}</Text>
-                        {item.dimensions && item.dimensions.length > 0 && (
-                          <div style={{ marginTop: 4 }}>
-                            {item.dimensions.map(d => <Tag key={d} size="small">{d}</Tag>)}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </Card>
-                </Col>
-              );
-            })}
-          </Row>
-        ) : (
-          <Empty description="暂无场景推荐数据" />
-        )}
-      </Card>
-
-      {/* ── Section 10: 评测环境 (#165) ── */}
+      {/* ── Section 8: 评测环境 ── */}
       <Card
         title={<Space><ClockCircleOutlined /> 评测环境</Space>}
         style={{ marginBottom: 24 }}
