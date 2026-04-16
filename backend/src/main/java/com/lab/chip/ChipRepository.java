@@ -42,4 +42,7 @@ public interface ChipRepository extends JpaRepository<Chip, Long> {
 
     @Query("SELECT COUNT(c) FROM Chip c WHERE c.chipNo LIKE :prefix%")
     long countByChipNoStartingWith(@Param("prefix") String prefix);
+
+    @Query("SELECT MAX(c.chipNo) FROM Chip c WHERE c.chipNo LIKE :prefix%")
+    String findMaxChipNoByPrefix(@Param("prefix") String prefix);
 }

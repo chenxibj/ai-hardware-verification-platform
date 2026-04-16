@@ -210,9 +210,18 @@ public class ChipService {
         String today = LocalDate.now(ZoneId.of("Asia/Shanghai"))
                 .format(DateTimeFormatter.BASIC_ISO_DATE);
         String prefix = "CHIP-" + today + "-";
-        long count = chipRepository.countByChipNoStartingWith(prefix);
-        String seq = String.format("%03d", count + 1);
-        return prefix + seq;
+        String maxChipNo = chipRepository.findMaxChipNoByPrefix(prefix);
+        long nextSeq;
+        if (maxChipNo != null && maxChipNo.length() > prefix.length()) {
+            try {
+                nextSeq = Long.parseLong(maxChipNo.substring(prefix.length())) + 1;
+            } catch (NumberFormatException e) {
+                nextSeq = chipRepository.countByChipNoStartingWith(prefix) + 1;
+            }
+        } else {
+            nextSeq = 1;
+        }
+        return prefix + String.format("%03d", nextSeq);
     }
 
     /**
