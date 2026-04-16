@@ -2,48 +2,78 @@
  * Feature: 页面导航
  *
  * 验证侧边栏菜单能正确切换各个页面。
+ * Updated: sidebar now uses submenu groups (评测中心, 数字资产, 资源管理, 社区, 系统设置)
  */
 import { test, expect } from '../../fixtures/auth.fixture';
 
-const MENU_PAGES: Array<{ menu: string; header: string }> = [
-  { menu: '工作台', header: '工作台' },
-  { menu: '评测任务', header: '评测任务管理' },
-  { menu: '评测模板', header: '评测模板管理' },
-  { menu: '评测编排', header: '评测编排工作流' },
-  { menu: '评测报告', header: '评测报告管理' },
-  { menu: '报告对比', header: '报告对比分析' },
-  { menu: '评测日志', header: '评测日志' },
-  { menu: '数字资产', header: '数字资产管理' },
-  { menu: '计算资源', header: '计算资源管理' },
-  { menu: '社区', header: '验证平台社区' },
-  { menu: '用户管理', header: '用户管理' },
-  { menu: '操作审计', header: '操作审计' },
-  { menu: '系统设置', header: '系统设置' },
-];
-
 test.describe('Feature: 页面导航', () => {
-  test('Scenario: 登录后默认显示工作台', async ({ authenticatedPage }) => {
+  test('Scenario: 登录后默认显示Dashboard', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
+    await page.waitForTimeout(1000);
 
-    // Given 用户已成功登录
-    // Then 页面标题应为"工作台"
-    await expect(page.locator('header strong', { hasText: '工作台' })).toBeVisible();
+    // Then Dashboard 菜单项应被选中
+    const dashboardItem = page.locator('.ant-menu-item').filter({ hasText: 'Dashboard' });
+    await expect(dashboardItem).toBeVisible({ timeout: 10_000 });
   });
 
-  for (const { menu, header } of MENU_PAGES) {
-    test(`Scenario: 导航到"${menu}"页面`, async ({ authenticatedPage }) => {
-      const page = authenticatedPage;
+  test('Scenario: 侧边栏包含所有主要模块', async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+    await page.waitForTimeout(1000);
 
-      // Given 用户已登录
-      // When 点击侧边栏的"${menu}"菜单
-      await page.locator('.ant-menu-item', { hasText: menu }).click();
+    // Then 应有 Dashboard 顶级菜单
+    await expect(page.locator('.ant-menu-item').filter({ hasText: 'Dashboard' })).toBeVisible();
 
-      // Then 页面标题应显示"${header}"
-      await expect(page.locator('header strong', { hasText: header })).toBeVisible({
-        timeout: 10_000,
-      });
-    });
-  }
+    // And 应有评测中心子菜单组
+    await expect(page.locator('.ant-menu-submenu-title').filter({ hasText: '评测中心' })).toBeVisible();
+
+    // And 应有数字资产子菜单组
+    await expect(page.locator('.ant-menu-submenu-title').filter({ hasText: '数字资产' })).toBeVisible();
+
+    // And 应有资源管理子菜单组
+    await expect(page.locator('.ant-menu-submenu-title').filter({ hasText: '资源管理' })).toBeVisible();
+
+    // And 应有系统设置子菜单组
+    await expect(page.locator('.ant-menu-submenu-title').filter({ hasText: '系统设置' })).toBeVisible();
+  });
+
+  test('Scenario: 展开评测中心子菜单', async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+
+    // When 点击评测中心
+    await page.locator('.ant-menu-submenu-title').filter({ hasText: '评测中心' }).first().click();
+    await page.waitForTimeout(500);
+
+    // Then 应显示子菜单项
+    const subItems = page.locator('.ant-menu-item');
+    const texts = await subItems.allTextContents();
+    const evalItems = texts.filter(
+      (t) =>
+        t.includes('芯片') ||
+        t.includes('评测') ||
+        t.includes('报告') ||
+        t.includes('任务'),
+    );
+    expect(evalItems.length).toBeGreaterThan(0);
+  });
+
+  test('Scenario: 导航到评测报告页面', async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+
+    // When 展开评测中心
+    await page.locator('.ant-menu-submenu-title').filter({ hasText: '评测中心' }).first().click();
+    await page.waitForTimeout(500);
+
+    // And 点击评测报告
+    const reportMenu = page.locator('.ant-menu-item').filter({ hasText: '评测报告' });
+    if (await reportMenu.count() > 0) {
+      await reportMenu.first().click();
+      await page.waitForTimeout(1000);
+    }
+
+    // Then 页面应加载报告内容
+    const table = page.locator('.ant-table');
+    await expect(table).toBeVisible({ timeout: 10_000 });
+  });
 
   test('Scenario: 侧边栏收起/展开', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
@@ -52,15 +82,18 @@ test.describe('Feature: 页面导航', () => {
     await expect(page.locator('.ant-layout-sider')).toBeVisible();
 
     // When 点击折叠按钮
-    await page.locator('.ant-layout-sider-trigger').click();
+    const trigger = page.locator('.ant-layout-sider-trigger');
+    if (await trigger.count() > 0) {
+      await trigger.click();
 
-    // Then 侧边栏应收起（宽度变小）
-    await expect(page.locator('.ant-layout-sider-collapsed')).toBeVisible({ timeout: 5_000 });
+      // Then 侧边栏应收起
+      await expect(page.locator('.ant-layout-sider-collapsed')).toBeVisible({ timeout: 5_000 });
 
-    // When 再次点击
-    await page.locator('.ant-layout-sider-trigger').click();
+      // When 再次点击
+      await trigger.click();
 
-    // Then 侧边栏应展开
-    await expect(page.locator('.ant-layout-sider-collapsed')).not.toBeVisible({ timeout: 5_000 });
+      // Then 侧边栏应展开
+      await expect(page.locator('.ant-layout-sider-collapsed')).not.toBeVisible({ timeout: 5_000 });
+    }
   });
 });

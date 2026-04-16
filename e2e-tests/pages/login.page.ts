@@ -9,7 +9,7 @@ export class LoginPage {
   /** Navigate to the app root (which shows login if unauthenticated) */
   async goto() {
     await this.page.goto('/');
-    await expect(this.page.locator('text=人工智能软硬件验证平台')).toBeVisible({ timeout: 15_000 });
+    await expect(this.page.locator('text=欢迎登录')).toBeVisible({ timeout: 15_000 });
   }
 
   /** The email input */

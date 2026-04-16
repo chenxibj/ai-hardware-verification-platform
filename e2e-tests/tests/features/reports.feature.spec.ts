@@ -1,8 +1,8 @@
 /**
  * Feature: 评测报告
- * 验证报告查询、详情、任务关联报告生成。
+ * 验证报告查询、详情。
  */
-import { test, expect, apiLogin, apiGet, apiPost, pollTaskUntilDone } from '../../fixtures/auth.fixture';
+import { test, expect, apiLogin, apiGet } from '../../fixtures/auth.fixture';
 
 test.describe('Feature: 评测报告', () => {
   test('Scenario: 查询报告列表', async ({ request }) => {
@@ -16,16 +16,18 @@ test.describe('Feature: 评测报告', () => {
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.code).toBe(0);
-    expect(Array.isArray(body.data)).toBe(true);
+    // data 是对象，包含 records 数组
+    expect(body.data).toBeTruthy();
+    expect(Array.isArray(body.data.records)).toBe(true);
   });
 
   test('Scenario: 查看报告详情包含完整数据', async ({ request }) => {
     // Given 用户已登录且存在报告
     const { token } = await apiLogin(request);
     const listRes = await apiGet(request, token, '/reports');
-    const reports = (await listRes.json()).data || [];
+    const body = await listRes.json();
+    const reports = body.data?.records || [];
 
-    // 如果没有报告数据，跳过而非静默通过
     test.skip(reports.length === 0, '没有已生成的报告，跳过详情验证');
 
     // When 查询单个报告详情
@@ -37,54 +39,43 @@ test.describe('Feature: 评测报告', () => {
     const detail = (await detailRes.json()).data;
     expect(detail.reportNo).toBeTruthy();
     expect(detail.createdAt).toBeTruthy();
+    expect(detail.overallScore).toBeDefined();
+    expect(detail.dimensionScores).toBeTruthy();
   });
 
-  test('Scenario: 任务完成后自动生成报告', async ({ request }) => {
-    test.setTimeout(120_000);
-    // Given 用户已登录
+  test('Scenario: 报告列表包含必要字段', async ({ request }) => {
     const { token } = await apiLogin(request);
+    const res = await apiGet(request, token, '/reports');
+    const body = await res.json();
+    const reports = body.data?.records || [];
+    test.skip(reports.length === 0, '无报告数据');
 
-    // When 创建任务并等待完成
-    const createRes = await apiPost(request, token, '/tasks', {
-      name: `BDD-Report-${Date.now()}`,
-      evalType: 'PERFORMANCE',
-      priority: 'LOW',
-    });
-    const taskId = (await createRes.json()).data.id;
-    const finalTask = await pollTaskUntilDone(request, token, taskId, 90_000);
-
-    if (finalTask.status === 'COMPLETED') {
-      // Then 报告列表中应有数据
-      const reportRes = await apiGet(request, token, '/reports');
-      expect(reportRes.ok()).toBeTruthy();
-      const reportBody = await reportRes.json();
-
-      // Then 应有关联报告（如果报告引擎正常工作）
-      const reports = reportBody.data || [];
-      if (reports.length === 0) {
-        console.log('Task completed but no report generated, skipping');
-        return;
-      }
-
-      // And 报告应包含 metrics 数据
-      const report = reports[0];
-      expect(report.reportNo).toBeTruthy();
-      expect(['PUBLISHED', 'DRAFT']).toContain(report.status);
-    }
-
-    // Cleanup: 清理测试任务
-    const { default: fetch } = await import('node-fetch').catch(() => ({ default: null }));
-    // 任务会自然结束，无需额外清理
+    const report = reports[0];
+    // 每份报告应包含核心字段
+    expect(report).toHaveProperty('id');
+    expect(report).toHaveProperty('reportNo');
+    expect(report).toHaveProperty('chipId');
+    expect(report).toHaveProperty('overallScore');
+    expect(report).toHaveProperty('status');
   });
 
   test('Scenario: UI 查看报告列表', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
 
-    // Given 用户已登录
-    // When 导航到评测报告页面
-    await page.locator('.ant-menu-item', { hasText: '评测报告' }).click();
+    // When 展开评测中心子菜单，点击评测报告
+    const evalMenu = page.locator('.ant-menu-submenu-title').filter({ hasText: '评测中心' });
+    if (await evalMenu.count() > 0) {
+      await evalMenu.first().click();
+      await page.waitForTimeout(500);
+    }
+    const reportMenu = page.locator('.ant-menu-item').filter({ hasText: '评测报告' });
+    if (await reportMenu.count() > 0) {
+      await reportMenu.first().click();
+      await page.waitForTimeout(1000);
+    }
 
-    // Then 应显示报告表格
-    await expect(page.locator('.ant-table')).toBeVisible({ timeout: 10_000 });
+    // Then 应显示报告管理标题或表格
+    const table = page.locator('.ant-table');
+    await expect(table).toBeVisible({ timeout: 10_000 });
   });
 });

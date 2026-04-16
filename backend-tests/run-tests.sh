@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+# set -e  # disabled: failures handled by assert functions
 
 API_BASE="${API_BASE:-http://localhost:8080/api}"
 PASS=0
@@ -162,7 +162,7 @@ RESP=$(curl -s -w "\n%{http_code}" "$API_BASE/health")
 BODY=$(echo "$RESP" | head -n -1)
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "GET /health" 200 "$STATUS"
-assert_json "Health status UP" "['status']" "UP" "$BODY"
+assert_json "Health status UP" "['data']['status']" "UP" "$BODY"
 
 echo ""
 echo "--- Version ---"
@@ -178,6 +178,96 @@ if [ "$GIT_COMMIT_VAL" != "MISSING" ] && [ "$GIT_COMMIT_VAL" != "unknown" ] && [
   PASS=$((PASS+1))
 else
   echo "❌ Version missing gitCommit ($GIT_COMMIT_VAL)"
+  FAIL=$((FAIL+1))
+fi
+
+echo ""
+echo "--- Dimensions ---"
+
+# /dimensions endpoint
+RESP=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $TOKEN" "$API_BASE/dimensions")
+BODY=$(echo "$RESP" | head -n -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET /dimensions" 200 "$STATUS"
+assert_json "Dimensions has code 0" "['code']" "0" "$BODY"
+
+# Check that allKeys contains 'compute'
+DIM_KEY=$(echo "$BODY" | python3 -c "import json,sys;d=json.load(sys.stdin);print('compute' in d['data']['allKeys'])" 2>/dev/null || echo 'False')
+TOTAL=$((TOTAL+1))
+if [ "$DIM_KEY" = "True" ]; then
+  echo "✅ Dimensions allKeys contains compute"
+  PASS=$((PASS+1))
+else
+  echo "❌ Dimensions allKeys missing compute"
+  FAIL=$((FAIL+1))
+fi
+
+echo ""
+echo "--- Comparisons ---"
+
+# Get two report IDs for comparison
+RPT_IDS=$(curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE/reports" | python3 -c "import json,sys;d=json.load(sys.stdin);recs=d['data']['records'];print(recs[0]['id'],recs[1]['id']) if len(recs)>=2 else print('SKIP')" 2>/dev/null || echo 'SKIP')
+
+if [ "$RPT_IDS" != "SKIP" ]; then
+  BASELINE_ID=$(echo $RPT_IDS | cut -d' ' -f1)
+  TEST_ID=$(echo $RPT_IDS | cut -d' ' -f2)
+  
+  # POST /comparisons with valid data
+  RESP=$(curl -s -w "\n%{http_code}" -X POST "$API_BASE/comparisons" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"baselineReportId\":$BASELINE_ID,\"testReportIds\":[$TEST_ID]}")
+  BODY=$(echo "$RESP" | head -n -1)
+  STATUS=$(echo "$RESP" | tail -1)
+  assert_status "POST /comparisons (valid)" 200 "$STATUS"
+  assert_json "Comparisons success" "['success']" "True" "$BODY"
+  
+  # POST /comparisons without required fields
+  RESP=$(curl -s -w "\n%{http_code}" -X POST "$API_BASE/comparisons" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"reportIds\":[1]}")
+  BODY=$(echo "$RESP" | head -n -1)
+  STATUS=$(echo "$RESP" | tail -1)
+  assert_json "Comparisons missing params" "['success']" "False" "$BODY"
+else
+  echo "⚠️  Skipping comparisons tests (need ≥2 reports)"
+fi
+
+echo ""
+echo "--- Health Components ---"
+
+# Check health components
+RESP=$(curl -s -w "\n%{http_code}" "$API_BASE/health")
+BODY=$(echo "$RESP" | head -n -1)
+STATUS=$(echo "$RESP" | tail -1)
+DB_STATUS=$(echo "$BODY" | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['data']['components']['database'])" 2>/dev/null || echo 'MISSING')
+TOTAL=$((TOTAL+1))
+if [ "$DB_STATUS" = "UP" ]; then
+  echo "✅ Health component: database UP"
+  PASS=$((PASS+1))
+else
+  echo "❌ Health component: database not UP ($DB_STATUS)"
+  FAIL=$((FAIL+1))
+fi
+
+REDIS_STATUS=$(echo "$BODY" | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['data']['components']['redis'])" 2>/dev/null || echo 'MISSING')
+TOTAL=$((TOTAL+1))
+if [ "$REDIS_STATUS" = "UP" ]; then
+  echo "✅ Health component: redis UP"
+  PASS=$((PASS+1))
+else
+  echo "❌ Health component: redis not UP ($REDIS_STATUS)"
+  FAIL=$((FAIL+1))
+fi
+
+MINIO_STATUS=$(echo "$BODY" | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['data']['components']['minio'])" 2>/dev/null || echo 'MISSING')
+TOTAL=$((TOTAL+1))
+if [ "$MINIO_STATUS" = "UP" ]; then
+  echo "✅ Health component: minio UP"
+  PASS=$((PASS+1))
+else
+  echo "❌ Health component: minio not UP ($MINIO_STATUS)"
   FAIL=$((FAIL+1))
 fi
 

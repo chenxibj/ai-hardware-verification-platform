@@ -3,7 +3,7 @@
  * 
  * 用户故事: 作为高级评测工程师，我需要通过可视化拖拽界面自定义评测流程
  * 
- * 状态: Phase 2，标记 fixme
+ * 状态: Phase 2，标记 skip — 编排功能后端存在但 UI 未实现
  */
 import { test, expect, apiLogin, apiGet, apiPost } from '../../fixtures/auth.fixture';
 
@@ -15,7 +15,7 @@ test.describe('US-1.9: 自主编排系统 (Phase 2)', () => {
     token = auth.token;
   });
 
-  test.fixme('Scenario: API — 获取编排流程列表', async ({ request }) => {
+  test.skip('Scenario: API — 获取编排流程列表', async ({ request }) => {
     // Given 用户已登录
     // When 查询编排流程
     const res = await apiGet(request, token, '/workflows');
@@ -23,7 +23,7 @@ test.describe('US-1.9: 自主编排系统 (Phase 2)', () => {
     expect(res.ok()).toBeTruthy();
   });
 
-  test.fixme('Scenario: API — 创建编排流程', async ({ request }) => {
+  test.skip('Scenario: API — 创建编排流程', async ({ request }) => {
     // Given 用户准备了流程配置
     // When 创建新流程
     const res = await apiPost(request, token, '/workflows', {
@@ -42,7 +42,7 @@ test.describe('US-1.9: 自主编排系统 (Phase 2)', () => {
     expect(res.ok()).toBeTruthy();
   });
 
-  test.fixme('Scenario: API — 校验流程（循环依赖检测）', async ({ request }) => {
+  test.skip('Scenario: API — 校验流程（循环依赖检测）', async ({ request }) => {
     // When 提交有循环依赖的流程
     const res = await apiPost(request, token, '/workflows/validate', {
       nodes: [
@@ -58,7 +58,7 @@ test.describe('US-1.9: 自主编排系统 (Phase 2)', () => {
     expect(res.ok()).toBeFalsy();
   });
 
-  test.fixme('Scenario: UI — 编排页面有画布和节点面板', async ({ authenticatedPage }) => {
+  test.skip('Scenario: UI — 编排页面有画布和节点面板', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await page.goto('/workflows');
     await page.waitForTimeout(2000);

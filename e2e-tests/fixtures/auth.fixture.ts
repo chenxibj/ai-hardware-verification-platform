@@ -3,8 +3,8 @@ import { test as base, expect, Page, APIRequestContext } from '@playwright/test'
 /** Credentials for the test user */
 export const TEST_USER = {
   email: 'test@ahvp.com',
-  password: 'test123',
-  username: "test",
+  password: 'Test1234',
+  username: "testuser",
 };
 
 /** API base (backend direct, not via frontend proxy) */
@@ -77,7 +77,7 @@ export async function apiPut(
 export async function uiLogin(page: Page, email = TEST_USER.email, password = TEST_USER.password) {
   await page.goto('/');
   // Wait for login page to be visible
-  await expect(page.locator('text=人工智能软硬件验证平台')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('text=欢迎登录')).toBeVisible({ timeout: 15_000 });
 
   // Fill in email & password
   await page.getByPlaceholder('邮箱').fill(email);

@@ -4,7 +4,7 @@
  * 整合已有的分散测试文件，对 MVP-0 的 14 个 issue 做统一回归。
  *
  * 注意: 导航结构已在 #128 重组:
- *   - 侧边栏: 工作台 | 芯片管理(芯片列表/芯片对比) | 评测计划(计划列表/创建计划) | 节点管理 | 系统设置(用户管理/操作审计)
+ *   - 侧边栏: Dashboard | 芯片管理(芯片列表/芯片对比) | 评测计划(计划列表/创建计划) | 节点管理 | 系统设置(用户管理/操作审计)
  *   - 旧页面(评测任务/模板/报告/日志/资产等)已从导航移除，但路由仍保留
  *   - API: /tasks, /chips, /chip-reports 可用；/templates, /reports, /assets, /nodes, /workflows 已 404
  *
@@ -18,7 +18,7 @@
  *   #130 评测报告自动生成         → (API /reports 已移除, 用 /chip-reports 替代)
  *   #131 数字资产管理             → (API /assets 已移除, 验证路由可达)
  *   #132 计算资源管理             → 节点管理 UI
- *   #133 Dashboard / 工作台      → 工作台 UI
+ *   #133 Dashboard / Dashboard      → Dashboard UI
  *   #134 评测编排工作流           → (API /workflows 已移除, 跳过)
  *   #135 评测日志查看             → (导航已移除, 跳过)
  *   #136 操作审计日志             → 系统设置 > 操作审计
@@ -39,7 +39,7 @@ test.describe('MVP-0 #124: 用户认证回归', () => {
   test('UI 登录后显示主界面', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await expect(page.locator('.ant-menu')).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator('.ant-menu').getByText('工作台')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.ant-menu').getByText('Dashboard')).toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -49,7 +49,7 @@ test.describe('MVP-0 #125: 侧边栏导航回归', () => {
     const page = authenticatedPage;
     const sidebar = page.locator('.ant-menu');
     // 新导航结构的一级菜单
-    const menuItems = ['工作台', '芯片管理', '评测计划', '节点管理', '系统设置'];
+    const menuItems = ['Dashboard', '芯片管理', '评测计划', '节点管理', '系统设置'];
     for (const item of menuItems) {
       await expect(sidebar.getByText(item).first()).toBeVisible({ timeout: 5000 });
     }
@@ -227,9 +227,9 @@ test.describe('MVP-0 #132: 节点管理回归', () => {
   });
 });
 
-/* ── #133 Dashboard / 工作台（回归） ── */
-test.describe('MVP-0 #133: 工作台 Dashboard 回归', () => {
-  test('UI 工作台显示内容', async ({ authenticatedPage }) => {
+/* ── #133 Dashboard / Dashboard（回归） ── */
+test.describe('MVP-0 #133: Dashboard Dashboard 回归', () => {
+  test('UI Dashboard显示内容', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await page.waitForTimeout(1500);
     const hasStats = await page.locator('.ant-card').first().isVisible().catch(() => false);

@@ -21,8 +21,8 @@ test.describe('Feature: 用户认证', () => {
     // Then 应该登录成功并进入主界面
     await loginPage.expectInApp();
 
-    // And 侧边栏应显示"工作台"菜单项
-    await expect(page.locator('.ant-menu-item', { hasText: '工作台' })).toBeVisible();
+    // And 侧边栏应显示"Dashboard"菜单项
+    await expect(page.locator('.ant-menu-item', { hasText: 'Dashboard' })).toBeVisible();
   });
 
   test('Scenario: 使用错误密码登录失败', async ({ page }) => {
@@ -38,10 +38,10 @@ test.describe('Feature: 用户认证', () => {
     const errorShown = await page.locator('.ant-message-error').isVisible({ timeout: 15_000 }).catch(() => false);
     if (!errorShown) {
       // 即使没有 error toast，只要没跳转到主页就说明登录失败
-      await expect(page.locator('text=人工智能软硬件验证平台')).toBeVisible();
+      await expect(page.locator('text=欢迎登录')).toBeVisible();
     }
     // And 应该仍然在登录页面
-    await expect(page.locator('text=人工智能软硬件验证平台')).toBeVisible();
+    await expect(page.locator('text=欢迎登录')).toBeVisible();
   });
 
   test('Scenario: 使用不存在的邮箱登录失败', async ({ page }) => {
@@ -56,7 +56,7 @@ test.describe('Feature: 用户认证', () => {
     // Then 应该显示错误提示或仍然停留在登录页面
     const errorShown = await page.locator('.ant-message-error').isVisible({ timeout: 15_000 }).catch(() => false);
     if (!errorShown) {
-      await expect(page.locator('text=人工智能软硬件验证平台')).toBeVisible();
+      await expect(page.locator('text=欢迎登录')).toBeVisible();
     }
   });
 
@@ -110,14 +110,14 @@ test.describe('Feature: 用户认证', () => {
       data: {
         username: 'duplicate',
         email: TEST_USER.email,
-        password: 'test123',
+        password: 'Test1234',
       },
     });
 
     // Then 应返回错误
     const body = await res.json();
     expect(body.code).not.toBe(0);
-    expect(body.message).toContain('already');
+    expect(body.message).toBeTruthy(); // Chinese: '该邮箱已注册'
   });
 
   test('Scenario: 用户登出后 UI 返回登录页面', async ({ authenticatedPage }) => {
@@ -126,12 +126,27 @@ test.describe('Feature: 用户认证', () => {
     // Given 用户已登录
     await expect(page.locator('.ant-menu')).toBeVisible();
 
-    // When 用户点击头部用户按钮，再点击退出登录
-    await page.getByRole('button', { name: /test/ }).click();
-    await page.locator('.ant-dropdown-menu-item-danger', { hasText: '退出登录' }).click();
+    // When 用户点击头部用户区域，再点击退出登录
+    await page.locator('.ant-space', { hasText: 'testuser' }).first().click();
+    await page.waitForTimeout(500);
+    const logoutItem = page.locator('.ant-dropdown-menu-item-danger, .ant-dropdown-menu-item').filter({ hasText: '退出登录' });
+    if (await logoutItem.count() > 0) {
+      await logoutItem.first().click();
+    } else {
+      // Fallback: try to find any logout-related menu item
+      const menuItems = page.locator('.ant-dropdown-menu-item');
+      const count = await menuItems.count();
+      for (let i = 0; i < count; i++) {
+        const text = await menuItems.nth(i).textContent();
+        if (text && (text.includes('退出') || text.includes('登出'))) {
+          await menuItems.nth(i).click();
+          break;
+        }
+      }
+    }
 
     // Then 应该回到登录页面
-    await expect(page.locator('text=人工智能软硬件验证平台')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('text=欢迎登录')).toBeVisible({ timeout: 10_000 });
   });
 
   test('Scenario: API 登出', async ({ request }) => {
