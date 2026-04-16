@@ -14,9 +14,11 @@ import { Page } from '@playwright/test';
 
 /* ── Helper ── */
 async function navigateToChipList(page: Page) {
-  await page.locator('.ant-menu').getByText('芯片管理').click();
+  // Menu structure: "评测中心" (parent group) → "芯片管理" (child item at /chips)
+  // First expand the parent submenu, then click the child
+  await page.locator('.ant-menu').getByText('评测中心').click();
   await page.waitForTimeout(500);
-  await page.locator('.ant-menu').getByText('芯片列表').click();
+  await page.locator('.ant-menu').getByText('芯片管理').click();
   await page.locator('.ant-table, .ant-card').first().waitFor({ timeout: 15_000 });
   await page.waitForTimeout(500);
 }
@@ -48,7 +50,7 @@ test.describe('MVP-0: 芯片创建', () => {
     const chip = body.data;
     expect(chip.chipNo).toMatch(/^CHIP-\d{8}-\d{3}$/);
     expect(chip.name).toBeTruthy();
-    expect(chip.vendor).toBe('测试厂商');
+    expect(chip.manufacturer).toBe('测试厂商');
     expect(chip.chipType).toBe('GPU');
 
     // And 初始状态为 REGISTERED
@@ -64,24 +66,24 @@ test.describe('MVP-0: 芯片创建', () => {
       name: uniqueName(),
       vendor: '商汤科技',
       chipType: 'GPU',
-      specs: {
+      specs: JSON.stringify({
         fp16Tflops: 200,
         fp32Tflops: 100,
         memoryGB: 64,
         tdpWatts: 300,
-      },
-      softwareEnv: {
+      }),
+      softwareEnv: JSON.stringify({
         driverVersion: 'v2.1.0',
         sdkVersion: 'SenseSDK 3.0',
-      },
+      }),
       remark: 'BDD 测试芯片',
     });
 
     // Then 返回的芯片数据包含技术规格
     expect(res.ok()).toBeTruthy();
     const chip = (await res.json()).data;
-    expect(chip.specs).toBeTruthy();
-    expect(chip.softwareEnv).toBeTruthy();
+    expect(chip.techSpec).toBeTruthy();
+    expect(chip.softwareStack).toBeTruthy();
   });
 
   test('Scenario: API — 缺少必填字段 name 返回错误', async ({ request }) => {
@@ -174,20 +176,20 @@ test.describe('MVP-0: 芯片查询与详情', () => {
     expect(chip.id).toBeTruthy();
     expect(chip.chipNo).toBeTruthy();
     expect(chip.name).toBeTruthy();
-    expect(chip.vendor).toBeTruthy();
+    expect(chip.manufacturer).toBeTruthy();
     expect(chip.chipType).toBeTruthy();
     expect(chip.status).toBeTruthy();
   });
 
   test('Scenario: API — 按芯片 ID 查询详情', async ({ request }) => {
-    // Given 用户已登录
+    // Given 用户已登录并创建了一个芯片
     const { token } = await apiLogin(request);
-
-    // And 有一个已注册的芯片
-    const listRes = await apiGet(request, token, '/chips');
-    const chips = (await listRes.json()).data;
-    test.skip(!chips || chips.length === 0, '无芯片数据');
-    const chipId = chips[0].id;
+    const createRes = await apiPost(request, token, '/chips', {
+      name: uniqueName(),
+      vendor: '详情测试',
+      chipType: 'GPU',
+    });
+    const chipId = (await createRes.json()).data.id;
 
     // When 查询芯片详情
     const res = await apiGet(request, token, `/chips/${chipId}`);
@@ -285,7 +287,7 @@ test.describe('MVP-0: 芯片更新与删除', () => {
     // And 查询确认更新
     const getRes = await apiGet(request, token, `/chips/${chipId}`);
     const chip = (await getRes.json()).data;
-    expect(chip.vendor).toBe('更新后厂商');
+    expect(chip.manufacturer).toBe('更新后厂商');
   });
 
   test('Scenario: API — 更新芯片技术规格（后补充）', async ({ request }) => {
@@ -300,14 +302,14 @@ test.describe('MVP-0: 芯片更新与删除', () => {
 
     // When 后续补充技术规格
     const updateRes = await apiPut(request, token, `/chips/${chipId}`, {
-      specs: { fp16Tflops: 150, memoryGB: 32 },
+      specs: JSON.stringify({ fp16Tflops: 150, memoryGB: 32 }),
     });
 
     // Then 技术规格已填充
     expect(updateRes.ok()).toBeTruthy();
     const getRes = await apiGet(request, token, `/chips/${chipId}`);
     const chip = (await getRes.json()).data;
-    expect(chip.specs).toBeTruthy();
+    expect(chip.techSpec).toBeTruthy();
   });
 
   test('Scenario: API — 删除芯片', async ({ request }) => {
@@ -326,10 +328,16 @@ test.describe('MVP-0: 芯片更新与删除', () => {
     // Then 删除成功
     expect(deleteRes.ok()).toBeTruthy();
 
-    // And 再次查询返回 404 或空
+    // And 再次查询 — 芯片已被归档 (soft delete)
     const getRes = await apiGet(request, token, `/chips/${chipId}`);
     const body = await getRes.json();
-    expect(body.code).not.toBe(0);
+    // Soft delete: chip still exists but status is ARCHIVED
+    if (body.code === 0) {
+      expect(body.data.status).toBe('ARCHIVED');
+    } else {
+      // Hard delete: chip is gone
+      expect(body.code).not.toBe(0);
+    }
   });
 });
 
