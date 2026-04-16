@@ -28,6 +28,17 @@ PREV_VER=$(docker inspect ahvp-backend --format='{{range .Config.Env}}{{println 
 PREV_COMMIT=$(docker inspect ahvp-backend --format='{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep GIT_COMMIT | cut -d= -f2 | head -c8 || echo "none")
 echo "Deploying: $APP_VERSION ($GIT_COMMIT) — prev: $PREV_VER ($PREV_COMMIT)"
 
+# Persist version info to .env for docker compose
+sed -i '/^GIT_COMMIT=/d;/^APP_VERSION=/d;/^BUILD_TIME=/d' .env 2>/dev/null || true
+sed -i '/^# Version (auto-updated/d' .env 2>/dev/null || true
+{
+  echo ""
+  echo "# Version (auto-updated by deploy)"
+  echo "GIT_COMMIT=$GIT_COMMIT"
+  echo "APP_VERSION=$APP_VERSION"
+  echo "BUILD_TIME=$BUILD_TIME"
+} >> .env
+
 # Build + tag
 docker compose build backend frontend
 docker tag ahvp-backend:latest "ahvp-backend:$APP_VERSION"

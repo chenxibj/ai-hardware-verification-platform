@@ -11,29 +11,10 @@ jobs:
   backend-api-tests:
     name: Backend API Tests
     runs-on: self-hosted
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Build and deploy backend with version info
-        run: |
-          export GIT_COMMIT=$(git rev-parse --short HEAD)
-          export APP_VERSION=$(git describe --tags --always 2>/dev/null || echo "dev-$(git rev-list --count HEAD)-$GIT_COMMIT")
-          export BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          echo "Building: $APP_VERSION ($GIT_COMMIT) at $BUILD_TIME"
-          docker compose build backend
-          docker rm -f ahvp-backend 2>/dev/null || true
-          docker compose up -d backend
-          # Wait for backend to be healthy
-          echo "Waiting for backend..."
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:8080/api/health > /dev/null 2>&1; then
-              echo "Backend ready after ${i}x2 seconds"
-              break
-            fi
-            sleep 2
-          done
 
       - name: Run API integration tests
         run: |
