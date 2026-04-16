@@ -76,6 +76,10 @@ services:
     container_name: ahvp-backend
     environment:
       SPRING_PROFILES_ACTIVE: dev
+      # Version info (runtime override for CI and deploys)
+      GIT_COMMIT: ${GIT_COMMIT:-unknown}
+      APP_VERSION: ${APP_VERSION:-unknown}
+      BUILD_TIME: ${BUILD_TIME:-unknown}
       # #318: Reduce Hibernate SQL noise, surface useful exceptions
       LOGGING_LEVEL_ORG_HIBERNATE_SQL: WARN
       LOGGING_LEVEL_ORG_HIBERNATE_TYPE_DESCRIPTOR_SQL_BASICBINDER: WARN
