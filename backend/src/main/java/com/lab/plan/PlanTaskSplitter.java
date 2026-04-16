@@ -11,8 +11,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
@@ -60,54 +58,8 @@ public class PlanTaskSplitter {
 
     private static final List<String> COMPREHENSIVE_DTYPES = Arrays.asList("FP32", "FP16", "INT8");
 
-    // ============ 维度分类映射 ============
-
-    private static final Map<String, String> DIMENSION_MAP = new LinkedHashMap<>();
-    static {
-        // 计算性能
-        DIMENSION_MAP.put("MatMul", "计算性能");
-        DIMENSION_MAP.put("Conv2D", "计算性能");
-        DIMENSION_MAP.put("GEMM", "计算性能");
-        DIMENSION_MAP.put("Linear", "计算性能");
-
-        // 归一化
-        DIMENSION_MAP.put("Softmax", "归一化");
-        DIMENSION_MAP.put("LayerNorm", "归一化");
-        DIMENSION_MAP.put("BatchNorm", "归一化");
-
-        // 激活函数
-        DIMENSION_MAP.put("ReLU", "激活函数");
-        DIMENSION_MAP.put("GELU", "激活函数");
-        DIMENSION_MAP.put("SiLU", "激活函数");
-        DIMENSION_MAP.put("Sigmoid", "激活函数");
-        DIMENSION_MAP.put("Tanh", "激活函数");
-
-        // 注意力机制
-        DIMENSION_MAP.put("Attention", "注意力机制");
-        DIMENSION_MAP.put("ScaledDotProduct", "注意力机制");
-
-        // 基础运算
-        DIMENSION_MAP.put("Add", "基础运算");
-        DIMENSION_MAP.put("Mul", "基础运算");
-        DIMENSION_MAP.put("Div", "基础运算");
-        DIMENSION_MAP.put("Sub", "基础运算");
-        DIMENSION_MAP.put("Transpose", "基础运算");
-        DIMENSION_MAP.put("Concat", "基础运算");
-        DIMENSION_MAP.put("Exp", "基础运算");
-        DIMENSION_MAP.put("Log", "基础运算");
-        DIMENSION_MAP.put("Sqrt", "基础运算");
-        DIMENSION_MAP.put("Abs", "基础运算");
-        DIMENSION_MAP.put("Neg", "基础运算");
-        DIMENSION_MAP.put("Clamp", "基础运算");
-    }
-
     private static String classifyDimension(String testItem) {
-        if (testItem == null) return "其他";
-        // Check for MLP/model patterns first
-        if (testItem.startsWith("MLP") || testItem.startsWith("ResNet") || testItem.startsWith("BERT")) {
-            return "端到端推理";
-        }
-        return DIMENSION_MAP.getOrDefault(testItem, "其他");
+        return com.lab.dimension.DimensionRegistry.getKeyByOperator(testItem);
     }
 
     // ============ 公开方法 ============
