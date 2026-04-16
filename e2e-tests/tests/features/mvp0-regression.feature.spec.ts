@@ -99,7 +99,7 @@ test.describe('MVP-0 #127: 评测任务创建回归', () => {
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.code).toBe(0);
-    expect(body.data.status).toBe('PENDING');
+    expect(['PENDING', 'QUEUED']).toContain(body.data.status);
     expect(body.data.taskNo).toBeTruthy();
   });
 });

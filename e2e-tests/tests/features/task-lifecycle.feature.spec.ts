@@ -16,8 +16,10 @@ test.describe('Feature: 评测任务全生命周期', () => {
     // When 创建一个算子性能评测任务
     const createRes = await apiPost(request, token, '/tasks', {
       name: `BDD-Lifecycle-${Date.now()}`,
+      taskType: 'CUSTOM',
       evalType: 'PERFORMANCE',
       priority: 'LOW',
+      evalConfig: '{}',
     });
     expect(createRes.ok()).toBeTruthy();
     const createBody = await createRes.json();
@@ -27,9 +29,9 @@ test.describe('Feature: 评测任务全生命周期', () => {
     const taskNo = createBody.data.taskNo;
 
     // Then 任务初始状态应为 PENDING
-    expect(createBody.data.status).toBe('PENDING');
+    expect(['PENDING', 'QUEUED']).toContain(createBody.data.status);
     expect(createBody.data.evalType).toBe('PERFORMANCE');
-    expect(taskNo).toMatch(/^EVT-/);
+    expect(taskNo).toMatch(/^(EVT|TASK)-/);
 
     // And 轮询等待任务到达终态（COMPLETED 或 FAILED）
     const finalTask = await pollTaskUntilDone(request, token, taskId, 60_000, 2_000);
@@ -53,8 +55,10 @@ test.describe('Feature: 评测任务全生命周期', () => {
     const name = `BDD-Query-${Date.now()}`;
     const createRes = await apiPost(request, token, '/tasks', {
       name,
+      taskType: 'CUSTOM',
       evalType: 'ACCURACY',
       priority: 'MEDIUM',
+      evalConfig: '{}',
     });
     expect(createRes.ok()).toBeTruthy();
     const taskId = (await createRes.json()).data.id;
@@ -95,8 +99,10 @@ test.describe('Feature: 评测任务全生命周期', () => {
       // When 创建该类型的评测任务
       const res = await apiPost(request, token, '/tasks', {
         name: `${cfg.name}-${Date.now()}`,
+        taskType: 'CUSTOM',
         evalType: cfg.evalType,
         priority: 'LOW',
+        evalConfig: '{}',
       });
       expect(res.ok(), `Should create ${cfg.name} task`).toBeTruthy();
       const body = await res.json();

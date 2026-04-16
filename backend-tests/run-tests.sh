@@ -111,7 +111,7 @@ echo "--- Tasks ---"
 RESP=$(curl -s -w "\n%{http_code}" -X POST "$API_BASE/tasks" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{\"name\":\"API-Test-$(date +%s)\",\"evalType\":\"PERFORMANCE\",\"priority\":\"LOW\"}")
+  -d "{\"name\":\"API-Test-$(date +%s)\",\"taskType\":\"CUSTOM\",\"evalType\":\"PERFORMANCE\",\"priority\":\"LOW\",\"evalConfig\":\"{}\"}")
 BODY=$(echo "$RESP" | head -n -1)
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "POST /tasks (create)" 200 "$STATUS"
