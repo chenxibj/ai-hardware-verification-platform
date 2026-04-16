@@ -87,3 +87,9 @@ management:
 # Agent 通信 Token
 agent:
   token: ${AGENT_TOKEN:ahvp-agent-secret-2026}
+
+# 版本信息 (#460)
+app:
+  version: ${APP_VERSION:unknown}
+  git-commit: ${GIT_COMMIT:unknown}
+  build-time: ${BUILD_TIME:unknown}

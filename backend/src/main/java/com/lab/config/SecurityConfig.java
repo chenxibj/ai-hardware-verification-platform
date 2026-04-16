@@ -57,6 +57,7 @@ public class SecurityConfig {
                 .requestMatchers("/ws/**").permitAll()  // #229 WebSocket
                 .requestMatchers("/auth/**").permitAll()
                 .requestMatchers("/health/**").permitAll()
+                .requestMatchers("/version").permitAll()  // #460
                 .requestMatchers("/actuator/**").permitAll()
                 .requestMatchers("/error").permitAll()
                 .requestMatchers("/dashboard/**").permitAll()

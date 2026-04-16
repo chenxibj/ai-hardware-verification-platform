@@ -44,7 +44,7 @@ echo "--- Auth ---"
 # Login with valid credentials
 RESP=$(curl -s -w "\n%{http_code}" -X POST "$API_BASE/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"email":"test@ahvp.com","password":"test123"}')
+  -d '{"email":"test@ahvp.com","password":"Test1234"}')
 BODY=$(echo "$RESP" | head -n -1)
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "POST /auth/login (valid)" 200 "$STATUS"
@@ -163,6 +163,23 @@ BODY=$(echo "$RESP" | head -n -1)
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "GET /health" 200 "$STATUS"
 assert_json "Health status UP" "['status']" "UP" "$BODY"
+
+echo ""
+echo "--- Version ---"
+RESP=$(curl -s -w "\n%{http_code}" "$API_BASE/version")
+BODY=$(echo "$RESP" | head -n -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET /version" 200 "$STATUS"
+# Check gitCommit field is not empty
+GIT_COMMIT_VAL=$(echo "$BODY" | python3 -c "import json,sys;print(json.load(sys.stdin)['gitCommit'])" 2>/dev/null || echo "MISSING")
+TOTAL=$((TOTAL+1))
+if [ "$GIT_COMMIT_VAL" != "MISSING" ] && [ "$GIT_COMMIT_VAL" != "unknown" ] && [ -n "$GIT_COMMIT_VAL" ]; then
+  echo "✅ Version has gitCommit ($GIT_COMMIT_VAL)"
+  PASS=$((PASS+1))
+else
+  echo "❌ Version missing gitCommit ($GIT_COMMIT_VAL)"
+  FAIL=$((FAIL+1))
+fi
 
 echo ""
 echo "================================"
