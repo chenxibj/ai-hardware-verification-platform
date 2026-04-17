@@ -109,3 +109,15 @@ VALUES
 ('双机四卡', 'multi-2x4', 2, 4, true, 32, false, 64, 'data_parallel', 'multi', '适用于数据并行分布式训练', true),
 ('四机八卡', 'multi-4x8', 4, 8, true, 64, false, 128, 'model_parallel', 'multi', '适用于模型并行大规模训练', true)
 ON CONFLICT (code) DO NOTHING;
+
+-- ============================================================
+-- #465: Add TRAINING to test_subject constraint
+-- ============================================================
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'evaluation_tasks_test_subject_check') THEN
+    ALTER TABLE evaluation_tasks DROP CONSTRAINT evaluation_tasks_test_subject_check;
+  END IF;
+  ALTER TABLE evaluation_tasks ADD CONSTRAINT evaluation_tasks_test_subject_check
+    CHECK (test_subject::text = ANY (ARRAY['OPERATOR','MODEL','CHIP','LLM','TRAINING']));
+END $$;

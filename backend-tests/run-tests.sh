@@ -724,3 +724,18 @@ echo "╚═══════════════════════�
 if [ $FAIL -gt 0 ]; then
   exit 1
 fi
+
+
+# ============================================================================
+# Run additional test suites
+# ============================================================================
+echo ""
+echo "Running Template -> Task Splitting E2E Tests (#464 #465)"
+echo ""
+SCRIPT_DIR=$(dirname "$0")
+bash "$SCRIPT_DIR/test-template-splitting.sh"
+SPLIT_EXIT=$?
+if [ $SPLIT_EXIT -ne 0 ]; then
+  echo "Template splitting tests FAILED"
+  exit 1
+fi
