@@ -40,11 +40,17 @@ sed -i '/^# Version (auto-updated/d' .env 2>/dev/null || true
 } >> .env
 
 # Build + tag
+# docker compose generates ai-hardware-verification-platform-{backend,frontend}:latest
+# We alias to ahvp-{backend,frontend} for consistency
 docker compose build backend frontend
-docker tag ahvp-backend:latest "ahvp-backend:$APP_VERSION"
-docker tag ahvp-frontend:latest "ahvp-frontend:$APP_VERSION"
-docker tag ahvp-backend:latest "ahvp-backend:$GIT_COMMIT"
-docker tag ahvp-frontend:latest "ahvp-frontend:$GIT_COMMIT"
+COMPOSE_BE="ai-hardware-verification-platform-backend:latest"
+COMPOSE_FE="ai-hardware-verification-platform-frontend:latest"
+docker tag "$COMPOSE_BE" ahvp-backend:latest
+docker tag "$COMPOSE_FE" ahvp-frontend:latest
+docker tag "$COMPOSE_BE" "ahvp-backend:$APP_VERSION"
+docker tag "$COMPOSE_FE" "ahvp-frontend:$APP_VERSION"
+docker tag "$COMPOSE_BE" "ahvp-backend:$GIT_COMMIT"
+docker tag "$COMPOSE_FE" "ahvp-frontend:$GIT_COMMIT"
 
 # Deploy
 docker compose up -d backend frontend
