@@ -52,6 +52,42 @@ const LAYER_ICONS = {
   MODEL: <RocketOutlined />, COMPARISON: <BarChartOutlined />,
 };
 
+/* ── #466: 评测项说明映射 ── */
+const EVAL_ITEM_DESCRIPTIONS = {
+  // 算子说明
+  MatMul: "矩阵乘法运算，评测 GEMM 核心性能，覆盖不同矩阵规模",
+  Conv2D: "二维卷积运算，评测卷积核计算效率，常用于图像处理",
+  Softmax: "归一化指数函数，评测数值稳定性和吞吐量",
+  ReLU: "修正线性单元，评测逐元素激活函数性能",
+  GELU: "高斯误差线性单元，Transformer 常用激活函数",
+  SiLU: "Sigmoid 线性单元(Swish)，现代模型常用激活函数",
+  LayerNorm: "层归一化，评测归一化层计算效率",
+  BatchNorm: "批归一化，评测训练/推理场景下的归一化性能",
+  Attention: "注意力机制，评测 QKV 计算和注意力权重计算效率",
+  ScaledDotProduct: "缩放点积注意力，Flash Attention 等优化实现评测",
+  Add: "逐元素加法，评测基础算术运算带宽",
+  Mul: "逐元素乘法，评测基础算术运算带宽",
+  Div: "逐元素除法", Sub: "逐元素减法", Exp: "指数运算",
+  Log: "对数运算", Sqrt: "平方根运算", Abs: "绝对值运算",
+  Neg: "取负运算", Clamp: "截断运算",
+  Transpose: "矩阵转置，评测内存访问模式和带宽",
+  Gather: "索引聚合操作，评测离散内存访问性能",
+  Embedding: "嵌入层查表操作，NLP 模型核心操作之一",
+  Linear: "全连接层（线性变换），综合评测矩阵运算性能",
+  // 模型说明
+  "MLP-Small": "小型多层感知机，快速验证基础推理能力",
+  "MLP-Medium": "中型多层感知机，标准推理性能基准",
+  "MLP-Large": "大型多层感知机，评测大规模矩阵运算能力",
+  "ResNet-50": "50层残差网络，经典图像分类模型推理评测",
+  "BERT-Base": "BERT基础模型，NLP 推理性能评测",
+  "GPT2-Small": "GPT-2 小型模型，文本生成推理评测",
+  "Transformer-Base": "标准 Transformer 模型推理评测",
+  "DistilBERT": "蒸馏BERT模型，轻量NLP推理评测",
+  // 训练说明
+  "MLP-Small-Train": "MLP 小型模型训练，验证基础训练流程和梯度计算",
+  "ResNet-50-Finetune": "ResNet-50 微调训练，评测 CNN 训练吞吐量和显存占用",
+};
+
 const EVAL_TYPE_LABELS = {
   PERFORMANCE: "性能评测", ACCURACY: "精度评测",
   COMPATIBILITY: "兼容性评测", STABILITY: "稳定性评测", GENERAL: "通用评测",
@@ -103,6 +139,13 @@ const buildEvalItemTree = (template) => {
       children: config.data_types.map(d => ({ title: d, key: `dtype-${d}-${keyIdx++}`, isLeaf: true })),
     });
   }
+  if (config.training && config.training.length > 0) {
+    items.push({
+      title: `训练评测 (${config.training.length}项)`, key: `training-root-${keyIdx++}`,
+      icon: <ExperimentOutlined />,
+      children: config.training.map(tr => ({ title: tr, key: `training-${tr}-${keyIdx++}`, isLeaf: true })),
+    });
+  }
   if (config.benchmarks && config.benchmarks.length > 0) {
     items.push({
       title: `基准测试 (${config.benchmarks.length}项)`, key: `bench-root-${keyIdx++}`,
@@ -128,6 +171,7 @@ const countEvalItems = (template) => {
   let count = 0;
   if (config.operators) count += config.operators.length;
   if (config.models) count += config.models.length;
+  if (config.training) count += config.training.length;
   if (config.data_types) count += config.data_types.length;
   if (config.benchmarks) count += config.benchmarks.length;
   return count || 10;
@@ -484,7 +528,7 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
     const config = parseConfig(t.configJson);
     const isSelected = selectedTemplateId === t.id;
     const layer = t.evaluationLayer;
-    const itemCount = config.itemCount || (config.operators?.length || 0) + (config.models?.length || 0);
+    const itemCount = config.itemCount || (config.operators?.length || 0) + (config.models?.length || 0) + (config.training?.length || 0);
     const showingScripts = scriptPreviewId === t.id;
     return (
       <Col xs={24} sm={12} md={8} key={t.id}>
@@ -507,30 +551,74 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
               <Tag color="blue">{EVAL_TYPE_LABELS[t.evalType] || t.evalType}</Tag>
               {itemCount > 0 && <Tag color="cyan">{itemCount} 评测项</Tag>}
             </Space>
-            <Button size="small" type="link" icon={<CodeOutlined />}
+            <Button size="small" type="link" icon={<EyeOutlined />}
               onClick={(e) => { e.stopPropagation(); fetchScriptPreview(t.id); }}
               style={{ padding: 0, height: "auto", fontSize: 12 }}>
-              {showingScripts ? "收起脚本" : "预览评测脚本"}
+              {showingScripts ? "收起评测项" : "查看评测项"}
             </Button>
           </Space>
         </Card>
         {showingScripts && (
-          <Card size="small" style={{ marginTop: 4, maxHeight: 300, overflow: "auto" }}>
+          <Card size="small" style={{ marginTop: 4, maxHeight: 400, overflow: "auto" }}>
             <Spin spinning={scriptPreviewLoading}>
-              {scriptPreviewData.length === 0 ? <Empty description="暂无脚本" image={Empty.PRESENTED_IMAGE_SIMPLE} /> :
-                scriptPreviewData.map((s, i) => (
-                  <div key={i} style={{ marginBottom: 8 }}>
-                    <Space style={{ marginBottom: 4 }}>
-                      <CodeOutlined /><Text strong style={{ fontSize: 12 }}>{s.name}</Text>
-                      <Tag color="blue" style={{ fontSize: 10 }}>{s.filename}</Tag>
-                    </Space>
-                    <SyntaxHighlighter language="python" style={oneDark}
-                      showLineNumbers customStyle={{ maxHeight: 200, fontSize: 11, borderRadius: 6 }}>
-                      {(s.content || "").slice(0, 2000) + (s.content?.length > 2000 ? "\n# ... 更多内容请在模板详情页查看" : "")}
-                    </SyntaxHighlighter>
+              {(() => {
+                const tplConfig = parseConfig(t.configJson);
+                const hasItems = (tplConfig.operators?.length || 0) + (tplConfig.models?.length || 0) + (tplConfig.training?.length || 0) > 0;
+                if (!hasItems) return <Empty description="暂无评测项" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
+                return (
+                  <div>
+                    {tplConfig.operators?.length > 0 && (
+                      <div style={{ marginBottom: 12 }}>
+                        <Space style={{ marginBottom: 6 }}><AppstoreOutlined style={{ color: "#1890ff" }} /><Text strong style={{ fontSize: 13 }}>算子评测 ({tplConfig.operators.length}项)</Text></Space>
+                        {tplConfig.operators.map(op => (
+                          <div key={op} style={{ padding: "4px 0 4px 24px", borderBottom: "1px solid #f5f5f5" }}>
+                            <Space><Tag color="blue" style={{ fontSize: 11, margin: 0 }}>{op}</Tag><Text type="secondary" style={{ fontSize: 12 }}>{EVAL_ITEM_DESCRIPTIONS[op] || "评测该算子的计算性能和精度"}</Text></Space>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {tplConfig.models?.length > 0 && (
+                      <div style={{ marginBottom: 12 }}>
+                        <Space style={{ marginBottom: 6 }}><RocketOutlined style={{ color: "#52c41a" }} /><Text strong style={{ fontSize: 13 }}>模型评测 ({tplConfig.models.length}项)</Text></Space>
+                        {tplConfig.models.map(m => (
+                          <div key={m} style={{ padding: "4px 0 4px 24px", borderBottom: "1px solid #f5f5f5" }}>
+                            <Space><Tag color="green" style={{ fontSize: 11, margin: 0 }}>{m}</Tag><Text type="secondary" style={{ fontSize: 12 }}>{EVAL_ITEM_DESCRIPTIONS[m] || "评测该模型的推理性能"}</Text></Space>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {tplConfig.training?.length > 0 && (
+                      <div style={{ marginBottom: 12 }}>
+                        <Space style={{ marginBottom: 6 }}><ExperimentOutlined style={{ color: "#722ed1" }} /><Text strong style={{ fontSize: 13 }}>训练评测 ({tplConfig.training.length}项)</Text></Space>
+                        {tplConfig.training.map(tr => (
+                          <div key={tr} style={{ padding: "4px 0 4px 24px", borderBottom: "1px solid #f5f5f5" }}>
+                            <Space><Tag color="purple" style={{ fontSize: 11, margin: 0 }}>{tr}</Tag><Text type="secondary" style={{ fontSize: 12 }}>{EVAL_ITEM_DESCRIPTIONS[tr] || "评测该训练任务的吞吐量和收敛性"}</Text></Space>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* #466: 折叠区域 - 查看原始脚本 */}
+                    <Collapse ghost size="small" style={{ marginTop: 8 }}>
+                      <Panel header={<Text type="secondary" style={{ fontSize: 11 }}><CodeOutlined /> 查看原始评测脚本</Text>} key="raw-scripts">
+                        {scriptPreviewData.length === 0 ? <Text type="secondary" style={{ fontSize: 12 }}>暂无脚本</Text> :
+                          scriptPreviewData.map((s, si) => (
+                            <div key={si} style={{ marginBottom: 8 }}>
+                              <Space style={{ marginBottom: 4 }}>
+                                <CodeOutlined /><Text strong style={{ fontSize: 12 }}>{s.name}</Text>
+                                <Tag color="blue" style={{ fontSize: 10 }}>{s.filename}</Tag>
+                              </Space>
+                              <SyntaxHighlighter language="python" style={oneDark}
+                                showLineNumbers customStyle={{ maxHeight: 200, fontSize: 11, borderRadius: 6 }}>
+                                {(s.content || "").slice(0, 2000) + (s.content?.length > 2000 ? "\n# ... 更多内容请在模板详情页查看" : "")}
+                              </SyntaxHighlighter>
+                            </div>
+                          ))
+                        }
+                      </Panel>
+                    </Collapse>
                   </div>
-                ))
-              }
+                );
+              })()}
             </Spin>
           </Card>
         )}
@@ -619,6 +707,11 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
                 {parseConfig(selectedTemplate.configJson).models && (
                   <div style={{ marginTop: 8 }}><Text type="secondary" style={{ fontSize: 12 }}>模型: </Text>
                     {parseConfig(selectedTemplate.configJson).models.map(m => <Tag key={m} color="green" style={{ marginBottom: 4, fontSize: 11 }}>{m}</Tag>)}
+                  </div>
+                )}
+                {parseConfig(selectedTemplate.configJson).training && (
+                  <div style={{ marginTop: 8 }}><Text type="secondary" style={{ fontSize: 12 }}>训练: </Text>
+                    {parseConfig(selectedTemplate.configJson).training.map(tr => <Tag key={tr} color="purple" style={{ marginBottom: 4, fontSize: 11 }}>{tr}</Tag>)}
                   </div>
                 )}
                 {customItems.length > 0 && (
