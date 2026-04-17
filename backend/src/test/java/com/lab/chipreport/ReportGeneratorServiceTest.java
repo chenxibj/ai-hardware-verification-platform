@@ -297,4 +297,183 @@ class ReportGeneratorServiceTest {
         // These methods don't use any injected dependencies, so pass nulls
         return new ReportGeneratorService(null, null, null, null, null, null, new ObjectMapper(), null, null);
     }
+
+    // ── #470: Score-100 operators should NOT be labeled "低性能算子" ──
+
+    @Test
+    @DisplayName("#470: all operators score=100 → no worst_operator in bottleneck")
+    void buildBottleneckAnalysis_allScore100_noWorstOperator() throws Exception {
+        Map<String, Double> dimScores = Map.of("compute", 100.0, "memory", 100.0);
+        List<Map<String, Object>> operatorRanking = new ArrayList<>();
+
+        for (String name : List.of("MatMul", "Conv2D", "Softmax")) {
+            Map<String, Object> op = new LinkedHashMap<>();
+            op.put("name", name);
+            op.put("testItem", name);
+            op.put("score", 100.0);
+            op.put("avgLatency", 0.5);
+            op.put("throughput", 1000.0);
+            op.put("dataStatus", "VALID");
+            operatorRanking.add(op);
+        }
+
+        List<Map<String, Object>> analysis = invokeBuildBottleneckAnalysis(dimScores, operatorRanking);
+
+        long worstOpCount = analysis.stream()
+                .filter(a -> "worst_operator".equals(a.get("type")))
+                .count();
+        assertEquals(0, worstOpCount,
+                "Operators with score=100 should NOT appear as worst_operator bottlenecks");
+    }
+
+    @Test
+    @DisplayName("#470: operator score=40 → labeled 低性能算子 with level=error")
+    void buildBottleneckAnalysis_score40_lowPerformanceError() throws Exception {
+        Map<String, Double> dimScores = Map.of("compute", 50.0);
+        List<Map<String, Object>> operatorRanking = new ArrayList<>();
+
+        Map<String, Object> op = new LinkedHashMap<>();
+        op.put("name", "SlowOp");
+        op.put("testItem", "SlowOp");
+        op.put("score", 40.0);
+        op.put("avgLatency", 10.0);
+        op.put("throughput", 50.0);
+        op.put("dataStatus", "VALID");
+        operatorRanking.add(op);
+
+        List<Map<String, Object>> analysis = invokeBuildBottleneckAnalysis(dimScores, operatorRanking);
+
+        List<Map<String, Object>> worstOps = analysis.stream()
+                .filter(a -> "worst_operator".equals(a.get("type")))
+                .toList();
+        assertEquals(1, worstOps.size(), "Should have 1 worst_operator entry for score=40");
+
+        Map<String, Object> entry = worstOps.get(0);
+        assertTrue(((String) entry.get("title")).contains("低性能算子"),
+                "Score<70 should be labeled as 低性能算子");
+        assertEquals("error", entry.get("level"),
+                "Score<50 should have level=error");
+    }
+
+    @Test
+    @DisplayName("#470: operator score=65 → labeled 低性能算子 with level=warning")
+    void buildBottleneckAnalysis_score65_lowPerformanceWarning() throws Exception {
+        Map<String, Double> dimScores = Map.of("compute", 65.0);
+        List<Map<String, Object>> operatorRanking = new ArrayList<>();
+
+        Map<String, Object> op = new LinkedHashMap<>();
+        op.put("name", "MedOp");
+        op.put("testItem", "MedOp");
+        op.put("score", 65.0);
+        op.put("avgLatency", 5.0);
+        op.put("throughput", 100.0);
+        op.put("dataStatus", "VALID");
+        operatorRanking.add(op);
+
+        List<Map<String, Object>> analysis = invokeBuildBottleneckAnalysis(dimScores, operatorRanking);
+
+        List<Map<String, Object>> worstOps = analysis.stream()
+                .filter(a -> "worst_operator".equals(a.get("type")))
+                .toList();
+        assertEquals(1, worstOps.size(), "Should have 1 worst_operator entry for score=65");
+
+        Map<String, Object> entry = worstOps.get(0);
+        assertTrue(((String) entry.get("title")).contains("低性能算子"),
+                "Score 50-70 should be labeled as 低性能算子");
+        assertEquals("warning", entry.get("level"),
+                "Score 50-70 should have level=warning");
+    }
+
+    @Test
+    @DisplayName("#470: operator score=75 → labeled 中等性能算子 with level=info")
+    void buildBottleneckAnalysis_score75_mediumPerformanceInfo() throws Exception {
+        Map<String, Double> dimScores = Map.of("compute", 75.0);
+        List<Map<String, Object>> operatorRanking = new ArrayList<>();
+
+        Map<String, Object> op = new LinkedHashMap<>();
+        op.put("name", "OkOp");
+        op.put("testItem", "OkOp");
+        op.put("score", 75.0);
+        op.put("avgLatency", 3.0);
+        op.put("throughput", 150.0);
+        op.put("dataStatus", "VALID");
+        operatorRanking.add(op);
+
+        List<Map<String, Object>> analysis = invokeBuildBottleneckAnalysis(dimScores, operatorRanking);
+
+        List<Map<String, Object>> worstOps = analysis.stream()
+                .filter(a -> "worst_operator".equals(a.get("type")))
+                .toList();
+        assertEquals(1, worstOps.size(), "Score 70-85 should still appear as worst_operator");
+
+        Map<String, Object> entry = worstOps.get(0);
+        assertTrue(((String) entry.get("title")).contains("中等性能算子"),
+                "Score 70-85 should be labeled as 中等性能算子");
+        assertEquals("info", entry.get("level"),
+                "Score 70-85 should have level=info");
+    }
+
+    @Test
+    @DisplayName("#470: operator score=90 → not in bottleneck analysis at all")
+    void buildBottleneckAnalysis_score90_notInBottleneck() throws Exception {
+        Map<String, Double> dimScores = Map.of("compute", 90.0);
+        List<Map<String, Object>> operatorRanking = new ArrayList<>();
+
+        Map<String, Object> op = new LinkedHashMap<>();
+        op.put("name", "FastOp");
+        op.put("testItem", "FastOp");
+        op.put("score", 90.0);
+        op.put("avgLatency", 1.0);
+        op.put("throughput", 500.0);
+        op.put("dataStatus", "VALID");
+        operatorRanking.add(op);
+
+        List<Map<String, Object>> analysis = invokeBuildBottleneckAnalysis(dimScores, operatorRanking);
+
+        long worstOpCount = analysis.stream()
+                .filter(a -> "worst_operator".equals(a.get("type")))
+                .count();
+        assertEquals(0, worstOpCount,
+                "Operators with score>=85 should NOT appear in bottleneck analysis");
+    }
+
+    @Test
+    @DisplayName("#470: mixed scores → only sub-85 operators appear as bottlenecks")
+    void buildBottleneckAnalysis_mixedScores_onlySub85InBottleneck() throws Exception {
+        Map<String, Double> dimScores = Map.of("compute", 70.0);
+        List<Map<String, Object>> operatorRanking = new ArrayList<>();
+
+        // score=95 should NOT appear
+        Map<String, Object> op1 = new LinkedHashMap<>();
+        op1.put("name", "Fast"); op1.put("testItem", "Fast");
+        op1.put("score", 95.0); op1.put("avgLatency", 0.5);
+        op1.put("throughput", 1000.0); op1.put("dataStatus", "VALID");
+        operatorRanking.add(op1);
+
+        // score=60 should appear as 低性能
+        Map<String, Object> op2 = new LinkedHashMap<>();
+        op2.put("name", "Slow"); op2.put("testItem", "Slow");
+        op2.put("score", 60.0); op2.put("avgLatency", 8.0);
+        op2.put("throughput", 60.0); op2.put("dataStatus", "VALID");
+        operatorRanking.add(op2);
+
+        // score=80 should appear as 中等性能
+        Map<String, Object> op3 = new LinkedHashMap<>();
+        op3.put("name", "Medium"); op3.put("testItem", "Medium");
+        op3.put("score", 80.0); op3.put("avgLatency", 3.0);
+        op3.put("throughput", 200.0); op3.put("dataStatus", "VALID");
+        operatorRanking.add(op3);
+
+        List<Map<String, Object>> analysis = invokeBuildBottleneckAnalysis(dimScores, operatorRanking);
+
+        List<Map<String, Object>> worstOps = analysis.stream()
+                .filter(a -> "worst_operator".equals(a.get("type")))
+                .toList();
+        assertEquals(2, worstOps.size(), "Only score<85 operators should be in bottleneck");
+
+        // Verify "Fast" (95) is NOT present
+        boolean hasFast = worstOps.stream()
+                .anyMatch(a -> "Fast".equals(a.get("operator")));
+        assertFalse(hasFast, "Score=95 operator should not be in bottleneck");
+    }
 }

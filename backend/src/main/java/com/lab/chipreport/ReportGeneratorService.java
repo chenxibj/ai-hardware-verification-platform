@@ -352,9 +352,11 @@ public class ReportGeneratorService {
             Map<String, Double> dimScores, List<Map<String, Object>> operatorRanking) {
         List<Map<String, Object>> analysis = new ArrayList<>();
 
-        // 1. 性能最差的 3 个算子 (only consider VALID entries)
+        // 1. 性能最差的算子 (only consider VALID entries, skip high-score operators)
+        // #470: Only include operators with score < 85 in bottleneck analysis
         List<Map<String, Object>> sorted = operatorRanking.stream()
                 .filter(op -> "VALID".equals(op.get("dataStatus")))
+                .filter(op -> toDouble(op.get("score")) < 85.0)  // #470: skip high-performance operators
                 .sorted((a, b) -> Double.compare(toDouble(a.get("score")), toDouble(b.get("score"))))
                 .collect(Collectors.toList());
         int worstCount = Math.min(3, sorted.size());
@@ -362,14 +364,23 @@ public class ReportGeneratorService {
             Map<String, Object> op = sorted.get(i);
             double score = toDouble(op.get("score"));
             String level;
-            if (score < 50) level = "error";
-            else if (score < 70) level = "warning";
-            else level = "info";
+            String label;
+            if (score < 50) {
+                level = "error";
+                label = "低性能算子";
+            } else if (score < 70) {
+                level = "warning";
+                label = "低性能算子";
+            } else {
+                // score 70-84: medium performance
+                level = "info";
+                label = "中等性能算子";
+            }
 
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("type", "worst_operator");
             item.put("level", level);
-            item.put("title", "低性能算子: " + op.getOrDefault("name", op.getOrDefault("testItem", "Unknown")));
+            item.put("title", label + ": " + op.getOrDefault("name", op.getOrDefault("testItem", "Unknown")));
             item.put("detail", String.format("评分 %.1f，延迟 %.2fms，吞吐 %.1f ops/s",
                     score,
                     toDouble(op.getOrDefault("avgLatency", op.getOrDefault("latencyMean", 0))),
