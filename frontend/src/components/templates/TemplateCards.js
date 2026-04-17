@@ -8,7 +8,7 @@
  */
 import React from "react";
 import { Row, Col, Card, Space, Tag, Tooltip, Typography } from "antd";
-import { EyeOutlined, CopyOutlined, AppstoreOutlined } from "@ant-design/icons";
+import { EyeOutlined, CopyOutlined, AppstoreOutlined, ExperimentOutlined } from "@ant-design/icons";
 import {
   EVAL_TYPES, EVAL_DIMENSIONS, DIMENSION_ICONS, parseConfig,
 } from "./templateConstants";
@@ -49,6 +49,7 @@ export default function TemplateCards({ templates, onView, onClone }) {
                       {dim && <Tag>{EVAL_DIMENSIONS[dim] || dim}</Tag>}
                       {config.operators && <Tag color="cyan">{config.operators.length} 算子</Tag>}
                       {config.models && <Tag color="green">{config.models.length} 模型</Tag>}
+                      {config.training && config.training.length > 0 && <Tag color="purple">{config.training.length} 训练</Tag>}
                       {config.priority && (
                         <Tag>{config.priority === "LOW" ? "低优先级" : config.priority === "HIGH" ? "高优先级" : "中优先级"}</Tag>
                       )}

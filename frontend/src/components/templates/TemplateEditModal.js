@@ -58,6 +58,17 @@ export default function TemplateEditModal({
                 <Descriptions.Item label="评测类型"><Tag color="blue">{EVAL_TYPES[selected.evalType] || selected.evalType}</Tag></Descriptions.Item>
                 <Descriptions.Item label="评测维度"><Tag>{EVAL_DIMENSIONS[config.evalDimension] || config.evalDimension || "-"}</Tag></Descriptions.Item>
                 <Descriptions.Item label="描述" span={2}>{selected.description || "-"}</Descriptions.Item>
+                <Descriptions.Item label="评测项数">
+                  {(() => {
+                    const total = (config.operators?.length || 0) + (config.models?.length || 0) + (config.training?.length || 0);
+                    if (total === 0) return "-";
+                    const parts = [];
+                    if (config.operators?.length) parts.push(`${config.operators.length} 算子`);
+                    if (config.models?.length) parts.push(`${config.models.length} 模型`);
+                    if (config.training?.length) parts.push(`${config.training.length} 训练`);
+                    return <span><Text strong style={{ color: "#1890ff" }}>{total}</Text> ({parts.join(" + ")})</span>;
+                  })()}
+                </Descriptions.Item>
                 <Descriptions.Item label="创建时间">{selected.createdAt ? dayjs(selected.createdAt).format("YYYY-MM-DD HH:mm:ss") : "-"}</Descriptions.Item>
                 <Descriptions.Item label="更新时间">{selected.updatedAt ? dayjs(selected.updatedAt).format("YYYY-MM-DD HH:mm:ss") : "-"}</Descriptions.Item>
               </Descriptions>

@@ -51,11 +51,22 @@ export default function TemplateTable({
     },
     { title: "描述", dataIndex: "description", ellipsis: true },
     {
-      title: "配置预览", key: "config", width: 200,
+      title: "评测项数", key: "evalItemCount", width: 100, align: "center",
       render: (_, r) => {
         const config = parseConfig(r.configJson);
-        if (config.operators) return <Text type="secondary" style={{ fontSize: 12 }}>{config.operators.length} 个算子 · {config.iterations || 0} 次迭代</Text>;
-        if (config.models) return <Text type="secondary" style={{ fontSize: 12 }}>{config.models.length} 个模型 · batch {(config.batch_sizes || []).join("/")}</Text>;
+        const total = (config.operators?.length || 0) + (config.models?.length || 0) + (config.training?.length || 0);
+        return total > 0 ? <Text strong style={{ fontSize: 14, color: "#1890ff" }}>{total}</Text> : <Text type="secondary">-</Text>;
+      },
+    },
+    {
+      title: "配置预览", key: "config", width: 220,
+      render: (_, r) => {
+        const config = parseConfig(r.configJson);
+        const parts = [];
+        if (config.operators?.length) parts.push(`${config.operators.length} 算子`);
+        if (config.models?.length) parts.push(`${config.models.length} 模型`);
+        if (config.training?.length) parts.push(`${config.training.length} 训练`);
+        if (parts.length > 0) return <Text type="secondary" style={{ fontSize: 12 }}>{parts.join(" · ")}</Text>;
         return <Text type="secondary" style={{ fontSize: 12 }}>-</Text>;
       },
     },
