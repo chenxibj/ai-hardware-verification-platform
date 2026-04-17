@@ -453,7 +453,7 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
     if (current === 0) return selectedChipId !== null;
     if (current === 1) return selectedTemplateId !== null;
     if (current === 2) return true;
-    if (current === 3) return true; // 运行规格必选
+    if (current === 3) return selectedRunSpecId !== null; // 运行规格必选
     if (current === 4) return true; // 资源池可选
     if (current === 5) return selectedPreset !== null;
     if (current === 6) return true; // 关联资产可选
