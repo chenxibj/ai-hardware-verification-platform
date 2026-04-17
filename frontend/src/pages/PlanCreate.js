@@ -236,6 +236,7 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [createdPlanId, setCreatedPlanId] = useState(null);
+  const [createdPlanNo, setCreatedPlanNo] = useState(null);
 
   /* ── 获取芯片列表 ── */
   const fetchChips = useCallback(async () => {
@@ -428,6 +429,7 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
         message.success(runNow ? "任务已创建并启动执行" : "任务已保存为草稿");
         if (selectedAssetIds.length > 0 && resp.data?.id) savePlanAssets(resp.data.id, selectedAssetIds);
         setCreatedPlanId(resp.data?.id || resp.data);
+        setCreatedPlanNo(resp.data?.planNo || null);
         setSubmitted(true);
       } else { message.error(resp.message || "创建失败"); }
     } catch (e) { message.error("创建失败: " + (e.response?.data?.message || e.message)); }
@@ -464,17 +466,17 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
       <Card>
         <Result
           status="success" title="评测任务创建成功！"
-          subTitle={createdPlanId ? `任务编号: ${createdPlanId}` : `任务名称：${generateName()}`}
+          subTitle={createdPlanNo ? `任务编号: ${createdPlanNo}` : (createdPlanId ? `任务ID: ${createdPlanId}` : `任务名称：${generateName()}`)}
           extra={[
             <Button type="primary" key="monitor" onClick={() => {
-              if (onOpenMonitor && createdPlanId) onOpenMonitor(createdPlanId);
+              if (createdPlanId) navigate(`/plans/${createdPlanId}`);
               else navigate("/plans");
             }}>查看监控</Button>,
             <Button key="list" onClick={() => { if (onBack) onBack(); else navigate("/plans"); }}>返回列表</Button>,
             <Button key="create" onClick={() => {
               setCurrent(0); setSelectedChipId(null); setSelectedTemplateId(null);
               setSelectedPreset("STANDARD"); setSelectedNodeIds([]); setSubmitted(false);
-              setCreatedPlanId(null); setSelectedRunSpecId(null); setSelectedPoolId(null);
+              setCreatedPlanId(null); setCreatedPlanNo(null); setSelectedRunSpecId(null); setSelectedPoolId(null);
             }}>继续创建</Button>,
           ]}
         />
