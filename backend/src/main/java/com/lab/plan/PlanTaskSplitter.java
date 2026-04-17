@@ -3,6 +3,8 @@ package com.lab.plan;
 import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
 import com.lab.runspec.RunSpecRepository;
+import com.lab.template.TaskTemplate;
+import com.lab.template.TaskTemplateRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -17,6 +19,8 @@ import java.util.stream.Collectors;
 /**
  * 评测任务→任务自动拆分服务
  * 根据评测任务的预设方案（QUICK/STANDARD/FULL），自动拆分为评测任务
+ * #464: 支持模板驱动拆分 — 从模板 configJson 读取 operators/models/training
+ * #465: 支持 TRAINING 任务拆分
  */
 @Slf4j
 @Service
@@ -25,6 +29,7 @@ public class PlanTaskSplitter {
 
     private final EvaluationTaskRepository taskRepository;
     private final RunSpecRepository runSpecRepository;
+    private final TaskTemplateRepository taskTemplateRepository;
 
     private static final AtomicLong TASK_SEQ = new AtomicLong(System.currentTimeMillis());
 
@@ -70,6 +75,31 @@ public class PlanTaskSplitter {
 
         List<EvaluationTask> tasks = new ArrayList<>();
 
+        // #464: Template-driven splitting — if evalConfig has templateId and the template
+        // configJson has explicit operators/models/training, use those instead of preset
+        Long templateId = extractTemplateId(plan.getEvalConfig());
+        if (templateId != null) {
+            try {
+                var templateOpt = taskTemplateRepository.findById(templateId);
+                if (templateOpt.isPresent()) {
+                    TaskTemplate template = templateOpt.get();
+                    String configJson = template.getConfigJson();
+                    if (configJson != null && !configJson.isBlank()) {
+                        List<EvaluationTask> templateTasks = createTemplateBasedTasks(plan, configJson);
+                        if (!templateTasks.isEmpty()) {
+                            log.info("#464: Template-driven splitting for plan {} (templateId={}), {} tasks",
+                                     plan.getPlanNo(), templateId, templateTasks.size());
+                            tasks.addAll(templateTasks);
+                            return applySelectedItemsFilterAndSave(plan, tasks);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("#464: Template-driven splitting failed for plan {}, falling back to preset: {}",
+                         plan.getPlanNo(), e.getMessage());
+            }
+        }
+
         switch (preset) {
             case "QUICK":
                 tasks.addAll(createQuickTasks(plan));
@@ -84,12 +114,115 @@ public class PlanTaskSplitter {
                 tasks.addAll(createComprehensiveTasks(plan));
                 break;
             default:
-                log.warn("Unknown preset \'{}\' for plan {}, defaulting to STANDARD", preset, plan.getPlanNo());
+                log.warn("Unknown preset '{}' for plan {}, defaulting to STANDARD", preset, plan.getPlanNo());
                 tasks.addAll(createStandardTasks(plan));
                 break;
         }
 
-        // #412: Filter tasks by selectedItems from evalConfig
+        return applySelectedItemsFilterAndSave(plan, tasks);
+    }
+
+    // ============ #464: 模板驱动拆分 ============
+
+    /**
+     * Create tasks based on template configJson content.
+     * Reads operators, models, and training arrays from configJson.
+     */
+    private List<EvaluationTask> createTemplateBasedTasks(EvaluationPlan plan, String configJson) {
+        List<EvaluationTask> tasks = new ArrayList<>();
+
+        List<String> operators = extractStringArray(configJson, "operators");
+        List<String> models = extractStringArray(configJson, "models");
+        List<String> training = extractStringArray(configJson, "training");
+
+        // Only use template-driven if at least one list is non-empty
+        if (operators.isEmpty() && models.isEmpty() && training.isEmpty()) {
+            return tasks;
+        }
+
+        // Create OPERATOR tasks
+        for (String op : operators) {
+            String config = String.format("{\"dtype\":\"FP32\",\"shape\":\"Medium\",\"operator\":\"%s\"}", op);
+            tasks.add(createTask(plan, EvaluationTask.TestSubject.OPERATOR, op, config));
+        }
+
+        // Create MODEL tasks
+        for (String model : models) {
+            String config = String.format("{\"model\":\"%s\",\"batchSize\":1}", model);
+            tasks.add(createTask(plan, EvaluationTask.TestSubject.MODEL, model, config));
+        }
+
+        // #465: Create TRAINING tasks
+        for (String item : training) {
+            String config = String.format("{\"training\":\"%s\",\"mode\":\"train\"}", item);
+            tasks.add(createTask(plan, EvaluationTask.TestSubject.TRAINING, item, config));
+        }
+
+        log.info("#464: Template-based tasks: {} operators, {} models, {} training",
+                 operators.size(), models.size(), training.size());
+        return tasks;
+    }
+
+    /**
+     * Extract templateId from evalConfig JSON string.
+     */
+    private Long extractTemplateId(String evalConfig) {
+        if (evalConfig == null || evalConfig.isBlank()) return null;
+        // Look for "templateId":123 or "templateId":"123"
+        int idx = evalConfig.indexOf("\"templateId\"");
+        if (idx < 0) return null;
+        int colonIdx = evalConfig.indexOf(':', idx);
+        if (colonIdx < 0) return null;
+        // Skip whitespace and optional quotes
+        int pos = colonIdx + 1;
+        while (pos < evalConfig.length() && (evalConfig.charAt(pos) == ' ' || evalConfig.charAt(pos) == '"')) pos++;
+        StringBuilder numBuf = new StringBuilder();
+        while (pos < evalConfig.length() && Character.isDigit(evalConfig.charAt(pos))) {
+            numBuf.append(evalConfig.charAt(pos));
+            pos++;
+        }
+        if (numBuf.length() == 0) return null;
+        try {
+            return Long.parseLong(numBuf.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Extract a JSON string array from a JSON object string.
+     * E.g., from {"operators": ["MatMul", "Conv2D"]} extracts ["MatMul", "Conv2D"]
+     */
+    private List<String> extractStringArray(String json, String fieldName) {
+        List<String> result = new ArrayList<>();
+        if (json == null) return result;
+        String key = "\"" + fieldName + "\"";
+        int idx = json.indexOf(key);
+        if (idx < 0) return result;
+        int bracketStart = json.indexOf('[', idx);
+        if (bracketStart < 0) return result;
+        int bracketEnd = json.indexOf(']', bracketStart);
+        if (bracketEnd < 0) return result;
+        String arrayStr = json.substring(bracketStart + 1, bracketEnd);
+        if (arrayStr.isBlank()) return result;
+        int pos = 0;
+        while (pos < arrayStr.length()) {
+            int q1 = arrayStr.indexOf('"', pos);
+            if (q1 < 0) break;
+            int q2 = arrayStr.indexOf('"', q1 + 1);
+            if (q2 < 0) break;
+            result.add(arrayStr.substring(q1 + 1, q2));
+            pos = q2 + 1;
+        }
+        return result;
+    }
+
+    // ============ selectedItems 过滤 + 保存 ============
+
+    /**
+     * #412/#464: Apply selectedItems filter and save tasks
+     */
+    private List<EvaluationTask> applySelectedItemsFilterAndSave(EvaluationPlan plan, List<EvaluationTask> tasks) {
         List<String> selectedItems = extractSelectedItems(plan.getEvalConfig());
         if (selectedItems != null && !selectedItems.isEmpty()) {
             int beforeCount = tasks.size();
@@ -97,6 +230,7 @@ public class PlanTaskSplitter {
             // Check for "root" items — these mean "select ALL items of that category"
             boolean hasOpRoot = selectedItems.stream().anyMatch(si -> si.startsWith("op-root-"));
             boolean hasModelRoot = selectedItems.stream().anyMatch(si -> si.startsWith("model-root-"));
+            boolean hasTrainingRoot = selectedItems.stream().anyMatch(si -> si.startsWith("training-root-"));
 
             tasks = tasks.stream()
                 .filter(t -> {
@@ -104,15 +238,17 @@ public class PlanTaskSplitter {
                     String subject = t.getTestSubject().name().toLowerCase();
                     boolean isOperator = subject.equals("operator");
                     boolean isModel = subject.equals("model");
+                    boolean isTraining = subject.equals("training");
 
                     // If root item exists for this category, keep all tasks of that category
                     if (isOperator && hasOpRoot) return true;
                     if (isModel && hasModelRoot) return true;
+                    if (isTraining && hasTrainingRoot) return true;
 
                     return selectedItems.stream().anyMatch(si -> {
                         int firstDash = si.indexOf('-');
                         if (firstDash < 0) return false;
-                        String prefix = si.substring(0, firstDash); // "op" or "model"
+                        String prefix = si.substring(0, firstDash);
                         // Skip root items in per-item matching
                         if (si.contains("-root-")) return false;
 
@@ -122,7 +258,8 @@ public class PlanTaskSplitter {
                         String itemName = si.substring(firstDash + 1, lastDash);
 
                         boolean prefixMatch = (prefix.equals("op") && isOperator)
-                            || (prefix.equals("model") && isModel);
+                            || (prefix.equals("model") && isModel)
+                            || (prefix.equals("training") && isTraining);
 
                         // testItem may have suffix like "MLP-Medium/batch=4", match base name
                         String baseTestItem = testItem.contains("/") ? testItem.substring(0, testItem.indexOf('/')) : testItem;
@@ -345,9 +482,16 @@ public class PlanTaskSplitter {
         task.setName(subject.name() + " - " + nameDetail);
         task.setTaskNo(generateTaskNo());
         task.setTaskType(EvaluationTask.TaskType.TEMPLATE);
-        task.setEvalType(subject == EvaluationTask.TestSubject.OPERATOR
-                ? EvaluationTask.EvalType.OPERATOR
-                : EvaluationTask.EvalType.MODEL);
+        // #465: Set evalType based on subject including TRAINING
+        if (subject == EvaluationTask.TestSubject.OPERATOR) {
+            task.setEvalType(EvaluationTask.EvalType.OPERATOR);
+        } else if (subject == EvaluationTask.TestSubject.MODEL) {
+            task.setEvalType(EvaluationTask.EvalType.MODEL);
+        } else if (subject == EvaluationTask.TestSubject.TRAINING) {
+            task.setEvalType(EvaluationTask.EvalType.TRAINING);
+        } else {
+            task.setEvalType(EvaluationTask.EvalType.GENERAL);
+        }
         task.setEvalConfig(config);
         task.setStatus(EvaluationTask.TaskStatus.PENDING);
         task.setPriority(EvaluationTask.Priority.MEDIUM);

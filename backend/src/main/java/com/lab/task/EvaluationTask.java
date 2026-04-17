@@ -142,7 +142,7 @@ public class EvaluationTask {
     }
 
     public enum TestSubject {
-        OPERATOR, MODEL
+        OPERATOR, MODEL, TRAINING
     }
 
     public enum Priority {
