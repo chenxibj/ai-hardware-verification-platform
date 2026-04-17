@@ -831,12 +831,37 @@ export default function ChipReport() {
         title={<Space><ClockCircleOutlined /> 评测环境</Space>}
         style={{ marginBottom: 24 }}
       >
-        <Alert
-          type="info" showIcon
-          message="CPU 评测模式"
-          description="当前评测数据在 CPU 模式下生成。真实 GPU/NPU 评测需连接硬件节点执行。"
-          style={{ marginBottom: 16 }}
-        />
+        {(() => {
+          const isGpuMode = (report.executionNodeName && /gpu|GPU|Gpu/i.test(report.executionNodeName))
+            || (report.actualChipModel && /gpu|GPU|nvidia|NVIDIA|A100|H100|V100|L40|RTX|Tesla/i.test(report.actualChipModel));
+          const isNpuMode = (report.executionNodeName && /npu|NPU|ascend|Ascend/i.test(report.executionNodeName))
+            || (report.actualChipModel && /npu|NPU|ascend|Ascend|昇腾/i.test(report.actualChipModel));
+          const hasExecInfo = report.executionNodeName || report.executionNodeIp;
+
+          let modeLabel, modeDesc;
+          if (isGpuMode && hasExecInfo) {
+            modeLabel = "GPU 评测模式";
+            modeDesc = `评测在 ${report.executionNodeName || "未知节点"}${report.executionNodeIp ? ` (${report.executionNodeIp})` : ""} 上执行，使用 ${report.actualChipModel || "GPU 设备"}`;
+          } else if (isNpuMode && hasExecInfo) {
+            modeLabel = "NPU 评测模式";
+            modeDesc = `评测在 ${report.executionNodeName || "未知节点"}${report.executionNodeIp ? ` (${report.executionNodeIp})` : ""} 上执行，使用 ${report.actualChipModel || "NPU 设备"}`;
+          } else if (hasExecInfo) {
+            modeLabel = "硬件评测模式";
+            modeDesc = `评测在 ${report.executionNodeName || "未知节点"}${report.executionNodeIp ? ` (${report.executionNodeIp})` : ""} 上执行${report.actualChipModel ? `，使用 ${report.actualChipModel}` : ""}`;
+          } else {
+            modeLabel = "CPU 评测模式";
+            modeDesc = "当前评测数据在 CPU 模式下生成。真实 GPU/NPU 评测需连接硬件节点执行。";
+          }
+
+          return (
+            <Alert
+              type={isGpuMode || isNpuMode ? "success" : "info"} showIcon
+              message={modeLabel}
+              description={modeDesc}
+              style={{ marginBottom: 16 }}
+            />
+          );
+        })()}
         <Row gutter={24}>
           <Col xs={24} md={12}>
             <Title level={5}>芯片信息</Title>
@@ -852,7 +877,17 @@ export default function ChipReport() {
             <Title level={5}>软件栈 & 报告</Title>
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="评测框架">AHVP Agent v1.0</Descriptions.Item>
-              <Descriptions.Item label="运行时">CPU 评测 (NumPy + Python 3)</Descriptions.Item>
+              <Descriptions.Item label="运行时">{
+                (() => {
+                  const isGpu = (report.executionNodeName && /gpu|GPU/i.test(report.executionNodeName))
+                    || (report.actualChipModel && /gpu|GPU|nvidia|NVIDIA|A100|H100|V100|L40|RTX|Tesla/i.test(report.actualChipModel));
+                  const isNpu = (report.executionNodeName && /npu|NPU|ascend|Ascend/i.test(report.executionNodeName))
+                    || (report.actualChipModel && /npu|NPU|ascend|Ascend|昇腾/i.test(report.actualChipModel));
+                  if (isGpu) return `GPU 评测 (PyTorch + CUDA)`;
+                  if (isNpu) return `NPU 评测 (MindSpore)`;
+                  return "CPU 评测 (NumPy + Python 3)";
+                })()
+              }</Descriptions.Item>
               <Descriptions.Item label="报告编号">{report.reportNo}</Descriptions.Item>
               <Descriptions.Item label="生成时间">{reportTime}</Descriptions.Item>
               <Descriptions.Item label="报告状态">
