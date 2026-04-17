@@ -117,7 +117,7 @@ TOKEN=$(echo "$LOGIN_RESP" | grep -oP '"token"\s*:\s*"\K[^"]+' 2>/dev/null || ec
 if [ -n "$TOKEN" ]; then
   CHIPS=$(curl -s http://localhost:8080/api/chips -H "Authorization: Bearer $TOKEN" 2>/dev/null)
   CHIPS_TOTAL=$(echo "$CHIPS" | grep -oP '"total"\s*:\s*\K[0-9]+' 2>/dev/null || echo "0")
-  TEMPLATES=$(curl -s http://localhost:8080/api/templates 2>/dev/null)
+  TEMPLATES=$(curl -s http://localhost:8080/api/templates -H "Authorization: Bearer $TOKEN" 2>/dev/null)
   TEMPLATES_TOTAL=$(echo "$TEMPLATES" | grep -oP '"total"\s*:\s*\K[0-9]+' 2>/dev/null || echo "0")
   echo "  Chips: $CHIPS_TOTAL, Templates: $TEMPLATES_TOTAL"
   if [ "${CHIPS_TOTAL:-0}" -gt 0 ] && [ "${TEMPLATES_TOTAL:-0}" -gt 0 ]; then
