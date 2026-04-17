@@ -289,7 +289,7 @@ export default function TemplateList() {
               const config = parseConfig(t.configJson);
               const layer = t.evaluationLayer;
               const hfModels = ensureArray(config.huggingface_models);
-              const itemCount = config.itemCount || (config.operators?.length || 0) + (config.models?.length || 0) + hfModels.length;
+              const itemCount = config.itemCount || (config.operators?.length || 0) + (config.models?.length || 0) + (config.training?.length || 0) + hfModels.length;
 
               return (
                 <Col xs={24} sm={12} md={8} lg={6} key={t.id}>

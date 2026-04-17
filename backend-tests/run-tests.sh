@@ -221,7 +221,7 @@ PLAN_NAME="CI-Plan-$TS"
 # 3.1 Create plan
 RESP=$(curl -s -w "\n%{http_code}" -X POST "$API_BASE/plans" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d "{\"chipId\":$PLAN_CHIP_ID,\"name\":\"$PLAN_NAME\",\"preset\":\"QUICK\"}")
+  -d "{\"chipId\":$PLAN_CHIP_ID,\"name\":\"$PLAN_NAME\",\"preset\":\"QUICK\",\"runSpecId\":11}")
 BODY=$(echo "$RESP" | head -n -1)
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "3.1 POST /plans (create)" 200 "$STATUS"

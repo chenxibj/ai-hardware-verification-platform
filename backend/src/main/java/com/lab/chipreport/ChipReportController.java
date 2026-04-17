@@ -97,6 +97,7 @@ public class ChipReportController {
         try {
             ChipReport report = reportRepository.findById(id)
                     .orElseThrow(() -> new RuntimeException("Report not found: " + id));
+            filterBottleneckAnalysis(report);
             return ResponseEntity.ok(success(report));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(error(e.getMessage()));
@@ -349,6 +350,36 @@ public class ChipReportController {
         }
     }
 
+
+    /**
+     * #476: Filter out high-score worst_operator entries from bottleneckAnalysis.
+     * Old reports may contain worst_operator items with score >= 85, which is incorrect.
+     */
+    private void filterBottleneckAnalysis(ChipReport report) {
+        if (report.getBottleneckAnalysis() == null) return;
+        try {
+            Object parsed = objectMapper.readValue(report.getBottleneckAnalysis(), Object.class);
+            if (parsed instanceof java.util.List) {
+                @SuppressWarnings("unchecked")
+                java.util.List<java.util.Map<String, Object>> items = (java.util.List<java.util.Map<String, Object>>) parsed;
+                java.util.List<java.util.Map<String, Object>> filtered = items.stream()
+                    .filter(item -> {
+                        String type = (String) item.get("type");
+                        Object scoreObj = item.get("score");
+                        if ("worst_operator".equals(type) && scoreObj != null) {
+                            double score = scoreObj instanceof Number ? ((Number) scoreObj).doubleValue() : 0;
+                            return score < 85;
+                        }
+                        return true;
+                    })
+                    .collect(Collectors.toList());
+                report.setBottleneckAnalysis(objectMapper.writeValueAsString(filtered));
+            }
+        } catch (Exception e) {
+            log.debug("Failed to filter bottleneckAnalysis for report {}: {}", report.getId(), e.getMessage());
+        }
+    }
+
     private void enrichReport(ChipReport report) {
         if (report.getChipId() != null) {
             chipRepository.findById(report.getChipId()).ifPresent(c -> report.setChipName(c.getName()));
@@ -356,6 +387,8 @@ public class ChipReportController {
         if (report.getPlanId() != null) {
             planRepository.findById(report.getPlanId()).ifPresent(p -> report.setPlanName(p.getName()));
         }
+        // #476: filter out high-score worst_operator from old reports
+        filterBottleneckAnalysis(report);
     }
 
     private void enrichReports(java.util.List<ChipReport> reports) {

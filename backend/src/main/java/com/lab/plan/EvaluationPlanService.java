@@ -19,6 +19,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import com.lab.gpu.GpuSlotService;
+import com.lab.runspec.RunSpecRepository;
 
 /**
  * 评测任务服务 - CRUD + 状态流转
@@ -37,6 +38,7 @@ public class EvaluationPlanService {
     private final PlanTaskSplitter planTaskSplitter;
     private final TaskDispatcher taskDispatcher;
     private final GpuSlotService gpuSlotService;
+    private final RunSpecRepository runSpecRepository;
 
     // ============ CRUD ============
 
@@ -61,6 +63,14 @@ public class EvaluationPlanService {
             templateRepository.findById(plan.getTemplateId())
                     .orElseThrow(() -> new RuntimeException("评测模板不存在: " + plan.getTemplateId()));
         }
+
+        // #475: 验证运行规格必填
+        if (plan.getRunSpecId() == null) {
+            throw new RuntimeException("运行规格不能为空，请选择运行规格");
+        }
+        // 验证运行规格存在
+        runSpecRepository.findById(plan.getRunSpecId())
+                .orElseThrow(() -> new RuntimeException("运行规格不存在: " + plan.getRunSpecId()));
 
 
         plan.setPlanNo(generatePlanNo());

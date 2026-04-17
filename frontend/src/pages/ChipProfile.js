@@ -277,7 +277,9 @@ export default function ChipProfile() {
   const radarData = safeParse(selectedReport?.radarData) || safeParse(latestReport?.radarData) || [];
   const dimensionScores = safeParse(selectedReport?.dimensionScores) || safeParse(latestReport?.dimensionScores) || {};
   const scenarioRecs = safeParse(selectedReport?.scenarioRecommendations) || safeParse(latestReport?.scenarioRecommendations) || [];
-  const bottleneckData = safeParse(selectedReport?.bottleneckAnalysis) || safeParse(latestReport?.bottleneckAnalysis) || [];
+  const bottleneckDataRaw = safeParse(selectedReport?.bottleneckAnalysis) || safeParse(latestReport?.bottleneckAnalysis) || [];
+  // #476: Filter out high-score worst_operator entries from old reports
+  const bottleneckData = Array.isArray(bottleneckDataRaw) ? bottleneckDataRaw.filter(item => !(item.type === "worst_operator" && item.score >= 85)) : bottleneckDataRaw;
   const operatorRanking = safeParse(selectedReport?.operatorRanking) || safeParse(latestReport?.operatorRanking) || [];
 
   /* #459: 维度映射 — synced with DimensionRegistry.java */

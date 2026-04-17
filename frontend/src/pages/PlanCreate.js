@@ -540,6 +540,8 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
             background: isSelected ? "#e6f7ff" : "#fff", cursor: "pointer", minHeight: 160,
             borderLeft: isSelected ? "2px solid #1890ff" : `3px solid ${LAYER_COLORS[layer] ? `var(--ant-color-${LAYER_COLORS[layer]}, #1890ff)` : '#d9d9d9'}`,
           }}>
+          {/* #477: Wrapper div ensures click always triggers selection */}
+          <div onClick={() => setSelectedTemplateId(t.id)} style={{ cursor: "pointer" }}>
           <Space direction="vertical" size={4} style={{ width: "100%" }}>
             <Space>
               <Text strong>{t.name}</Text>
@@ -547,7 +549,7 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
               {isSelected && <CheckCircleOutlined style={{ color: "#1890ff" }} />}
               {t.isSystem && <LockOutlined style={{ color: "#999", fontSize: 12 }} />}
             </Space>
-            <Paragraph type="secondary" ellipsis={{ rows: 2 }} style={{ margin: 0, fontSize: 13 }}>{t.description}</Paragraph>
+            <Paragraph type="secondary" ellipsis={{ rows: 2, tooltip: t.description }} style={{ margin: 0, fontSize: 13, pointerEvents: "none" }}>{t.description}</Paragraph>
             <Space size={4} wrap>
               {layer && <Tag color={LAYER_COLORS[layer]}>{LAYER_LABELS[layer]}</Tag>}
               <Tag color="blue">{EVAL_TYPE_LABELS[t.evalType] || t.evalType}</Tag>
@@ -559,6 +561,7 @@ export default function PlanCreate({ onOpenMonitor, onBack }) {
               {showingScripts ? "收起评测项" : "查看评测项"}
             </Button>
           </Space>
+          </div>
         </Card>
         {showingScripts && (
           <Card size="small" style={{ marginTop: 4, maxHeight: 400, overflow: "auto" }}>

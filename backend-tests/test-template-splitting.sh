@@ -125,7 +125,7 @@ create_and_split() {
   # Create plan
   local resp=$(curl -s -w "\n%{http_code}" -X POST "$API_BASE/plans" \
     -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-    -d "{\"chipId\":$CHIP_ID,\"name\":\"$plan_name\",\"templateId\":$template_id,\"evalConfig\":$(echo "$eval_config" | python3 -c "import json,sys;print(json.dumps(sys.stdin.read().strip()))")}")
+    -d "{\"chipId\":$CHIP_ID,\"name\":\"$plan_name\",\"templateId\":$template_id,\"runSpecId\":11,\"evalConfig\":$(echo "$eval_config" | python3 -c "import json,sys;print(json.dumps(sys.stdin.read().strip()))")}")
   local body=$(echo "$resp" | head -n -1)
   local status=$(echo "$resp" | tail -1)
 
@@ -443,7 +443,7 @@ echo "━━━ Test 6: No templateId → falls back to preset splitting ━━�
 # Create plan WITHOUT templateId in evalConfig → should use QUICK preset
 RESP=$(curl -s -w "\n%{http_code}" -X POST "$API_BASE/plans" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d "{\"chipId\":$CHIP_ID,\"name\":\"CI-Split-NoTemplate-$TS\",\"evalConfig\":\"{\\\"preset\\\":\\\"QUICK\\\"}\"}")
+  -d "{\"chipId\":$CHIP_ID,\"name\":\"CI-Split-NoTemplate-$TS\",\"runSpecId\":11,\"evalConfig\":\"{\\\"preset\\\":\\\"QUICK\\\"}\"}")
 BODY=$(echo "$RESP" | head -n -1)
 STATUS=$(echo "$RESP" | tail -1)
 PLAN6_ID=$(echo "$BODY" | python3 -c "import json,sys;print(json.load(sys.stdin)['data']['id'])" 2>/dev/null)

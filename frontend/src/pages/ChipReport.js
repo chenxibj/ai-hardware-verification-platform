@@ -173,7 +173,9 @@ export default function ChipReport() {
 
   // 解析各项数据
   const operators = (safeParse(report.operatorRanking) || []).map(op => ({ ...op, dataStatus: inferDataStatus(op) }));
-  const bottleneckData = safeParse(report.bottleneckAnalysis) || [];
+  const bottleneckDataRaw = safeParse(report.bottleneckAnalysis) || [];
+  // #476: Filter out high-score worst_operator entries from old reports
+  const bottleneckData = Array.isArray(bottleneckDataRaw) ? bottleneckDataRaw.filter(item => !(item.type === "worst_operator" && item.score >= 85)) : bottleneckDataRaw;
   const trainingSummary = safeParse(report.trainingSummary);
   const inferenceSummary = safeParse(report.inferenceSummary);
   const baselineChipName = report.baselineChip || "L40S";
