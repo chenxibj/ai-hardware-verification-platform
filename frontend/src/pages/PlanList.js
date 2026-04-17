@@ -284,17 +284,17 @@ export default function PlanList() {
         const st = record.status;
         return (
           <Space size="small">
-            <Tooltip title={"执行监控"}>
+            <Tooltip key="monitor" title={"执行监控"}>
               <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/plans/${record.id}`)} />
             </Tooltip>
 
-            <Tooltip title={"克隆"}>
+            <Tooltip key="clone" title={"克隆"}>
               <Button type="link" size="small" icon={<CopyOutlined />}
                 onClick={() => handleClone(record.id)} />
             </Tooltip>
 
             {st === "COMPLETED" && (
-              <Tooltip title={"查看报告"}>
+              <Tooltip key="report" title={"查看报告"}>
                 <Button type="link" size="small" icon={<BarChartOutlined />}
                   style={{ color: "#722ed1" }}
                   onClick={() => handleViewReport(record)} />
@@ -302,14 +302,14 @@ export default function PlanList() {
             )}
 
             {st === "FAILED" && (
-              <Tooltip title={"调试"}>
+              <Tooltip key="debug" title={"调试"}>
                 <Button type="link" size="small" danger icon={<BugOutlined />}
                   onClick={() => openDebug(record.id)} />
               </Tooltip>
             )}
 
             {st === "DRAFT" && (
-              <Tooltip title={"启动执行"}>
+              <Tooltip key="start" title={"启动执行"}>
                 <Button type="link" size="small" icon={<PlayCircleOutlined />}
                   style={{ color: "#52c41a" }}
                   onClick={() => handleAction(record.id, "start", "启动")} />
@@ -317,7 +317,7 @@ export default function PlanList() {
             )}
 
             {st === "RUNNING" && (
-              <Tooltip title={"暂停"}>
+              <Tooltip key="pause" title={"暂停"}>
                 <Button type="link" size="small" icon={<PauseCircleOutlined />}
                   style={{ color: "#faad14" }}
                   onClick={() => handleAction(record.id, "pause", "暂停")} />
@@ -325,7 +325,7 @@ export default function PlanList() {
             )}
 
             {st === "PAUSED" && (
-              <Tooltip title={"恢复执行"}>
+              <Tooltip key="resume" title={"恢复执行"}>
                 <Button type="link" size="small" icon={<PlayCircleOutlined />}
                   style={{ color: "#52c41a" }}
                   onClick={() => handleAction(record.id, "resume", "恢复")} />
@@ -334,7 +334,7 @@ export default function PlanList() {
 
             {(st === "RUNNING" || st === "PAUSED") && (
               <Popconfirm title={"确定取消该任务?"} onConfirm={() => handleAction(record.id, "cancel", "取消")} okText={"确定"} cancelText={"取消"}>
-                <Tooltip title={"取消"}>
+                <Tooltip key="cancel" title={"取消"}>
                   <Button type="link" size="small" icon={<StopOutlined />} style={{ color: "#ff4d4f" }} />
                 </Tooltip>
               </Popconfirm>
@@ -342,7 +342,7 @@ export default function PlanList() {
 
             {(st === "DRAFT" || st === "COMPLETED" || st === "FAILED" || st === "CANCELLED") && (
               <Popconfirm title={"确定删除该任务?"} onConfirm={() => handleDelete(record.id)} okText={"删除"} cancelText={"取消"}>
-                <Tooltip title={"删除"}>
+                <Tooltip key="delete" title={"删除"}>
                   <Button type="link" size="small" danger icon={<DeleteOutlined />} />
                 </Tooltip>
               </Popconfirm>
