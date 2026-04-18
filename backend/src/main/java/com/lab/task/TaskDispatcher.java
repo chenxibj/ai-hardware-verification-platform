@@ -250,8 +250,7 @@ public class TaskDispatcher {
 
         // 2. GPU Slot 预检查：节点有足够空闲 GPU 才 dispatch
         RunSpec runSpec = resolveRunSpec(task);
-        int gpuNeeded = (runSpec != null && runSpec.getGpuPerNode() != null && runSpec.getGpuPerNode() > 0)
-                ? runSpec.getGpuPerNode() : 0;  // #490: 默认 0（无 RunSpec = CPU 任务不需要 GPU）
+        int gpuNeeded = computeEffectiveGpuCount(runSpec, task.getTestSubject());  // #498: OPERATOR → 1 GPU
         long freeSlots = gpuSlotService.countFreeSlots(node.getId());
         long totalSlots = gpuSlotService.countTotalSlots(node.getId());
         if (gpuNeeded > 0 && totalSlots > 0 && freeSlots < gpuNeeded) {
@@ -589,6 +588,22 @@ public class TaskDispatcher {
     }
 
     /**
+     * #498: 计算任务实际需要的 GPU 数量
+     * OPERATOR（算子评测）→ 固定 1 GPU，不管 Plan 的 RunSpec
+     * 其他类型 → 按 RunSpec 分配
+     */
+    private int computeEffectiveGpuCount(RunSpec runSpec, EvaluationTask.TestSubject testSubject) {
+        int baseGpuNeeded = (runSpec != null && runSpec.getGpuPerNode() != null && runSpec.getGpuPerNode() > 0)
+                ? runSpec.getGpuPerNode() : 0;
+        // #498: OPERATOR tasks always use exactly 1 GPU (single-card eval)
+        if (testSubject == EvaluationTask.TestSubject.OPERATOR && baseGpuNeeded > 0) {
+            log.info("#498: OPERATOR task detected, downgrading GPU from {} to 1", baseGpuNeeded);
+            return 1;
+        }
+        return baseGpuNeeded;
+    }
+
+    /**
      * 构建 Agent URL: http://{ipAddress}:{agentPort}
      */
     private String buildAgentUrl(ComputeNode node) {
@@ -638,8 +653,9 @@ public class TaskDispatcher {
         RunSpec runSpec = resolveRunSpec(task);
         if (runSpec != null) {
             Map<String, Object> runSpecMap = new LinkedHashMap<>();
+            int effectiveGpuPerNode = computeEffectiveGpuCount(runSpec, task.getTestSubject());  // #498
             runSpecMap.put("code", runSpec.getCode());
-            runSpecMap.put("gpuPerNode", runSpec.getGpuPerNode());
+            runSpecMap.put("gpuPerNode", effectiveGpuPerNode);
             runSpecMap.put("gpuExclusive", runSpec.getGpuExclusive());
             runSpecMap.put("parallelMode", runSpec.getParallelMode());
             runSpecMap.put("nodeCount", runSpec.getNodeCount());
@@ -659,8 +675,8 @@ public class TaskDispatcher {
             // Multi-node distributed config
             if (runSpec.getNodeCount() != null && runSpec.getNodeCount() > 1) {
                 Map<String, Object> distributed = new LinkedHashMap<>();
-                distributed.put("worldSize", runSpec.getNodeCount() * runSpec.getGpuPerNode());
-                distributed.put("nprocPerNode", runSpec.getGpuPerNode());
+                distributed.put("worldSize", runSpec.getNodeCount() * effectiveGpuPerNode);
+                distributed.put("nprocPerNode", effectiveGpuPerNode);
                 distributed.put("parallelMode", runSpec.getParallelMode());
                 distributed.put("backend", "nccl");
                 payload.put("distributed", distributed);
