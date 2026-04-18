@@ -44,13 +44,15 @@ public class EvaluationPlanService {
 
     @Transactional
     public EvaluationPlan createPlan(EvaluationPlan plan, Long userId) {
-        // #329: 参数校验
-        if (plan.getName() == null || plan.getName().isBlank()) {
-            throw new RuntimeException("评测计划名称不能为空");
+        // #501: Input validation — reject illegal characters instead of silent stripping
+        String nameError = XssUtils.validateName(plan.getName(), "名称", 100);
+        if (nameError != null) {
+            throw new RuntimeException(nameError);
         }
-        // XSS sanitization (#331)
-        plan.setName(XssUtils.stripXss(plan.getName()));
-        if (plan.getDescription() != null) plan.setDescription(XssUtils.stripXss(plan.getDescription()));
+        String descError = XssUtils.validateText(plan.getDescription(), "描述", 500);
+        if (descError != null) {
+            throw new RuntimeException(descError);
+        }
         if (plan.getChipId() == null) {
             throw new RuntimeException("芯片ID不能为空");
         }

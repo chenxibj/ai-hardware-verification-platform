@@ -14,61 +14,86 @@ class PlanReportEndpointTest {
     // === #501: XSS validation tests ===
 
     @Test
-    @DisplayName("#501: XSS script tag should be detected as containing illegal characters")
-    void xssScriptTag_containsXss() {
-        assertTrue(XssUtils.containsXss("<script>alert(xss)</script>"));
+    @DisplayName("#501: XSS script tag should be rejected by validateName")
+    void xssScriptTag_rejected() {
+        String error = XssUtils.validateName("<script>alert('xss')</script>", "名称", 100);
+        assertNotNull(error);
+        assertEquals("名称包含非法字符", error);
     }
 
     @Test
-    @DisplayName("#501: Normal Chinese name should NOT contain XSS")
-    void normalChineseName_noXss() {
-        assertFalse(XssUtils.containsXss("测试评测计划-01"));
+    @DisplayName("#501: Normal Chinese name should pass validation")
+    void normalChineseName_passes() {
+        String error = XssUtils.validateName("测试评测计划-01", "名称", 100);
+        assertNull(error);
     }
 
     @Test
-    @DisplayName("#501: img onerror should be detected as XSS")
-    void imgOnerror_containsXss() {
-        assertTrue(XssUtils.containsXss("<img src=x onerror=alert(1)>"));
+    @DisplayName("#501: img onerror should be rejected by validateName")
+    void imgOnerror_rejected() {
+        String error = XssUtils.validateName("<img src=x onerror=alert(1)>", "名称", 100);
+        assertNotNull(error);
+        assertEquals("名称包含非法字符", error);
     }
 
     @Test
-    @DisplayName("#501: Name with parens should be valid")
-    void nameWithParens_noXss() {
-        assertFalse(XssUtils.containsXss("性能测试(第一批)"));
+    @DisplayName("#501: Name with parens should pass validation")
+    void nameWithParens_passes() {
+        String error = XssUtils.validateName("性能测试(第一批)", "名称", 100);
+        assertNull(error);
     }
 
     @Test
-    @DisplayName("#501: stripXss should NOT be used for validation - it silently empties XSS strings")
-    void stripXss_silentlyEmpties() {
-        // This documents the current bug: stripXss turns XSS into empty string
-        String result = XssUtils.stripXss("<script>alert(xss)</script>");
-        assertEquals("", result, "stripXss silently empties XSS — this is the bug we need to fix");
+    @DisplayName("#501: Full-width parens should pass validation")
+    void nameWithFullWidthParens_passes() {
+        String error = XssUtils.validateName("芯片A（批次2）", "名称", 100);
+        assertNull(error);
     }
 
     @Test
-    @DisplayName("#501: Name validation regex should allow letters, numbers, Chinese, spaces, -, _, ()")
-    void validateName_regex() {
-        // Valid names
-        String validPattern = "^[\\w\\u4e00-\\u9fa5\\s\\-_()（）.·、]+$";
-        assertTrue("测试评测计划-01".matches(validPattern));
-        assertTrue("Performance Test_01".matches(validPattern));
-        assertTrue("性能测试(第一批)".matches(validPattern));
-        assertTrue("芯片A（批次2）".matches(validPattern));
-
-        // Invalid names - contain < > etc
-        assertFalse("<script>alert(xss)</script>".matches(validPattern));
-        assertFalse("<img src=x>".matches(validPattern));
+    @DisplayName("#501: Empty name should be rejected")
+    void emptyName_rejected() {
+        String error = XssUtils.validateName("", "名称", 100);
+        assertNotNull(error);
+        assertEquals("名称不能为空", error);
     }
 
     @Test
-    @DisplayName("#501: Empty and too-long names should be rejected")
-    void validateName_lengthBounds() {
-        // Empty
-        assertTrue("".isBlank());
-        assertTrue("   ".isBlank());
+    @DisplayName("#501: Null name should be rejected")
+    void nullName_rejected() {
+        String error = XssUtils.validateName(null, "名称", 100);
+        assertNotNull(error);
+        assertEquals("名称不能为空", error);
+    }
 
-        // Too long (> 100 chars)
+    @Test
+    @DisplayName("#501: Too long name (200 chars) should be rejected")
+    void tooLongName_rejected() {
         String longName = "A".repeat(200);
-        assertTrue(longName.length() > 100);
+        String error = XssUtils.validateName(longName, "名称", 100);
+        assertNotNull(error);
+        assertEquals("名称长度不能超过100个字符", error);
+    }
+
+    @Test
+    @DisplayName("#501: English alphanumeric name should pass")
+    void englishName_passes() {
+        String error = XssUtils.validateName("Performance Test_01", "名称", 100);
+        assertNull(error);
+    }
+
+    @Test
+    @DisplayName("#501: Description with XSS should be rejected by validateText")
+    void descriptionXss_rejected() {
+        String error = XssUtils.validateText("<script>evil()</script>", "描述", 500);
+        assertNotNull(error);
+        assertEquals("描述包含非法字符", error);
+    }
+
+    @Test
+    @DisplayName("#501: Null description should pass (optional field)")
+    void nullDescription_passes() {
+        String error = XssUtils.validateText(null, "描述", 500);
+        assertNull(error);
     }
 }
