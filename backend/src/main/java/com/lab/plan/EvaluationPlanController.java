@@ -20,6 +20,9 @@ import java.util.List;
 import java.util.Map;
 import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
+import com.lab.chipreport.ChipReport;
+import com.lab.chipreport.ChipReportRepository;
+import com.lab.chip.ChipRepository;
 
 /**
  * 评测任务控制器
@@ -31,6 +34,9 @@ public class EvaluationPlanController {
 
     private final EvaluationPlanService planService;
     private final EvaluationTaskRepository taskRepository;
+    private final ChipReportRepository chipReportRepository;
+    private final ChipRepository chipRepository;
+    private final EvaluationPlanRepository planRepository;
 
     /**
      * #366: 从 SecurityContext 获取当前用户 ID
@@ -185,6 +191,32 @@ public class EvaluationPlanController {
         Map<String, Object> resp = success(tasks);
         resp.put("total", tasks.size());
         return ResponseEntity.ok(resp);
+    }
+
+
+    /**
+     * #500: GET /plans/{planId}/report - get report by planId
+     */
+    @GetMapping("/plans/{planId}/report")
+    @RequireRole(Role.VIEWER)
+    public ResponseEntity<Map<String, Object>> getPlanReport(@PathVariable Long planId) {
+        // Verify plan exists
+        if (!planRepository.existsById(planId)) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("评测计划不存在"));
+        }
+        List<ChipReport> reports = chipReportRepository.findByPlanId(planId);
+        if (reports.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("该计划暂无评测报告"));
+        }
+        // Return the latest report (last one), enrich with chipName/planName
+        ChipReport report = reports.get(reports.size() - 1);
+        if (report.getChipId() != null) {
+            chipRepository.findById(report.getChipId()).ifPresent(c -> report.setChipName(c.getName()));
+        }
+        if (report.getPlanId() != null) {
+            planRepository.findById(report.getPlanId()).ifPresent(p -> report.setPlanName(p.getName()));
+        }
+        return ResponseEntity.ok(success(report));
     }
 
     @GetMapping("/chips/{chipId}/plans")
