@@ -667,6 +667,29 @@ def _build_launch_command(self, script_path, params, gpu_count, parallel_mode):
     return ["python3", script_path, params_json]
 ```
 
+### 评测类型与 GPU 分配策略
+
+> **#485 新增 (2026-04-18):** PlanTaskSplitter 按 evalType 智能分配 RunSpec
+
+| 评测类型 | GPU 策略 | 说明 |
+|----------|----------|------|
+| OPERATOR（算子评测） | **固定单卡** (gpu-1) | 算子基准测试衡量单个算子在单张 GPU 上的性能，多卡无意义 |
+| MODEL（推理评测） | 按用户选择 | 支持 DataParallel / device_map="auto"，用户选 gpu-2/4/8 |
+| TRAINING（训练评测） | 按用户选择 | 支持 DDP + torchrun，用户选 gpu-2-ddp / gpu-4 等 |
+
+#### 自动降级规则
+
+- `PlanTaskSplitter.createTask()` 在拆分任务时，OPERATOR 类型任务自动降级为 `gpu-1` RunSpec
+- 即使用户在方案中选择了 gpu-4/gpu-8，算子任务也只占用 1 张 GPU
+- 推理和训练任务保持用户选择的 RunSpec 不变
+- 如果数据库中不存在 `gpu-1` RunSpec，fallback 到 Plan 的 RunSpec（向后兼容）
+
+#### 实现位置
+
+- 后端: `PlanTaskSplitter.createTask()` — 按 `TestSubject` 判断是否降级
+- 模板: `task_templates.config_json.gpuPolicy` — 文档性质，标注各类型的 GPU 策略
+- 前端: `PlanCreate.js` Step 4 — 提示用户多卡分配规则
+
 ### 模块 5: 评测脚本多卡改造
 
 **改动文件:** `eval-scripts/model_inference.py`, `eval-scripts/model_training_benchmark.py`, `eval-scripts/operator_benchmark.py`

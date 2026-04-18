@@ -8,11 +8,7 @@ import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
 import com.lab.scoring.ScoringService;
 import com.lab.dimension.DimensionRegistry;
-import com.lab.node.ComputeNode;
-import com.lab.node.ComputeNodeRepository;
-import com.lab.chip.ChipRepository;
-import com.lab.gpu.GpuSlotService;
-import com.lab.task.TaskDispatcher;
+import com.lab.task.TaskLifecycleService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -20,8 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.*;
-import org.springframework.context.ApplicationEventPublisher;
-import com.lab.plan.PlanCompletedEvent;
 
 /**
  * 评测结果收集 + 评分计算服务
@@ -37,11 +31,7 @@ public class EvaluationResultService {
     private final EvaluationPlanRepository planRepository;
     private final ObjectMapper objectMapper;
     private final ScoringService scoringService;
-    private final ApplicationEventPublisher eventPublisher;
-    private final ComputeNodeRepository nodeRepository;
-    private final ChipRepository chipRepository;
-    private final GpuSlotService gpuSlotService;
-    private final TaskDispatcher taskDispatcher;
+    private final TaskLifecycleService lifecycle;
 
     /**
      * Agent 提交任务结果
@@ -97,21 +87,13 @@ public class EvaluationResultService {
         task.setCompletedAt(Instant.now());
         taskRepository.save(task);
 
-        // 更新计划进度
-        updatePlanProgress(task.getPlanId());
-
-        // #222: 释放节点
-        releaseNode(task.getAssignedNodeId());
-        // #403: 释放 GPU Slot
-        try { gpuSlotService.releaseGpuSlots(task.getId()); } catch (Exception e) { log.warn("GPU slot release failed for task {}: {}", taskId, e.getMessage()); }
-        log.info("Result submitted for task {} (score={}, metrics={})", taskId, score, metrics.keySet());
-
-        // #488 P0-2: Event-driven dispatch — trigger scheduling after task completion
+        // #489: 统一资源释放（GPU + 节点 + Plan进度 + 调度触发）
         try {
-            taskDispatcher.tryDispatchNext();
+            lifecycle.onTaskTerminated(task.getId());
         } catch (Exception e) {
-            log.debug("Post-result dispatch attempt: {}", e.getMessage());
+            log.warn("#489: Lifecycle failed for task {}: {}", task.getId(), e.getMessage());
         }
+        log.info("Result submitted for task {} (score={}, metrics={})", taskId, score, metrics.keySet());
 
         return result;
     }
@@ -150,78 +132,15 @@ public class EvaluationResultService {
         task.setCompletedAt(Instant.now());
         taskRepository.save(task);
 
-        updatePlanProgress(task.getPlanId());
-
-        // #222: 释放节点
-        releaseNode(task.getAssignedNodeId());
-        // #403: 释放 GPU Slot
-        try { gpuSlotService.releaseGpuSlots(task.getId()); } catch (Exception e) { log.warn("GPU slot release failed for task {}: {}", taskId, e.getMessage()); }
+        // #489: 统一资源释放（GPU + 节点 + Plan进度 + 调度触发）
+        try {
+            lifecycle.onTaskTerminated(task.getId());
+        } catch (Exception e) {
+            log.warn("#489: Lifecycle failed for task {}: {}", task.getId(), e.getMessage());
+        }
         log.info("Failure reported for task {}: {}", taskId, errorMessage);
 
-        // #488 P0-2: Event-driven dispatch — trigger scheduling after task failure
-        try {
-            taskDispatcher.tryDispatchNext();
-        } catch (Exception e) {
-            log.debug("Post-failure dispatch attempt: {}", e.getMessage());
-        }
-
         return result;
-    }
-
-    /**
-     * 更新计划进度，检查是否所有任务完成
-     */
-    private void updatePlanProgress(Long planId) {
-        if (planId == null) return;
-        EvaluationPlan plan = planRepository.findById(planId).orElse(null);
-        if (plan == null) return;
-
-        List<EvaluationTask> tasks = taskRepository.findByPlanId(planId);
-        int total = tasks.size();
-        long completed = tasks.stream()
-                .filter(t -> t.getStatus() == EvaluationTask.TaskStatus.COMPLETED ||
-                             t.getStatus() == EvaluationTask.TaskStatus.FAILED ||
-                             t.getStatus() == EvaluationTask.TaskStatus.SKIPPED)
-                .count();
-        long failed = tasks.stream()
-                .filter(t -> t.getStatus() == EvaluationTask.TaskStatus.FAILED ||
-                             t.getStatus() == EvaluationTask.TaskStatus.SKIPPED)
-                .count();
-
-        plan.setCompletedTasks((int) completed);
-        plan.setProgress(total > 0 ? (int) (completed * 100 / total) : 0);
-
-        if (completed == total) {
-            plan.setCompletedAt(Instant.now());
-            if (failed > 0 && failed == total) {
-                plan.setStatus(EvaluationPlan.PlanStatus.FAILED);
-            } else {
-                plan.setStatus(EvaluationPlan.PlanStatus.COMPLETED);
-            }
-            log.info("Plan {} completed (total={}, failed={})", plan.getPlanNo(), total, failed);
-            // trigger report generation
-            eventPublisher.publishEvent(new PlanCompletedEvent(this, planId));
-        }
-
-        planRepository.save(plan);
-    }
-
-    /**
-     * #222: 释放节点，让后续任务可以被分发
-     */
-    private void releaseNode(Long nodeId) {
-        if (nodeId == null) return;
-        try {
-            nodeRepository.findById(nodeId).ifPresent(node -> {
-                if (node.getStatus() == ComputeNode.Status.BUSY) {
-                    node.setStatus(ComputeNode.Status.ONLINE);
-                    nodeRepository.save(node);
-                    log.info("Node {} released back to ONLINE", node.getName());
-                }
-            });
-        } catch (Exception e) {
-            log.warn("Failed to release node {}: {}", nodeId, e.getMessage());
-        }
     }
 
     /**

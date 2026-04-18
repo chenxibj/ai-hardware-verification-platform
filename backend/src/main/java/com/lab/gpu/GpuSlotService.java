@@ -6,6 +6,8 @@ import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +33,10 @@ public class GpuSlotService {
 
     private final GpuSlotRepository gpuSlotRepository;
     private final EvaluationTaskRepository taskRepository;
+
+    @Lazy
+    @Autowired
+    private com.lab.task.TaskDispatcher taskDispatcher;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -156,6 +162,12 @@ public class GpuSlotService {
 
         if (reclaimed > 0) {
             log.info("Reclaimed {} orphan GPU slots", reclaimed);
+            // #489: 回收后触发调度
+            try {
+                taskDispatcher.tryDispatchNext();
+            } catch (Exception e) {
+                log.debug("Post-reclaim dispatch: {}", e.getMessage());
+            }
         }
     }
 

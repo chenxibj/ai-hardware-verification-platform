@@ -48,6 +48,7 @@ public class TaskRecoveryScheduler {
     private final TaskDispatcher taskDispatcher;
     private final com.lab.scoring.ReportGenerator reportGenerator;
     private final com.lab.gpu.GpuSlotService gpuSlotService;
+    private final TaskLifecycleService lifecycle;
 
     private static final Set<EvaluationTask.TaskStatus> TERMINAL_STATUSES = Set.of(
             EvaluationTask.TaskStatus.COMPLETED,
@@ -169,8 +170,6 @@ public class TaskRecoveryScheduler {
             }
         }
 
-        // Track affected planIds for progress update
-        java.util.Set<Long> affectedPlanIds = new java.util.HashSet<>();
 
         for (EvaluationTask task : staleTasks) {
             String reason = (task.getProgress() != null && task.getProgress() == 0)
@@ -183,41 +182,22 @@ public class TaskRecoveryScheduler {
             task.setCompletedAt(Instant.now());
             taskRepository.save(task);
 
-            // #403: Release GPU slots for timed-out task
+            // #489: 统一资源释放（GPU + 节点 + 调度）
             try {
-                gpuSlotService.releaseGpuSlots(task.getId());
-                log.info("#403: Released GPU slots for timed-out task {}", task.getId());
+                lifecycle.onTaskTerminated(task.getId());
             } catch (Exception e) {
-                log.warn("#403: Failed to release GPU slots for task {}: {}", task.getId(), e.getMessage());
+                log.warn("#489: Lifecycle failed for timed-out task {}: {}", task.getId(), e.getMessage());
             }
 
             // #361: Create EvaluationResult for the timed-out task
             createTimeoutResult(task, reason);
 
-            if (task.getPlanId() != null) {
-                affectedPlanIds.add(task.getPlanId());
-            }
 
-            // 释放节点
-            if (task.getAssignedNodeId() != null) {
-                releaseNode(task.getAssignedNodeId());
-            }
         }
 
         if (!staleTasks.isEmpty()) {
             log.info("Recovered {} stale RUNNING tasks -> FAILED", staleTasks.size());
-
-            // #361/#382: Update progress for all affected plans
-            for (Long planId : affectedPlanIds) {
-                updatePlanProgress(planId);
-            }
-
-            // 释放节点后尝试分发排队任务
-            try {
-                taskDispatcher.tryDispatchNext();
-            } catch (Exception e) {
-                log.debug("Post-recovery dispatch failed: {}", e.getMessage());
-            }
+            // #490: Plan 进度已由 lifecycle.onTaskTerminated 内部的 PlanProgressService 统一处理
         }
     }
 
@@ -260,28 +240,6 @@ public class TaskRecoveryScheduler {
         }
     }
 
-    /**
-     * #361/#382: 更新 Plan 进度（任务回收后同步更新）
-     */
-    private void updatePlanProgress(Long planId) {
-        try {
-            EvaluationPlan plan = planRepository.findById(planId).orElse(null);
-            if (plan == null) return;
-
-            List<EvaluationTask> tasks = taskRepository.findByPlanId(planId);
-            int total = tasks.size();
-            long completed = tasks.stream()
-                    .filter(t -> TERMINAL_STATUSES.contains(t.getStatus()))
-                    .count();
-
-            plan.setCompletedTasks((int) completed);
-            plan.setProgress(total > 0 ? (int) (completed * 100 / total) : 0);
-            planRepository.save(plan);
-            log.debug("Updated plan {} progress: {}/{} ({}%)", plan.getPlanNo(), completed, total, plan.getProgress());
-        } catch (Exception e) {
-            log.warn("Failed to update plan {} progress: {}", planId, e.getMessage());
-        }
-    }
 
     /**
      * 节点 OFFLINE → 其上的 RUNNING Task 回 QUEUED 等待重分发
@@ -310,6 +268,12 @@ public class TaskRecoveryScheduler {
 
         if (recovered > 0) {
             log.info("Recovered {} tasks from OFFLINE nodes -> QUEUED", recovered);
+            // #489: 回收后触发调度
+            try {
+                taskDispatcher.tryDispatchNext();
+            } catch (Exception e) {
+                log.debug("Post-offline-recovery dispatch: {}", e.getMessage());
+            }
         }
     }
 
@@ -324,22 +288,16 @@ public class TaskRecoveryScheduler {
         staleTasks.addAll(
                 taskRepository.findByStatusAndCreatedAtBefore(EvaluationTask.TaskStatus.PENDING, threshold));
 
-        java.util.Set<Long> affectedPlanIds = new java.util.HashSet<>();
-
         for (EvaluationTask task : staleTasks) {
             log.info("Auto-cancelling stale task {} (QUEUED/PENDING for >24h)", task.getTaskNo());
             task.setStatus(EvaluationTask.TaskStatus.CANCELLED);
             task.setCompletedAt(Instant.now());
             taskRepository.save(task);
-            // #403: Release GPU slots if any
-            try { gpuSlotService.releaseGpuSlots(task.getId()); } catch (Exception ignored) {}
-            if (task.getPlanId() != null) affectedPlanIds.add(task.getPlanId());
+            // #489: 统一资源释放
+            try { lifecycle.onTaskTerminated(task.getId()); } catch (Exception ignored) {}
         }
         if (!staleTasks.isEmpty()) {
             log.info("Auto-cancelled {} stale QUEUED/PENDING tasks", staleTasks.size());
-            for (Long planId : affectedPlanIds) {
-                updatePlanProgress(planId);
-            }
         }
     }
 
@@ -434,19 +392,6 @@ public class TaskRecoveryScheduler {
             } catch (Exception e) {
                 log.debug("Queued retry attempt failed: {}", e.getMessage());
             }
-        }
-    }
-
-    private void releaseNode(Long nodeId) {
-        try {
-            nodeRepository.findById(nodeId).ifPresent(node -> {
-                if (node.getStatus() == ComputeNode.Status.BUSY) {
-                    node.setStatus(ComputeNode.Status.ONLINE);
-                    nodeRepository.save(node);
-                }
-            });
-        } catch (Exception e) {
-            log.warn("Failed to release node {}: {}", nodeId, e.getMessage());
         }
     }
 }

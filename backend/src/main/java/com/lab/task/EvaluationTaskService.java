@@ -16,7 +16,6 @@ import java.util.Optional;
 import com.lab.user.UserRepository;
 import com.lab.config.TaskLogWebSocketHandler;
 import org.springframework.context.ApplicationContext;
-import com.lab.gpu.GpuSlotService;
 
 /**
  * 评测任务服务
@@ -32,7 +31,7 @@ public class EvaluationTaskService {
     private final TaskLogWebSocketHandler webSocketHandler;
     private final ApplicationContext applicationContext;
     private final UserRepository userRepository;
-    private final GpuSlotService gpuSlotService;
+    private final TaskLifecycleService lifecycle;
 
     /**
      * 创建评测任务
@@ -168,41 +167,20 @@ public class EvaluationTaskService {
         // #229: Broadcast status change via WebSocket
         try { webSocketHandler.broadcastTaskStatus(taskId, task.getPlanId(), status.name()); } catch (Exception e) { log.warn("WS broadcast failed: {}", e.getMessage()); }
         
-        // #403: 终态释放 GPU Slot
+        // #489: 终态统一资源释放（GPU + 节点 + 调度触发）
         if (status == EvaluationTask.TaskStatus.COMPLETED || 
             status == EvaluationTask.TaskStatus.FAILED ||
             status == EvaluationTask.TaskStatus.CANCELLED) {
             try {
-                gpuSlotService.releaseGpuSlots(taskId);
-                log.info("#403: Released GPU slots for task {} (status={})", taskId, status);
+                lifecycle.onTaskTerminated(taskId);
+                log.info("#489: Lifecycle onTaskTerminated for task {} (status={})", taskId, status);
             } catch (Exception e) {
-                log.warn("#403: Failed to release GPU slots for task {}: {}", taskId, e.getMessage());
+                log.warn("#489: Lifecycle failed for task {}: {}", taskId, e.getMessage());
             }
         }
 
-        // #404: 终态实时更新 Plan 进度
-        if ((status == EvaluationTask.TaskStatus.COMPLETED || 
-             status == EvaluationTask.TaskStatus.FAILED ||
-             status == EvaluationTask.TaskStatus.CANCELLED) && saved.getPlanId() != null) {
-            try {
-                updatePlanProgressRealtime(saved.getPlanId());
-            } catch (Exception e) {
-                log.warn("#404: Failed to update plan progress for task {}: {}", taskId, e.getMessage());
-            }
-        }
+        // #490: Plan 进度更新已由 lifecycle.onTaskTerminated 内部的 PlanProgressService 统一处理
 
-        // 事件驱动：任务完成/失败后尝试分发下一个排队任务
-        if (status == EvaluationTask.TaskStatus.COMPLETED || 
-            status == EvaluationTask.TaskStatus.FAILED ||
-            status == EvaluationTask.TaskStatus.CANCELLED) {
-            try {
-                TaskDispatcher dispatcher = applicationContext.getBean(TaskDispatcher.class);
-                log.info("Task {} finished ({}), triggering event-driven dispatch", taskId, status);
-                dispatcher.tryDispatchNext();
-            } catch (Exception e) {
-                log.debug("Post-completion dispatch failed: {}", e.getMessage());
-            }
-        }
         return saved;
     }
 
@@ -225,17 +203,7 @@ public class EvaluationTaskService {
             throw new RuntimeException("Task cannot be cancelled: " + task.getStatus());
         }
 
-        // #401: Release GPU slots immediately for RUNNING/DISPATCHED tasks
-        if (task.getStatus() == EvaluationTask.TaskStatus.RUNNING ||
-            task.getStatus() == EvaluationTask.TaskStatus.DISPATCHED) {
-            try {
-                gpuSlotService.releaseGpuSlots(taskId);
-                log.info("#401: Released GPU slots for cancelled task {}", taskId);
-            } catch (Exception e) {
-                log.warn("#401: Failed to release GPU slots for task {}: {}", taskId, e.getMessage());
-            }
-        }
-
+        // #489: cancelTask 不需要单独释放 GPU — updateTaskStatus(CANCELLED) 的终态分支会走 lifecycle
         return updateTaskStatus(taskId, EvaluationTask.TaskStatus.CANCELLED, "Cancelled by user");
     }
 
@@ -379,49 +347,12 @@ public class EvaluationTaskService {
         EvaluationTask saved = taskRepository.save(task);
         log.info("Skipped task: {}", taskId);
 
-        // 更新计划进度
-        if (task.getPlanId() != null) {
-            updatePlanProgressAfterSkip(task.getPlanId());
-        }
+        // #489: SKIPPED 是终态，走统一资源释放
+        lifecycle.onTaskTerminated(taskId);
         return saved;
     }
 
-    /**
-     * #404: 实时更新 Plan 进度（每次任务到达终态时调用）
-     * 统计 COMPLETED + FAILED + CANCELLED + SKIPPED 作为已完成任务数
-     */
-    private void updatePlanProgressRealtime(Long planId) {
-        EvaluationPlan plan = planRepository.findById(planId).orElse(null);
-        if (plan == null) return;
-        List<EvaluationTask> tasks = taskRepository.findByPlanId(planId);
-        int total = plan.getTotalTasks() != null && plan.getTotalTasks() > 0
-                ? plan.getTotalTasks() : tasks.size();
-        long done = tasks.stream()
-                .filter(t -> t.getStatus() == EvaluationTask.TaskStatus.COMPLETED ||
-                             t.getStatus() == EvaluationTask.TaskStatus.FAILED ||
-                             t.getStatus() == EvaluationTask.TaskStatus.CANCELLED ||
-                             t.getStatus() == EvaluationTask.TaskStatus.SKIPPED)
-                .count();
-        plan.setCompletedTasks((int) done);
-        plan.setProgress(total > 0 ? (int) (done * 100 / total) : 0);
-        planRepository.save(plan);
-        log.info("#404: Plan {} progress updated: {}/{} ({}%)", plan.getPlanNo(), done, total, plan.getProgress());
-    }
 
-    private void updatePlanProgressAfterSkip(Long planId) {
-        EvaluationPlan plan = planRepository.findById(planId).orElse(null);
-        if (plan == null) return;
-        List<EvaluationTask> tasks = taskRepository.findByPlanId(planId);
-        int total = tasks.size();
-        long done = tasks.stream()
-                .filter(t -> t.getStatus() == EvaluationTask.TaskStatus.COMPLETED ||
-                             t.getStatus() == EvaluationTask.TaskStatus.FAILED ||
-                             t.getStatus() == EvaluationTask.TaskStatus.SKIPPED)
-                .count();
-        plan.setCompletedTasks((int) done);
-        plan.setProgress(total > 0 ? (int) (done * 100 / total) : 0);
-        planRepository.save(plan);
-    }
 
     /**
      * 删除任务 (#325)
@@ -434,6 +365,9 @@ public class EvaluationTaskService {
         if (task.getStatus() == EvaluationTask.TaskStatus.RUNNING) {
             throw new RuntimeException("Cannot delete a running task. Please cancel it first.");
         }
+
+        // #489: 删除前释放 GPU（防止孤儿 slot）
+        lifecycle.onTaskTerminated(taskId);
 
         taskRepository.delete(task);
         log.info("Deleted task: {} by user {}", taskId, userId);

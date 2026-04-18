@@ -27,6 +27,9 @@ class EvaluationTaskServiceTest {
     @Mock
     private EvaluationTaskRepository taskRepository;
 
+    @Mock
+    private TaskLifecycleService lifecycle;
+
     @InjectMocks
     private EvaluationTaskService taskService;
 

@@ -185,10 +185,10 @@ public class TaskDispatcher {
         // 2. GPU Slot 预检查：节点有足够空闲 GPU 才 dispatch
         RunSpec runSpec = resolveRunSpec(task);
         int gpuNeeded = (runSpec != null && runSpec.getGpuPerNode() != null && runSpec.getGpuPerNode() > 0)
-                ? runSpec.getGpuPerNode() : 1;  // 默认需要 1 GPU
+                ? runSpec.getGpuPerNode() : 0;  // #490: 默认 0（无 RunSpec = CPU 任务不需要 GPU）
         long freeSlots = gpuSlotService.countFreeSlots(node.getId());
         long totalSlots = gpuSlotService.countTotalSlots(node.getId());
-        if (totalSlots > 0 && freeSlots < gpuNeeded) {
+        if (gpuNeeded > 0 && totalSlots > 0 && freeSlots < gpuNeeded) {
             // 该节点有 GPU Slot 管理但空闲不足
             String reason = String.format("等待 GPU 资源释放（节点 %s: %d/%d 空闲，需要 %d）",
                     node.getName(), freeSlots, totalSlots, gpuNeeded);
@@ -228,7 +228,7 @@ public class TaskDispatcher {
 
             // GPU Slot 分配（在唯一一次 save 之前完成）
             try {
-                if (totalSlots > 0) {
+                if (gpuNeeded > 0 && totalSlots > 0) {
                     List<GpuSlot> allocatedSlots = gpuSlotService.allocateGpuSlots(node.getId(), gpuNeeded, task.getId());
                     if (!allocatedSlots.isEmpty()) {
                         String gpuIndicesJson = allocatedSlots.stream()
@@ -353,9 +353,8 @@ public class TaskDispatcher {
             } else {
                 // 硬约束：不 fallback，宁可排队
                 String reason;
-                if ((pn.getStatus() == ComputeNode.Status.ONLINE || pn.getStatus() == ComputeNode.Status.BUSY) && isValidNodeIp(pn.getIpAddress())) {
-                    reason = String.format("等待节点 %s 可用", pn.getName());
-                } else if (pn.getStatus() == ComputeNode.Status.ONLINE) {
+                if (pn.getStatus() == ComputeNode.Status.ONLINE) {
+                    // ONLINE 但 IP 无效
                     reason = String.format("等待节点 %s 配置有效 IP（当前 IP 无效）", pn.getName());
                 } else {
                     reason = String.format("等待节点 %s 上线（当前状态: %s）", pn.getName(), pn.getStatus());

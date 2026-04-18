@@ -39,6 +39,7 @@ class TaskRecoverySchedulerTest {
     @Mock private TaskDispatcher taskDispatcher;
     @Mock private ReportGenerator reportGenerator;
     @Mock private GpuSlotService gpuSlotService;
+    @Mock private TaskLifecycleService lifecycle;
 
     @InjectMocks
     private TaskRecoveryScheduler scheduler;
