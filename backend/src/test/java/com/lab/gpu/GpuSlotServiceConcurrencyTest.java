@@ -1,5 +1,6 @@
 package com.lab.gpu;
 
+import com.lab.gpu.GpuSlotStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -100,7 +101,7 @@ class GpuSlotServiceConcurrencyTest {
             GpuSlot slot = new GpuSlot();
             slot.setNodeId(nodeId);
             slot.setGpuIndex(i);
-            slot.setStatus("FREE");
+            slot.setStatus(GpuSlotStatus.FREE);
             existing.add(slot);
         }
         when(gpuSlotRepository.findByNodeIdOrderByGpuIndex(nodeId)).thenReturn(existing);
