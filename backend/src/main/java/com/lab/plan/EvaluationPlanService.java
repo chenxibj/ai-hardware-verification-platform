@@ -272,13 +272,13 @@ public class EvaluationPlanService {
                 EvaluationTask.TaskStatus.PAUSED)) {
             List<EvaluationTask> tasks = taskRepository.findByPlanIdAndStatus(id, st);
             for (EvaluationTask task : tasks) {
-                // Release GPU slots for RUNNING/DISPATCHED tasks
-                if (st == EvaluationTask.TaskStatus.RUNNING || st == EvaluationTask.TaskStatus.DISPATCHED) {
-                    try {
-                        gpuSlotService.releaseGpuSlots(task.getId());
-                    } catch (Exception e) {
-                        log.warn("Failed to release GPU slots for task {}: {}", task.getTaskNo(), e.getMessage());
-                    }
+                // #499: Release GPU slots for ALL non-terminal tasks (not just RUNNING/DISPATCHED)
+                // Edge cases: QUEUED tasks might have GPU allocated from a race condition,
+                // PAUSED tasks may hold GPU from before pause
+                try {
+                    gpuSlotService.releaseGpuSlots(task.getId());
+                } catch (Exception e) {
+                    log.warn("Failed to release GPU slots for task {}: {}", task.getTaskNo(), e.getMessage());
                 }
                 task.setStatus(EvaluationTask.TaskStatus.CANCELLED);
                 task.setCompletedAt(Instant.now());
