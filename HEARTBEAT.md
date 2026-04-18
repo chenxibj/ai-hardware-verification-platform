@@ -45,13 +45,33 @@ gh issue list --repo chenxibj/ai-hardware-verification-platform --state open --j
 - 已由 `ahvp-health-check` cron 单独处理（每 15 分钟），此处跳过
 - 除非 health-check 连续报错，才在此步介入
 
-### Step 5: 清理 + 汇报
+### Step 5: 飞书通知（有动作必须通知，无动作才静默）
+
+**🔴 核心规则：巡检触发了任何动作或发现关键状态变化 → 必须通过飞书 DM 通知 chenxi**
+
+使用 `message` tool 发送到飞书（当前 session 即飞书 DM，直接回复即可）。
+
+**必须通知的情况（直接回复当前 session）：**
+- ✅ spawn 了新 agent → "🚀 启动 fix-497-499 处理 #497 #499（节点离线回收 + GPU Slot 泄漏）"
+- ✅ agent 超时/停止，已恢复 → "🔄 fix-496-497-499 超时，#496 已完成，重启 agent 继续 #497 #499"
+- ✅ 任务完成 → "✅ #497 #499 修复完成并部署，开始处理 #500 #501"
+- ✅ 发现新 issue → "📋 发现 3 个新 issue: #502 #503 #504，已排入队列"
+- ✅ agent 连续失败 (retryCount >= 3) → "❌ fix-xxx 连续 3 次失败，需要人工介入：[原因]"
+- ✅ 所有 issue 清零 → "🎉 所有 open issue 已处理完毕"
+
+**静默（HEARTBEAT_OK）的情况：**
+- agent 正常运行中，无状态变化
+- 无新 issue，无任务完成
+- 系统健康检查正常
+
+**通知格式要求：**
+- 简洁一行，带 emoji 前缀标识类型
+- 包含 issue 编号 + 简要描述
+- 不发系统运维消息（容器重启、SSH 恢复等）
+- 不发过程细节，只发结论性动作
+
+### Step 6: 清理
 - **清理 done 状态超过 7 天的任务记录**（归档到当天 memory 日志）
-- 有实际工作成果（issue 关闭、功能完成）→ 飞书群汇报成果
-- 一切正常且有 agent 在跑 → HEARTBEAT_OK
-- **🔴 不发系统状态/恢复通知** — 开发机恢复、容器重启等运维消息不发群里
-- **🔴 不发故障通知** — 发现问题自己修，修完不用说，只报工作成果
-- **🔴 禁止"需要关注""建议""需主 session 检查"等甩锅措辞**
 
 ---
 
@@ -65,6 +85,7 @@ gh issue list --repo chenxibj/ai-hardware-verification-platform --state open --j
 6. **🔴 Take Action, Not Report** — 发现问题直接修，修完汇报结果
 7. **agent 完成或停止 + 还有 open issue → 自动拉新 agent 继续，7×24 生效**
 8. **🔴 Spawn 前必须写 active-tasks.json** — 无记录的 agent 是幽灵，巡检无法追踪
+9. **🔴 有动作必须通知** — spawn agent、agent 完成/失败/恢复、发现新 issue 等状态变化，必须在当前 session 发飞书通知 chenxi。只有完全无变化才 HEARTBEAT_OK
 
 ## active-tasks.json 格式（完整版）
 
