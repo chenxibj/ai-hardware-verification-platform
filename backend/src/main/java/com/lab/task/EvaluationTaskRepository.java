@@ -81,4 +81,14 @@ public interface EvaluationTaskRepository extends JpaRepository<EvaluationTask, 
             "AND completed_at > NOW() - INTERVAL '7 days' " +
             "GROUP BY eval_type", nativeQuery = true)
     List<Object[]> findAverageDurationByEvalTypeRaw();
+
+    // #493: Metrics — count tasks completed in a time window
+    @Query("SELECT COUNT(t) FROM EvaluationTask t WHERE t.status = com.lab.task.EvaluationTask$TaskStatus.COMPLETED AND t.completedAt > :since")
+    long countCompletedSince(@Param("since") Instant since);
+
+    // #493: Metrics — average dispatch delay (seconds) for tasks started in last hour
+    @Query(value = "SELECT AVG(EXTRACT(EPOCH FROM (t.started_at - t.created_at))) " +
+            "FROM evaluation_tasks t WHERE t.status IN ('COMPLETED','RUNNING','FAILED') " +
+            "AND t.started_at IS NOT NULL AND t.started_at > NOW() - INTERVAL '1 hour'", nativeQuery = true)
+    Double findAverageDispatchDelaySecondsLastHour();
 }
