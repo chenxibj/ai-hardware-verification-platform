@@ -1,8 +1,11 @@
-"""系统指标采集模块"""
+"""系统指标采集模块 (#482: pynvml-first GPU collection)"""
+import logging
 import platform
 import time
 
 import psutil
+
+logger = logging.getLogger(__name__)
 
 
 def get_hardware_info() -> dict:
@@ -50,8 +53,6 @@ def get_system_metrics() -> dict:
     return metrics
 
 
-
-
 def _safe_int(s):
     """Safely convert string to int"""
     try:
@@ -68,29 +69,78 @@ def _safe_float(s):
         return None
 
 
-def get_gpu_info_detailed() -> dict:
-    """通过 nvidia-smi + torch.cuda 探测 GPU 详细信息
-    
-    返回:
-    {
-        "gpu_count": N,
-        "gpus": [
-            {
-                "index": 0,
-                "name": "NVIDIA L40S",
-                "memory_total_mb": 46068,
-                "memory_used_mb": 1024,
-                "memory_free_mb": 45044,
-                "temperature_c": 42,
-                "power_draw_w": 75.5,
-                "utilization_gpu_percent": 30,
-                "utilization_memory_percent": 5,
-            },
-            ...
-        ]
-    }
-    """
-    gpus = []
+# ── pynvml lazy init (once per process lifetime) ──
+_nvml_initialized = False
+
+
+def _ensure_nvml():
+    """Lazy-init pynvml; only call nvmlInit once per process."""
+    global _nvml_initialized
+    if _nvml_initialized:
+        return True
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        _nvml_initialized = True
+        return True
+    except Exception as e:
+        logger.debug("pynvml init failed: %s", e)
+        return False
+
+
+def _collect_via_pynvml():
+    """#482: Collect GPU info via pynvml C bindings (zero fork overhead).
+    Returns list of gpu dicts, or None if pynvml unavailable."""
+    if not _ensure_nvml():
+        return None
+    try:
+        import pynvml
+        count = pynvml.nvmlDeviceGetCount()
+        gpus = []
+        for i in range(count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            name = pynvml.nvmlDeviceGetName(handle)
+            if isinstance(name, bytes):
+                name = name.decode("utf-8")
+            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+
+            try:
+                temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
+            except Exception:
+                temp = None
+
+            try:
+                power = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0  # mW -> W
+            except Exception:
+                power = None
+
+            try:
+                util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+                gpu_util = util.gpu
+                mem_util = util.memory
+            except Exception:
+                gpu_util = None
+                mem_util = None
+
+            gpus.append({
+                "index": i,
+                "name": name,
+                "memory_total_mb": mem_info.total // 1048576,
+                "memory_used_mb": mem_info.used // 1048576,
+                "memory_free_mb": mem_info.free // 1048576,
+                "temperature_c": temp,
+                "power_draw_w": round(power, 1) if power else None,
+                "utilization_gpu_percent": gpu_util,
+                "utilization_memory_percent": mem_util,
+            })
+        return gpus
+    except Exception as e:
+        logger.warning("pynvml collect failed: %s", e)
+        return None
+
+
+def _collect_via_nvidia_smi():
+    """Collect GPU info via nvidia-smi CLI (fork process, fallback)."""
     try:
         import subprocess as _sp
         result = _sp.run(
@@ -100,50 +150,76 @@ def get_gpu_info_detailed() -> dict:
              '--format=csv,noheader,nounits'],
             capture_output=True, text=True, timeout=10
         )
-        if result.returncode == 0:
-            for line in result.stdout.strip().split('\n'):
-                parts = [p.strip() for p in line.split(',')]
-                if len(parts) >= 9:
-                    gpus.append({
-                        "index": int(parts[0]),
-                        "name": parts[1],
-                        "memory_total_mb": _safe_int(parts[2]),
-                        "memory_used_mb": _safe_int(parts[3]),
-                        "memory_free_mb": _safe_int(parts[4]),
-                        "temperature_c": _safe_int(parts[5]),
-                        "power_draw_w": _safe_float(parts[6]),
-                        "utilization_gpu_percent": _safe_int(parts[7]),
-                        "utilization_memory_percent": _safe_int(parts[8]),
-                    })
-    except FileNotFoundError:
-        pass  # No nvidia-smi (CPU node)
-    except Exception:
-        pass
-
-    # Fallback: torch.cuda (when nvidia-smi unavailable but CUDA env exists)
-    if not gpus:
-        try:
-            import torch
-            for i in range(torch.cuda.device_count()):
-                props = torch.cuda.get_device_properties(i)
+        if result.returncode != 0:
+            return []
+        gpus = []
+        for line in result.stdout.strip().split('\n'):
+            parts = [p.strip() for p in line.split(',')]
+            if len(parts) >= 9:
                 gpus.append({
-                    "index": i,
-                    "name": props.name,
-                    "memory_total_mb": props.total_mem // 1048576,
-                    "memory_used_mb": None,
-                    "memory_free_mb": None,
-                    "temperature_c": None,
-                    "power_draw_w": None,
-                    "utilization_gpu_percent": None,
-                    "utilization_memory_percent": None,
+                    "index": int(parts[0]),
+                    "name": parts[1],
+                    "memory_total_mb": _safe_int(parts[2]),
+                    "memory_used_mb": _safe_int(parts[3]),
+                    "memory_free_mb": _safe_int(parts[4]),
+                    "temperature_c": _safe_int(parts[5]),
+                    "power_draw_w": _safe_float(parts[6]),
+                    "utilization_gpu_percent": _safe_int(parts[7]),
+                    "utilization_memory_percent": _safe_int(parts[8]),
                 })
-        except Exception:
-            pass
+        return gpus
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
 
-    return {
-        "gpu_count": len(gpus),
-        "gpus": gpus,
+
+def _collect_via_torch_cuda():
+    """Collect basic GPU info via torch.cuda (last resort fallback)."""
+    try:
+        import torch
+        gpus = []
+        for i in range(torch.cuda.device_count()):
+            props = torch.cuda.get_device_properties(i)
+            gpus.append({
+                "index": i,
+                "name": props.name,
+                "memory_total_mb": props.total_mem // 1048576,
+                "memory_used_mb": None,
+                "memory_free_mb": None,
+                "temperature_c": None,
+                "power_draw_w": None,
+                "utilization_gpu_percent": None,
+                "utilization_memory_percent": None,
+            })
+        return gpus
+    except Exception:
+        return []
+
+
+def get_gpu_info_detailed() -> dict:
+    """#482: GPU info with pynvml > nvidia-smi > torch.cuda fallback chain.
+
+    Returns:
+    {
+        "gpu_count": N,
+        "gpus": [ { "index": 0, "name": "...", ... }, ... ]
     }
+    """
+    # Priority 1: pynvml (C bindings, zero fork overhead)
+    gpus = _collect_via_pynvml()
+    if gpus is not None:
+        return {"gpu_count": len(gpus), "gpus": gpus}
+
+    # Priority 2: nvidia-smi (fork process)
+    gpus = _collect_via_nvidia_smi()
+    if gpus:
+        return {"gpu_count": len(gpus), "gpus": gpus}
+
+    # Priority 3: torch.cuda (basic info only)
+    gpus = _collect_via_torch_cuda()
+    return {"gpu_count": len(gpus), "gpus": gpus}
+
 
 def collect_during_execution(duration_sec: float = 1.0) -> dict:
     """在评测执行期间采集指标快照"""
