@@ -4,6 +4,7 @@ AI 硬件验证平台 - 计算节点 Agent
 启动流程: 注册 -> 心跳线程 -> Flask HTTP 服务
 #400: 自愈能力提升 — systemd 服务化 + 优雅退出 + 健康检查
 #402: 批量拉取任务 — ThreadPoolExecutor 并发执行
+#505: 自愈三件套 — 注册失败防护 + 网络隔离 + supervisor 回调
 """
 import logging
 import logging.handlers
@@ -85,11 +86,11 @@ _shutting_down = threading.Event()
 
 @app.before_request
 def verify_token():
-    """请求认证中间件 (#213) - 平台->Agent 通信认证"""
-    # #400: /health 也不需要认证
-    if request.path in ('/status', '/health') or \
-       request.path.startswith('/api/k8s/'):
-        return  # 健康检查不需要认证
+    """请求认证中间件 (#213/#503) - 平台->Agent 通信认证
+    /health 保持匿名（K8s liveness probe），其余所有端点需要 X-Agent-Token"""
+    # #503: 仅 /health 免认证
+    if request.path == '/health':
+        return
     token = request.headers.get('X-Agent-Token')
     if token != config['platform']['token']:
         return jsonify({"code": -1, "message": "认证失败"}), 401
@@ -97,59 +98,19 @@ def verify_token():
 
 @app.route("/status", methods=["GET"])
 def status():
-    """返回 Agent 状态"""
+    """#503: 返回最小 Agent 状态，不暴露内部 node_id、config 详情"""
     return jsonify({
         "status": "online",
-        "node_id": node_info.get("id") if node_info else None,
-        "node_name": config["node"]["name"],
         "busy": executor.is_busy if executor else False,
-        "current_task": executor.current_tasks_info if executor else None,
-        "metrics": get_system_metrics(),
+        "active_tasks": executor.active_task_count if executor else 0,
+        "max_workers": executor.max_workers if executor else 0,
     })
 
 
 @app.route("/health", methods=["GET"])
 def health():
-    """#400: 健康检查端点 — 返回详细的 Agent 状态"""
-    uptime_sec = time.time() - BOOT_TIME
-    hb_status = "unknown"
-    hb_last_success = None
-    hb_consecutive_failures = 0
-
-    if heartbeat_thread and hasattr(heartbeat_thread, 'get_health_info'):
-        hb_info = heartbeat_thread.get_health_info()
-        hb_status = hb_info.get("status", "unknown")
-        hb_last_success = hb_info.get("last_success_time")
-        hb_consecutive_failures = hb_info.get("consecutive_failures", 0)
-    elif heartbeat_thread and heartbeat_thread.is_alive():
-        hb_status = "running"
-
-    current_tasks = []
-    active_count = 0
-    max_workers = 4
-    if executor:
-        current_tasks = executor.current_tasks_info
-        active_count = executor.active_task_count
-        max_workers = executor.max_workers
-
-    return jsonify({
-        "status": "healthy" if not _shutting_down.is_set() else "shutting_down",
-        "uptime_seconds": round(uptime_sec, 1),
-        "uptime_human": _format_uptime(uptime_sec),
-        "node_id": node_info.get("id") if node_info else None,
-        "node_name": config["node"]["name"],
-        "heartbeat": {
-            "status": hb_status,
-            "last_success_time": hb_last_success,
-            "consecutive_failures": hb_consecutive_failures,
-        },
-        "tasks": {
-            "active_count": active_count,
-            "max_workers": max_workers,
-            "current_tasks": current_tasks,
-        },
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
+    """#503: 健康检查端点 — 仅返回 status: healthy（K8s liveness probe）"""
+    return jsonify({"status": "healthy"})
 
 
 def _format_uptime(seconds):
@@ -168,6 +129,14 @@ def _format_uptime(seconds):
 @app.route("/execute", methods=["POST"])
 def execute():
     """接收并执行评测任务 — #226: 返回 202 Accepted, #402: 支持并发"""
+    # #505: 注册未完成时拒绝任务
+    if node_info is None or node_info.get("id", 0) == 0:
+        return jsonify({
+            "code": -1,
+            "message": "Agent 注册未完成（node_id=0），无法接收任务，请稍后重试",
+            "retryable": True,
+        }), 503
+
     if executor is None:
         return jsonify({"code": -1, "message": "Agent 未就绪"}), 503
 
@@ -291,8 +260,15 @@ def main():
                 logger.debug('Immediate re-poll failed: %s', e)
     executor.set_on_task_complete(_on_task_done)
 
+    # #505: 心跳重启回调 — supervisor 重启心跳线程时更新全局引用
+    def _on_heartbeat_restart(new_hb):
+        global heartbeat_thread
+        heartbeat_thread = new_hb
+        logger.info("#505: 全局心跳线程引用已更新")
+
     if node_id > 0:
         heartbeat_thread = HeartbeatThread(node_id, config, executor=executor)
+        heartbeat_thread.set_restart_callback(_on_heartbeat_restart)
         heartbeat_thread.start()
     else:
         def background_register():
@@ -312,6 +288,7 @@ def main():
                     if new_node_id > 0:
                         executor.node_id = new_node_id
                         heartbeat_thread = HeartbeatThread(new_node_id, config, executor=executor)
+                        heartbeat_thread.set_restart_callback(_on_heartbeat_restart)
                         heartbeat_thread.start()
                         logger.info("后台注册成功! 节点 ID=%s，心跳已启动", new_node_id)
                         return
