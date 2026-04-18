@@ -1,4 +1,4 @@
-"""心跳上报模块 — #247: 心跳404自动重注册, #400: 自愈能力提升, #402: 批量拉取"""
+"""心跳上报模块 — #247: 心跳404自动重注册, #400: 自愈能力提升, #402: 批量拉取, #505: 网络隔离+supervisor回调"""
 import json
 import logging
 import os
@@ -41,6 +41,10 @@ class HeartbeatThread(threading.Thread):
         self._consecutive_failures = 0
         self._last_success_time = None
         self._lock = threading.Lock()
+        # #505: 网络状态追踪
+        self._network_state = "connected"  # connected | disconnected
+        # #505: supervisor 重启回调
+        self._on_restart_callback = None  # main.py 设置的回调
         # #400: 守护线程（监控心跳线程自身）
         self._supervisor_thread = None
 
@@ -75,23 +79,29 @@ class HeartbeatThread(threading.Thread):
         return self.interval
 
     def _start_supervisor(self):
-        """#400: 启动守护线程 — 如果心跳线程异常退出，自动重启"""
+        """#400/#505: 启动守护线程 — 如果心跳线程异常退出，自动重启并通知 main.py 更新引用"""
         def supervisor():
             while not self._stop_event.is_set():
                 self._stop_event.wait(30)  # 每 30 秒检查一次
                 if self._stop_event.is_set():
                     return
                 if not self.is_alive():
-                    logger.warning("#400 自愈: 心跳线程已退出，正在重启...")
+                    logger.warning("#505: 心跳线程已退出，正在重启...")
                     try:
                         new_hb = HeartbeatThread(self.node_id, self.config, executor=self.executor)
                         new_hb._consecutive_failures = self._consecutive_failures
                         new_hb._last_success_time = self._last_success_time
+                        new_hb._network_state = self._network_state
+                        if self._on_restart_callback:
+                            new_hb.set_restart_callback(self._on_restart_callback)
                         new_hb.start()
-                        logger.info("#400 自愈: 心跳线程已重启")
+                        # #505: 通知 main.py 更新全局引用
+                        if self._on_restart_callback:
+                            self._on_restart_callback(new_hb)
+                        logger.info("#505: 心跳线程已重启")
                         return  # 新线程有自己的 supervisor
                     except Exception as e:
-                        logger.error("#400 自愈: 心跳线程重启失败: %s", e)
+                        logger.error("#505: 心跳线程重启失败: %s", e)
 
         self._supervisor_thread = threading.Thread(
             target=supervisor, daemon=True, name="heartbeat-supervisor")
@@ -99,6 +109,10 @@ class HeartbeatThread(threading.Thread):
 
     def stop(self):
         self._stop_event.set()
+
+    def set_restart_callback(self, callback):
+        """#505: 设置 supervisor 重启回调"""
+        self._on_restart_callback = callback
 
     def get_health_info(self):
         """#400: 返回心跳健康信息（给 /health 端点用）"""
@@ -109,6 +123,7 @@ class HeartbeatThread(threading.Thread):
                 "last_success_time": self._last_success_time,
                 "node_id": self.node_id,
                 "interval": self._get_dynamic_interval(),
+                "network_state": self._network_state,
             }
 
     def _send_heartbeat(self):
@@ -129,8 +144,12 @@ class HeartbeatThread(threading.Thread):
 
             if resp.status_code == 200:
                 with self._lock:
+                    was_disconnected = self._network_state == "disconnected"
                     self._consecutive_failures = 0
                     self._last_success_time = datetime.now(timezone.utc).isoformat()
+                    self._network_state = "connected"
+                if was_disconnected:
+                    logger.info("#505: 网络恢复 — 恢复正常工作")
                 logger.debug("心跳发送成功 CPU=%.1f%% MEM=%.1f%%",
                              metrics["cpu_percent"], metrics["memory_used_percent"])
             else:
@@ -152,6 +171,11 @@ class HeartbeatThread(threading.Thread):
                        failures, self.MAX_CONSECUTIVE_FAILURES, reason)
 
         if failures >= self.MAX_CONSECUTIVE_FAILURES:
+            # #505: 网络断开时暂停拉取新任务
+            with self._lock:
+                if self._network_state != "disconnected":
+                    self._network_state = "disconnected"
+                    logger.warning("#505: 网络断开 — 暂停拉取新任务，正在运行的任务继续")
             logger.warning("#400 自愈: 心跳连续失败 %d 次，触发自动重注册...", failures)
             self._do_re_register()
 
@@ -178,6 +202,11 @@ class HeartbeatThread(threading.Thread):
         """#402: 批量拉取任务 — 非忙时连续 poll 直到无任务或 worker 已满"""
         if self.executor is None:
             return
+        # #505: 网络断开时不拉新任务
+        with self._lock:
+            if self._network_state == "disconnected":
+                logger.debug("Network disconnected, skipping task poll")
+                return
 
         # 连续 poll，每次拉取可用 worker 数量的任务
         max_rounds = 3  # 最多连续 poll 3 轮，避免无限循环
