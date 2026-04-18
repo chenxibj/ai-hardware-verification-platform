@@ -60,12 +60,15 @@ except ImportError:
 def setup_model_for_inference(model, chip_info, params):
     """根据可用 GPU 数量设置推理模型
     #483: For HuggingFace string model names, prefer device_map="auto"
+    #485: Use _gpu_count from scheduler instead of torch.cuda.device_count()
+          device_count() returns ALL visible GPUs on the node (e.g. 8) even when
+          the scheduler only allocated a subset (e.g. 4). _gpu_count reflects
+          the actual allocation from RunSpec/GPU slot assignment.
     - 0 GPU (CPU): model.to("cpu")
     - 1 GPU: model.to("cuda:0")
     - N GPU + string model name: AutoModelForCausalLM.from_pretrained(device_map="auto")
     - N GPU + nn.Module: torch.nn.DataParallel(model) (fallback)
     """
-    gpu_count = params.get("_gpu_count", 0)
     device = resolve_device(chip_info)
 
     if device is None or device.type == "cpu":
@@ -74,9 +77,18 @@ def setup_model_for_inference(model, chip_info, params):
             return None, torch.device("cpu"), 1
         return model.to("cpu"), torch.device("cpu"), 1
 
-    visible_gpus = torch.cuda.device_count()
+    # #485: Use _gpu_count (scheduler-assigned GPU count) instead of device_count().
+    # device_count() returns ALL visible GPUs, but the scheduler may have allocated fewer.
+    # Only fall back to device_count() when _gpu_count is not provided (legacy/manual runs).
+    gpu_count = params.get("_gpu_count", 0)
+    if gpu_count <= 0:
+        gpu_count = torch.cuda.device_count() if torch.cuda.is_available() else 0
 
-    if visible_gpus <= 1:
+    print(f"[GPU-DEBUG] CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', 'NOT SET')}", flush=True)
+    print(f"[GPU-DEBUG] torch.cuda.device_count()={torch.cuda.device_count()}", flush=True)
+    print(f"[GPU-DEBUG] _gpu_count from scheduler={params.get('_gpu_count', 0)}, effective gpu_count={gpu_count}", flush=True)
+
+    if gpu_count <= 1:
         if isinstance(model, str):
             # Single GPU HF model — just load normally
             try:
@@ -98,17 +110,17 @@ def setup_model_for_inference(model, chip_info, params):
             loaded = AutoModelForCausalLM.from_pretrained(
                 model, device_map="auto", torch_dtype=torch.float16
             )
-            print(f"[MULTI-GPU] device_map='auto' loaded {model} across {visible_gpus} GPUs", flush=True)
-            return loaded, torch.device("cuda:0"), visible_gpus
+            print(f"[MULTI-GPU] device_map='auto' loaded {model} across {gpu_count} GPUs", flush=True)
+            return loaded, torch.device("cuda:0"), gpu_count
         except Exception as e:
             print(f"[MULTI-GPU] device_map='auto' failed for {model}: {e}, skipping", flush=True)
-            return None, torch.device("cuda:0"), visible_gpus
+            return None, torch.device("cuda:0"), gpu_count
 
     # nn.Module instance — DataParallel fallback
     model = model.to("cuda:0")
     model = torch.nn.DataParallel(model)
-    print(f"[MULTI-GPU] DataParallel inference on {visible_gpus} GPUs", flush=True)
-    return model, torch.device("cuda:0"), visible_gpus
+    print(f"[MULTI-GPU] DataParallel inference on {gpu_count} GPUs", flush=True)
+    return model, torch.device("cuda:0"), gpu_count
 
 
 def get_system_info():
