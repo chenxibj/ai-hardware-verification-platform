@@ -166,6 +166,11 @@ def execute():
         logger.info("注入 RunSpec: gpuIndices=%s, parallelMode=%s",
                     run_spec_data.get("gpuIndices"), run_spec_data.get("parallelMode"))
 
+    # #504: 后端传入的 timeout 注入到 params，executor 会优先使用
+    dispatch_timeout = data.get("timeout")
+    if dispatch_timeout:
+        merged_params["_timeout"] = dispatch_timeout
+
     logger.info("接收任务 %s, evalType=%s, params=%s, config=%s, merged=%s",
                 task_id, eval_type, params, task_config, merged_params)
 

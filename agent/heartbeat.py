@@ -269,6 +269,11 @@ class HeartbeatThread(threading.Thread):
                         logger.info("注入 RunSpec: gpuIndices=%s, parallelMode=%s",
                                     run_spec_data.get("gpuIndices"), run_spec_data.get("parallelMode"))
 
+                    # #504: 后端传入的 timeout 注入到 params
+                    dispatch_timeout = task_payload.get("timeout")
+                    if dispatch_timeout:
+                        merged_params["_timeout"] = dispatch_timeout
+
                     logger.info("#402 批量拉取: 接收任务 %s (type=%s), round=%d",
                                 task_id, eval_type, round_num + 1)
                     try:

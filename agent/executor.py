@@ -9,6 +9,7 @@ import random
 import subprocess
 import threading
 import time
+import signal as _signal
 from concurrent.futures import ThreadPoolExecutor as _ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Optional, Dict, List
@@ -24,6 +25,11 @@ logger = logging.getLogger(__name__)
 
 # #216: 上报失败时本地持久化目录
 PENDING_DIR = "/tmp/ahvp-pending-results"
+
+# #504: 动态超时配置（秒）
+TIMEOUT_MAP = {"OPERATOR": 300, "MODEL": 1200, "TRAINING": 7200}
+DEFAULT_TIMEOUT = 600  # fallback 超时
+NO_OUTPUT_TIMEOUT = 120  # 2分钟无输出判定卡死
 
 
 import socket
@@ -154,6 +160,28 @@ class TaskExecutor:
         logger.info("正在关闭任务线程池...")
         self._pool.shutdown(wait=False)
         logger.info("任务线程池已关闭")
+
+    @staticmethod
+    def _set_task_limits():
+        """#504: 评测脚本资源限制 — 降低优先级"""
+        try:
+            os.nice(5)
+        except OSError:
+            pass  # 非 root 或已超出范围时忽略
+
+    def _get_timeout(self, eval_type, params):
+        """#504: 动态超时 — 优先用后端传入的 timeout，fallback 到 TIMEOUT_MAP，最终 fallback DEFAULT_TIMEOUT"""
+        # 1. 后端传入的 timeout 优先
+        if isinstance(params, dict):
+            explicit = params.get("timeout") or params.get("_timeout")
+            if explicit and isinstance(explicit, (int, float)) and explicit > 0:
+                return int(explicit)
+        # 2. TIMEOUT_MAP by eval type
+        eval_upper = (eval_type or "").upper()
+        if eval_upper in TIMEOUT_MAP:
+            return TIMEOUT_MAP[eval_upper]
+        # 3. Fallback
+        return DEFAULT_TIMEOUT
 
     def _resolve_script(self, eval_type, params):
         """根据 eval_type 和 params 解析实际要执行的脚本名"""
@@ -435,6 +463,7 @@ class TaskExecutor:
             # #229: 使用 Popen 实时读取输出 + 结构化日志上报
             stdout_lines = []
             stderr_lines = []
+            # #504: start_new_session=True for process group kill, preexec_fn for resource limits
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -442,6 +471,8 @@ class TaskExecutor:
                 text=True,
                 cwd=self.project_root,
                 env=env,
+                start_new_session=True,
+                preexec_fn=self._set_task_limits,
             )
 
             # 结构化日志缓冲
@@ -507,21 +538,72 @@ class TaskExecutor:
             flush_thread = threading.Thread(target=periodic_flush, daemon=True)
             flush_thread.start()
 
-            # 等待进程完成（超时 600s）
-            try:
-                returncode = process.wait(timeout=600)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                returncode = -1
-                stderr_lines.append("Process killed: timeout exceeded (600s)\n")
-                with log_entries_lock:
-                    log_entries.append({
-                        "type": "ERROR",
-                        "level": "ERROR",
-                        "message": "Process killed: timeout exceeded (600s)",
-                        "source": "AGENT",
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    })
+            # #504: 动态超时 + 无输出超时 + 进程组 kill
+            task_timeout = self._get_timeout(eval_type, params)
+            logger.info("任务 %s 超时设置: %ds (type=%s)", task_id, task_timeout, eval_type)
+
+            def _kill_process_group(proc, reason):
+                """#504: 杀掉整个进程组，确保子进程也被清理"""
+                try:
+                    pgid = os.getpgid(proc.pid)
+                    os.killpg(pgid, _signal.SIGTERM)
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(pgid, _signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    pass  # 进程已退出
+                logger.warning("进程组已终止: %s (pid=%s)", reason, proc.pid)
+
+            # #504: 轮询式等待 — 同时检查总超时和无输出超时
+            start_wait = time.time()
+            last_output_time = time.time()
+            last_line_count = 0
+            returncode = None
+
+            while returncode is None:
+                try:
+                    returncode = process.wait(timeout=2)  # 2 秒轮询间隔
+                except subprocess.TimeoutExpired:
+                    pass
+
+                elapsed_total = time.time() - start_wait
+                current_line_count = len(stdout_lines) + len(stderr_lines)
+
+                # 检测有新输出 → 重置无输出计时器
+                if current_line_count > last_line_count:
+                    last_output_time = time.time()
+                    last_line_count = current_line_count
+
+                no_output_elapsed = time.time() - last_output_time
+
+                # 总超时检查
+                if returncode is None and elapsed_total > task_timeout:
+                    _kill_process_group(process, "总超时 {}s".format(task_timeout))
+                    returncode = -1
+                    msg = "Process killed: timeout exceeded ({}s)".format(task_timeout)
+                    stderr_lines.append(msg + "\n")
+                    with log_entries_lock:
+                        log_entries.append({
+                            "type": "ERROR", "level": "ERROR",
+                            "message": msg, "source": "AGENT",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        })
+                    break
+
+                # 无输出超时检查
+                if returncode is None and no_output_elapsed > NO_OUTPUT_TIMEOUT:
+                    _kill_process_group(process, "无输出超时 {}s".format(NO_OUTPUT_TIMEOUT))
+                    returncode = -1
+                    msg = "Process killed: no output for {}s (stuck)".format(NO_OUTPUT_TIMEOUT)
+                    stderr_lines.append(msg + "\n")
+                    with log_entries_lock:
+                        log_entries.append({
+                            "type": "ERROR", "level": "ERROR",
+                            "message": msg, "source": "AGENT",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        })
+                    break
 
             stdout_thread.join(timeout=5)
             stderr_thread.join(timeout=5)
