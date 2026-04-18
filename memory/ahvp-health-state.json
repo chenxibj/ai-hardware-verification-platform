@@ -1,0 +1,11 @@
+{
+  "issues": {
+    "backend-crash-loop": {
+      "count": 1,
+      "firstSeen": "2026-04-18T18:42:00+08:00",
+      "lastSeen": "2026-04-18T18:42:00+08:00",
+      "detail": "ahvp-backend crash-loop: HQL SemanticException - Could not interpret path expression 'com.lab.task.EvaluationTask.TaskStatus.COMPLETED' in EvaluationTaskRepository.countCompletedSince(). Code bug, not infra issue."
+    }
+  },
+  "lastCheck": "2026-04-18T18:42:00+08:00"
+}

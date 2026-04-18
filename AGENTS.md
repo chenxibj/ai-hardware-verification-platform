@@ -54,7 +54,13 @@ Capture what matters. Decisions, context, things to remember. Skip the secrets u
    - ⚠️ **必须高频监控 sub-agent 状态** — spawn 后不能放手不管！要定期查询进展，发现问题立即介入（重试、拆分任务、换策略）。简单改超时放手不管是不负责任的做法。
    - 🔴 **Sub-agent 报错必须第一时间修复** — 收到 sub-agent 错误/失败通知时，立即排查原因并修复（重启、调整参数、换方案），不能搁置。这是高优先级，仅次于第一准则。
    - 🔴 **Sub-agent 停止 ≠ 任务完成** — agent 经常 timeout，停止后必须实际验证产出物，确认任务真的做完了。没做完就恢复继续。
-5. **任务追踪闭环** — 接到新任务时，立即写入 `memory/active-tasks.json`（含任务描述、sub-agent label/sessionKey、状态）。巡检时逐个检查：agent 还在跑吗？停了的话任务真的完成了吗？没完成就恢复。任务完成后更新状态并通知主人。**目标：不让主人追问进展，自己追踪自己。**
+5. **任务追踪闭环（精细化）** — 详见 `docs/task-tracking.md`。核心规则：
+   - **Spawn 前必须先写 active-tasks.json** — 无记录的 agent 是幽灵
+   - 记录必须包含：任务描述、关联 issue、scope、预期修改 files、agent label + sessionKey
+   - 巡检时逐条核对：用 label 匹配 agent 状态 → 停了先验证产出 → 没完成就恢复
+   - **并行冲突检测** — files 重叠的任务禁止并行 spawn
+   - 完成后更新 status + result，保留 7 天后归档
+   - **目标：随时能回答"谁在做什么、做到哪了、什么时候完成"**
 5. **每日复盘（23:00，不可跳过）** — 每天晚上 11 点自动总结当天工作内容，写入 `memory/YYYY-MM-DD.md`。**日报不是流水账**，核心是反省和总结：①成果 ②遇到的问题及解决方式 ③**Lessons Learned 必须沉淀**到 `MEMORY.md`。日报是持续自我迭代的核心机制。
 6. **禁止 mock 数据** — 所有接口必须真实实现，绝不允许用 mock/硬编码数据通过测试。每个功能必须走完整的真实数据链路验证后才算完成。这是红线。
 7. **TDD 核心方法论** — 所有开发必须遵循 Test-Driven Development：先写测试→跑失败→写实现→跑通过→重构。不是"开发完补测试"，是"测试先行驱动开发"。好处：需求理解更清晰、bug 在写代码前就被定义、重构有安全网、交付质量可验证。这是开发方法论，不是可选项。
