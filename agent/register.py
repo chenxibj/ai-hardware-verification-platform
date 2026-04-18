@@ -1,3 +1,4 @@
+import os
 import socket
 import json
 """节点注册模块 - 支持重试 + GPU 上报 (#478)"""
@@ -27,13 +28,19 @@ def register_node(config, max_retries=5, retry_interval=10):
         hardware["gpu_name"] = gpu_info["gpus"][0]["name"]  # backward compat
 
     # Auto-detect local IP for registration
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        local_ip = s.getsockname()[0]
-        s.close()
-    except Exception:
-        local_ip = "127.0.0.1"
+    # #495: 支持 AGENT_IP_ADDRESS 环境变量覆盖（或 config._overrides.ip_address）
+    override_ip = config.get("_overrides", {}).get("ip_address") or os.environ.get("AGENT_IP_ADDRESS")
+    if override_ip:
+        local_ip = override_ip
+        logger.info("使用环境变量覆盖 IP: %s", local_ip)
+    else:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            local_ip = "127.0.0.1"
     
     payload = {
         "name": node_cfg["name"],

@@ -22,6 +22,23 @@ CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.y
 with open(CONFIG_PATH, "r") as f:
     config = yaml.safe_load(f)
 
+# #495: 环境变量覆盖 — 支持多节点部署（同一份代码，不同环境变量）
+if os.environ.get("AGENT_NODE_NAME"):
+    config["node"]["name"] = os.environ["AGENT_NODE_NAME"]
+if os.environ.get("AGENT_NODE_DESCRIPTION"):
+    config["node"]["description"] = os.environ["AGENT_NODE_DESCRIPTION"]
+if os.environ.get("AGENT_NODE_TAGS"):
+    config["node"]["tags"] = os.environ["AGENT_NODE_TAGS"]
+if os.environ.get("AGENT_PORT"):
+    config["agent"]["port"] = int(os.environ["AGENT_PORT"])
+if os.environ.get("AGENT_PLATFORM_URL"):
+    config["platform"]["url"] = os.environ["AGENT_PLATFORM_URL"]
+if os.environ.get("AGENT_PLATFORM_TOKEN"):
+    config["platform"]["token"] = os.environ["AGENT_PLATFORM_TOKEN"]
+if os.environ.get("AGENT_IP_ADDRESS"):
+    # 存储到 config 中供 register.py 使用，覆盖自动探测的 IP
+    config.setdefault("_overrides", {})["ip_address"] = os.environ["AGENT_IP_ADDRESS"]
+
 # 配置日志 - RotatingFileHandler (#217)
 log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 os.makedirs(log_dir, exist_ok=True)
