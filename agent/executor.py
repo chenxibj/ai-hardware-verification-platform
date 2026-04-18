@@ -157,6 +157,7 @@ class TaskExecutor:
 
     def _resolve_script(self, eval_type, params):
         """根据 eval_type 和 params 解析实际要执行的脚本名"""
+        eval_type = eval_type or ""
         script_name = self.SCRIPT_MAP.get(eval_type) or self.SCRIPT_MAP.get(eval_type.upper()) or self.SCRIPT_MAP.get(eval_type.lower())
 
         if script_name is None and eval_type.upper() != "PERFORMANCE":
@@ -331,6 +332,9 @@ class TaskExecutor:
         - Everything else (OPERATOR, MODEL inference, etc.): python3
         """
         params_json = json.dumps(script_params)
+        # #487: Defensive None handling
+        parallel_mode = parallel_mode or ""
+        eval_type = eval_type or ""
         # #484: Only training tasks should use torchrun
         if (gpu_count > 1
                 and parallel_mode.upper() in ("DDP", "FSDP")
