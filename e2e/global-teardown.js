@@ -8,12 +8,14 @@ module.exports = async function globalTeardown() {
   
   try {
     // Clean up test compute nodes created during e2e tests
+    // First delete GPU slots referencing test nodes
     execSync(
-      `docker exec ahvp-postgres psql -U ahvp -d ahvp_db -c "DELETE FROM gpu_slots WHERE node_id IN (SELECT id FROM compute_nodes WHERE name LIKE '%test%')"`,
+      `docker exec ahvp-postgres psql -U ahvp -d ahvp -c "DELETE FROM gpu_slots WHERE node_id IN (SELECT id FROM compute_nodes WHERE name LIKE '%test%')"`,
       { stdio: 'pipe' }
     );
+    // Then delete the test nodes themselves
     execSync(
-      `docker exec ahvp-postgres psql -U ahvp -d ahvp_db -c "DELETE FROM compute_nodes WHERE name LIKE '%test%'"`,
+      `docker exec ahvp-postgres psql -U ahvp -d ahvp -c "DELETE FROM compute_nodes WHERE name LIKE '%test%'"`,
       { stdio: 'pipe' }
     );
     console.log('[global-teardown] Test compute nodes cleaned');
