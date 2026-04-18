@@ -48,8 +48,8 @@ class TestBuildLaunchCommand(unittest.TestCase):
         port_args = [a for a in cmd if a.startswith("--master_port=")]
         self.assertEqual(len(port_args), 1)
         port_val = int(port_args[0].split("=")[1])
-        self.assertGreaterEqual(port_val, 29500)
-        self.assertLessEqual(port_val, 39999)
+        self.assertGreaterEqual(port_val, 1024)  # #480: bind-then-release returns OS-assigned port
+        self.assertLessEqual(port_val, 65535)  # #480: valid port range
         # script and params at the end
         self.assertEqual(cmd[-2], self.script)
         self.assertEqual(json.loads(cmd[-1]), params)
