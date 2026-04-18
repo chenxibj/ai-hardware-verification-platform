@@ -119,8 +119,6 @@ public class TaskDispatcher {
             log.info("Event-driven dispatch: {} tasks dispatched from queue", dispatched);
         }
 
-        // #478 P6: Refresh queue positions after dispatching
-        refreshQueuePositions();
     }
 
     /**
@@ -552,35 +550,6 @@ public class TaskDispatcher {
         }
 
         return payload;
-    }
-
-
-    /**
-     * #478 P6: Refresh queue positions for all QUEUED tasks
-     * Called after each dispatch cycle to keep position/wait estimates current
-     */
-    private void refreshQueuePositions() {
-        List<EvaluationTask> queuedTasks = taskRepository.findQueuedTasksOrderByPriorityAndCreatedAt();
-        if (queuedTasks.isEmpty()) return;
-
-        // Calculate average completion time from recent tasks (default 10 min)
-        double avgMinutes = 10.0;
-        try {
-            Double avgSeconds = taskRepository.findAverageCompletedDurationSeconds();
-            if (avgSeconds != null && avgSeconds > 0) {
-                avgMinutes = avgSeconds / 60.0;
-            }
-        } catch (Exception e) {
-            log.debug("Failed to calculate avg duration, using default 10 min: {}", e.getMessage());
-        }
-
-        for (int i = 0; i < queuedTasks.size(); i++) {
-            EvaluationTask task = queuedTasks.get(i);
-            task.setQueuePosition(i + 1);
-            task.setEstimatedWaitMinutes((int) Math.ceil((i + 1) * avgMinutes));
-        }
-        taskRepository.saveAll(queuedTasks);
-        log.debug("Refreshed queue positions for {} tasks (avg {}m)", queuedTasks.size(), String.format("%.1f", avgMinutes));
     }
 
     /**

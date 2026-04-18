@@ -651,23 +651,44 @@ public class EvaluationTaskController {
 
 
     /**
-     * #478 P6: GET /tasks/queue — 返回 QUEUED 任务列表（含 queuePosition, estimatedWaitMinutes, queueReason）
+     * #481: GET /tasks/queue — compute positions + wait estimates on-the-fly
+     * Uses per-evalType average duration from last 7 days (falls back to 10 min)
      */
     @GetMapping("/queue")
     @RequireRole(Role.VIEWER)
     public ResponseEntity<Map<String, Object>> getQueuedTasks() {
         List<EvaluationTask> queuedTasks = taskRepository.findQueuedTasksOrderByPriorityAndCreatedAt();
 
+        // #481: Build evalType -> avg minutes map from recent completions
+        Map<String, Double> avgMinutesByType = new HashMap<>();
+        try {
+            List<Object[]> rawAvgs = taskRepository.findAverageDurationByEvalTypeRaw();
+            for (Object[] row : rawAvgs) {
+                String evalType = (String) row[0];
+                double avgSec = ((Number) row[1]).doubleValue();
+                avgMinutesByType.put(evalType, avgSec / 60.0);
+            }
+        } catch (Exception e) {
+            log.debug("Failed to compute per-type avg duration: {}", e.getMessage());
+        }
+
         List<Map<String, Object>> queueData = new java.util.ArrayList<>();
-        for (EvaluationTask task : queuedTasks) {
+        for (int i = 0; i < queuedTasks.size(); i++) {
+            EvaluationTask task = queuedTasks.get(i);
+            int position = i + 1;
+            String evalType = task.getEvalType() != null ? task.getEvalType().name() : null;
+            double avgMin = (evalType != null) ? avgMinutesByType.getOrDefault(evalType, 10.0) : 10.0;
+            int estimatedWait = (int) Math.ceil(position * avgMin);
+
             Map<String, Object> item = new java.util.LinkedHashMap<>();
             item.put("id", task.getId());
             item.put("taskNo", task.getTaskNo());
             item.put("name", task.getName());
+            item.put("evalType", evalType);
             item.put("status", task.getStatus() != null ? task.getStatus().name() : null);
             item.put("priority", task.getPriority() != null ? task.getPriority().name() : null);
-            item.put("queuePosition", task.getQueuePosition());
-            item.put("estimatedWaitMinutes", task.getEstimatedWaitMinutes());
+            item.put("queuePosition", position);
+            item.put("estimatedWaitMinutes", estimatedWait);
             item.put("queueReason", task.getQueueReason());
             item.put("allocatedGpuIndices", task.getAllocatedGpuIndices());
             item.put("createdAt", task.getCreatedAt());

@@ -73,5 +73,12 @@ public interface EvaluationTaskRepository extends JpaRepository<EvaluationTask, 
     // #478 P6: Queue position calculation — #478 P7: Fix SQL (subquery for LIMIT with AVG)
     @Query(value = "SELECT AVG(sub.duration) FROM (SELECT EXTRACT(EPOCH FROM (t.completed_at - t.started_at)) AS duration FROM evaluation_tasks t WHERE t.status = 'COMPLETED' AND t.completed_at IS NOT NULL AND t.started_at IS NOT NULL ORDER BY t.completed_at DESC LIMIT 50) sub", nativeQuery = true)
     Double findAverageCompletedDurationSeconds();
-}
 
+    // #481: Average duration grouped by evalType (last 7 days)
+    @Query(value = "SELECT eval_type, AVG(EXTRACT(EPOCH FROM (completed_at - started_at))) " +
+            "FROM evaluation_tasks " +
+            "WHERE status = 'COMPLETED' AND started_at IS NOT NULL AND completed_at IS NOT NULL " +
+            "AND completed_at > NOW() - INTERVAL '7 days' " +
+            "GROUP BY eval_type", nativeQuery = true)
+    List<Object[]> findAverageDurationByEvalTypeRaw();
+}
