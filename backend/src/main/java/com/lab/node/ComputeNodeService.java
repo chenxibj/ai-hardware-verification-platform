@@ -396,6 +396,23 @@ public class ComputeNodeService {
         }
     }
 
+    /**
+     * #493: 释放节点 BUSY → ONLINE（公共方法，供 TaskLifecycleService 等调用）
+     * @return true if the node was BUSY and has been released to ONLINE
+     */
+    @Transactional
+    public boolean releaseIfBusy(Long nodeId) {
+        return repo.findById(nodeId).map(node -> {
+            if (node.getStatus() == ComputeNode.Status.BUSY) {
+                node.setStatus(ComputeNode.Status.ONLINE);
+                repo.save(node);
+                log.info("Node {} released BUSY -> ONLINE", node.getName());
+                return true;
+            }
+            return false;
+        }).orElse(false);
+    }
+
     @Scheduled(fixedRate = 30000)
     @Transactional
     public void checkOfflineNodes() {

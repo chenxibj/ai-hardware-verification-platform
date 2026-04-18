@@ -1,8 +1,7 @@
 package com.lab.task;
 
 import com.lab.gpu.GpuSlotService;
-import com.lab.node.ComputeNode;
-import com.lab.node.ComputeNodeRepository;
+import com.lab.node.ComputeNodeService;
 import com.lab.plan.PlanProgressService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,9 +11,11 @@ import org.springframework.stereotype.Service;
  * #489: 统一任务终态善后处理。
  * 所有代码路径到达终态时调 onTaskTerminated，完整执行四步：
  * 1. 释放 GPU Slot
- * 2. 释放节点 BUSY → ONLINE
+ * 2. 释放节点 BUSY → ONLINE（via ComputeNodeService.releaseIfBusy）
  * 3. 更新 Plan 进度（via PlanProgressService）
  * 4. 触发调度 tryDispatchNext()
+ *
+ * #493: 节点释放逻辑提取到 ComputeNodeService.releaseIfBusy，去重
  *
  * 每步异常隔离，不因某步失败影响其他步骤。
  * 不加 @Transactional（由调用方决定事务边界）。
@@ -25,7 +26,7 @@ import org.springframework.stereotype.Service;
 public class TaskLifecycleService {
 
     private final GpuSlotService gpuSlotService;
-    private final ComputeNodeRepository nodeRepository;
+    private final ComputeNodeService computeNodeService;
     private final EvaluationTaskRepository taskRepository;
     private final TaskDispatcher taskDispatcher;
     private final PlanProgressService planProgressService;
@@ -44,19 +45,16 @@ public class TaskLifecycleService {
             log.warn("GPU slot release failed for task {}: {}", taskId, e.getMessage());
         }
 
-        // 2. 释放节点（BUSY → ONLINE）
+        // 2. 释放节点（BUSY → ONLINE）— 委托给 ComputeNodeService
         try {
             EvaluationTask task = taskRepository.findById(taskId).orElse(null);
             if (task != null) {
                 planId = task.getPlanId();
                 if (task.getAssignedNodeId() != null) {
-                    nodeRepository.findById(task.getAssignedNodeId()).ifPresent(node -> {
-                        if (node.getStatus() == ComputeNode.Status.BUSY) {
-                            node.setStatus(ComputeNode.Status.ONLINE);
-                            nodeRepository.save(node);
-                            log.info("Node {} released back to ONLINE (task {})", node.getName(), taskId);
-                        }
-                    });
+                    boolean released = computeNodeService.releaseIfBusy(task.getAssignedNodeId());
+                    if (released) {
+                        log.info("Node released back to ONLINE (task {})", taskId);
+                    }
                 }
             }
         } catch (Exception e) {
