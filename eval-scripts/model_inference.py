@@ -57,6 +57,31 @@ except ImportError:
         return info
 
 
+def setup_model_for_inference(model, chip_info, params):
+    """根据可用 GPU 数量设置推理模型
+    - 0 GPU (CPU): model.to("cpu")
+    - 1 GPU: model.to("cuda:0")
+    - N GPU: torch.nn.DataParallel(model)
+    """
+    gpu_count = params.get("_gpu_count", 0)
+    device = resolve_device(chip_info)
+
+    if device is None or device.type == "cpu":
+        return model.to("cpu"), torch.device("cpu"), 1
+
+    visible_gpus = torch.cuda.device_count()
+
+    if visible_gpus <= 1:
+        model = model.to(device)
+        return model, device, 1
+
+    # 多卡推理: DataParallel
+    model = model.to("cuda:0")
+    model = torch.nn.DataParallel(model)
+    print(f"[MULTI-GPU] DataParallel inference on {visible_gpus} GPUs", flush=True)
+    return model, torch.device("cuda:0"), visible_gpus
+
+
 def get_system_info():
     info = {
         "cpu": platform.processor() or platform.machine(),
@@ -231,16 +256,21 @@ def main():
             ok = False
 
             if is_gpu and HAS_TORCH:
-                # GPU 路径：PyTorch
-                model = TorchMLP(cfg["in"], cfg["hid"], cfg["out"]).to(device).eval()
-                inp_tensor = torch.randn(bs, cfg["in"], device=device)
+                # GPU 路径：PyTorch (supports multi-GPU DataParallel)
+                raw_model = TorchMLP(cfg["in"], cfg["hid"], cfg["out"]).eval()
+                model, actual_device, effective_gpus = setup_model_for_inference(raw_model, chip_info, params)
+                effective_bs = bs * effective_gpus  # 多卡时 batch 线性扩展
+                inp_tensor = torch.randn(effective_bs, cfg["in"], device=actual_device)
                 fn = lambda x, m=model: m(x)
                 perf = bench_gpu(fn, inp_tensor, iters=iterations)
                 with torch.no_grad():
                     out = fn(inp_tensor)
                 probs = out.cpu().numpy()
                 ok = bool(np.allclose(np.sum(probs, axis=-1), 1.0, atol=1e-4)) and bool(np.all(probs >= 0))
-                backend = f"PyTorch-CUDA ({torch.cuda.get_device_name(device)})"
+                gpu_name = torch.cuda.get_device_name(actual_device)
+                backend = f"PyTorch-CUDA ({gpu_name})"
+                if effective_gpus > 1:
+                    backend += f" x{effective_gpus} DataParallel"
             elif HAS_TORCH and device is not None and device.type == "cpu":
                 # PyTorch CPU 路径
                 model = TorchMLP(cfg["in"], cfg["hid"], cfg["out"]).eval()
@@ -294,7 +324,9 @@ def main():
                 "status": "PASS" if ok else "FAIL",
             }
             if is_gpu and HAS_TORCH:
-                result_entry.update(get_gpu_info(device))
+                result_entry.update(get_gpu_info(actual_device))
+                result_entry["gpu_count"] = effective_gpus
+                result_entry["effective_batch_size"] = effective_bs
             results.append(result_entry)
 
             print(f"[METRIC] {cfg['name']} bs={bs}: latency_mean={perf['latency_ms_mean']:.3f}ms, "
@@ -311,6 +343,8 @@ def main():
         "config": {
             "iterations": iterations, "batch_sizes": batch_sizes,
             "model_filter": model_filter, "device": get_device_str(device),
+            "gpu_count": params.get("_gpu_count", 0),
+            "parallel_mode": params.get("_parallel_mode", "none"),
         },
         "results": results,
         "summary": {
