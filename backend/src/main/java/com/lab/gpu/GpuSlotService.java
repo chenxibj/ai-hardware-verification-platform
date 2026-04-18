@@ -10,6 +10,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -28,6 +31,9 @@ public class GpuSlotService {
 
     private final GpuSlotRepository gpuSlotRepository;
     private final EvaluationTaskRepository taskRepository;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     private static final Set<EvaluationTask.TaskStatus> TERMINAL_STATUSES = Set.of(
             EvaluationTask.TaskStatus.COMPLETED,
@@ -177,6 +183,11 @@ public class GpuSlotService {
     @Transactional
     public void initializeSlots(Long nodeId, int gpuCount, List<Map<String, Object>> gpuDetails) {
         if (gpuCount <= 0) return;
+
+        // #479: Advisory lock prevents concurrent register/heartbeat from creating duplicate slots
+        entityManager.createNativeQuery("SELECT pg_advisory_xact_lock(:nodeId)")
+                .setParameter("nodeId", nodeId)
+                .getSingleResult();
 
         List<GpuSlot> existing = gpuSlotRepository.findByNodeIdOrderByGpuIndex(nodeId);
 
