@@ -59,23 +59,52 @@ except ImportError:
 
 def setup_model_for_inference(model, chip_info, params):
     """根据可用 GPU 数量设置推理模型
+    #483: For HuggingFace string model names, prefer device_map="auto"
     - 0 GPU (CPU): model.to("cpu")
     - 1 GPU: model.to("cuda:0")
-    - N GPU: torch.nn.DataParallel(model)
+    - N GPU + string model name: AutoModelForCausalLM.from_pretrained(device_map="auto")
+    - N GPU + nn.Module: torch.nn.DataParallel(model) (fallback)
     """
     gpu_count = params.get("_gpu_count", 0)
     device = resolve_device(chip_info)
 
     if device is None or device.type == "cpu":
+        if isinstance(model, str):
+            # Can't load HF model on CPU in this path — caller handles
+            return None, torch.device("cpu"), 1
         return model.to("cpu"), torch.device("cpu"), 1
 
     visible_gpus = torch.cuda.device_count()
 
     if visible_gpus <= 1:
+        if isinstance(model, str):
+            # Single GPU HF model — just load normally
+            try:
+                from transformers import AutoModelForCausalLM
+                loaded = AutoModelForCausalLM.from_pretrained(model, torch_dtype=torch.float16).to(device)
+                print(f"[SINGLE-GPU] Loaded HF model {model} on {device}", flush=True)
+                return loaded, device, 1
+            except Exception as e:
+                print(f"[SINGLE-GPU] Failed to load HF model {model}: {e}", flush=True)
+                return None, device, 1
         model = model.to(device)
         return model, device, 1
 
-    # 多卡推理: DataParallel
+    # 多卡推理路径
+    if isinstance(model, str):
+        # #483: HuggingFace model name — prefer device_map="auto"
+        try:
+            from transformers import AutoModelForCausalLM
+            loaded = AutoModelForCausalLM.from_pretrained(
+                model, device_map="auto", torch_dtype=torch.float16
+            )
+            print(f"[MULTI-GPU] device_map='auto' loaded {model} across {visible_gpus} GPUs", flush=True)
+            return loaded, torch.device("cuda:0"), visible_gpus
+        except Exception as e:
+            print(f"[MULTI-GPU] device_map='auto' failed for {model}: {e}, skipping", flush=True)
+            return None, torch.device("cuda:0"), visible_gpus
+
+    # nn.Module instance — DataParallel fallback
     model = model.to("cuda:0")
     model = torch.nn.DataParallel(model)
     print(f"[MULTI-GPU] DataParallel inference on {visible_gpus} GPUs", flush=True)
