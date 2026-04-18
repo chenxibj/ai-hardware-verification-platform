@@ -1,19 +1,16 @@
-2026-04-06 14:52:38 [agent] INFO - ============================================================
-2026-04-06 14:52:38 [agent] INFO - AI 硬件验证平台 - 计算节点 Agent 启动中...
-2026-04-06 14:52:38 [agent] INFO - 平台地址: http://localhost:8080/api
-2026-04-06 14:52:38 [agent] INFO - 节点名称: dev-node-01
-2026-04-06 14:52:38 [agent] INFO - Agent 端口: 8090
-2026-04-06 14:52:38 [agent] INFO - ============================================================
-2026-04-06 14:52:38 [register] INFO - 正在注册节点到 http://localhost:8080/api/nodes/register ...
-2026-04-06 14:52:38 [register] ERROR - 注册请求异常: 500 Server Error:  for url: http://localhost:8080/api/nodes/register
-2026-04-06 14:52:38 [agent] ERROR - 节点注册失败! 将以离线模式启动（可接受本地执行）
-2026-04-06 14:52:38 [agent] WARNING - 节点未注册成功，跳过心跳
-2026-04-06 14:52:38 [agent] INFO - 启动 HTTP 服务 0.0.0.0:8090
- * Tip: There are .env files present. Install python-dotenv to use them.
+2026-04-18 11:44:22 [agent.k8s] INFO - K8s heartbeat proxy started (30s interval)
+2026-04-18 11:44:22 [agent] INFO - ============================================================
+2026-04-18 11:44:22 [agent] INFO - AI 硬件验证平台 - 计算节点 Agent 启动中...
+2026-04-18 11:44:22 [agent] INFO - #400: 自愈能力 + #402: 批量拉取 已启用
+2026-04-18 11:44:22 [agent] INFO - 平台地址: http://localhost:8080/api
+2026-04-18 11:44:22 [agent] INFO - 节点名称: dev-node-01
+2026-04-18 11:44:22 [agent] INFO - Agent 端口: 8090
+2026-04-18 11:44:22 [agent] INFO - ============================================================
+2026-04-18 11:44:24 [register] INFO - 正在注册节点到 http://localhost:8080/api/nodes/register ... (尝试 1/5) [gpuCount=0]
+2026-04-18 11:44:24 [register] INFO - 节点注册成功! ID=2, Name=dev-node-01, GPUs=0
+2026-04-18 11:44:24 [heartbeat] INFO - 心跳线程启动, 间隔 30s, 节点 ID=2 (pull-based dispatch, self-healing enabled)
+2026-04-18 11:44:24 [agent] INFO - 启动 HTTP 服务 0.0.0.0:8090
  * Serving Flask app 'main'
  * Debug mode: off
-2026-04-06 14:52:38 [werkzeug] INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
- * Running on all addresses (0.0.0.0)
- * Running on http://127.0.0.1:8090
- * Running on http://172.18.188.146:8090
-2026-04-06 14:52:38 [werkzeug] INFO - [33mPress CTRL+C to quit[0m
+Address already in use
+Port 8090 is in use by another program. Either identify and stop that program, or start the server with a different port.

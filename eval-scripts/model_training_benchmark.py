@@ -110,6 +110,60 @@ class EpochTimer:
             return time.perf_counter() - self._t0  # seconds
 
 
+
+
+# ================================================================
+# DDP / Multi-GPU 支持
+# ================================================================
+
+def setup_distributed():
+    """检测并初始化 DDP 环境（torchrun 自动设置环境变量）"""
+    import torch.distributed as dist
+
+    if "RANK" not in os.environ:
+        return False, 0, 0, 1  # (is_ddp, rank, local_rank, world_size)
+
+    rank = int(os.environ["RANK"])
+    local_rank = int(os.environ["LOCAL_RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+
+    dist.init_process_group(backend="nccl", rank=rank, world_size=world_size)
+    torch.cuda.set_device(local_rank)
+
+    if rank == 0:
+        print(f"[DDP] Initialized: world_size={world_size}, backend=nccl", flush=True)
+
+    return True, rank, local_rank, world_size
+
+
+def wrap_model_for_training(model, is_ddp, local_rank, gpu_count):
+    """根据环境包装模型
+    优先级: DDP > DataParallel > 单卡
+    """
+    if is_ddp:
+        device = torch.device(f"cuda:{local_rank}")
+        model = model.to(device)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank])
+        return model, device
+
+    if gpu_count > 1 and torch.cuda.is_available():
+        model = model.to("cuda:0")
+        model = torch.nn.DataParallel(model)
+        return model, torch.device("cuda:0")
+
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    return model.to(device), device
+
+
+def create_distributed_dataloader(X, y, batch_size, is_ddp, world_size, rank):
+    """DDP 模式使用 DistributedSampler"""
+    dataset = torch.utils.data.TensorDataset(X, y)
+    if is_ddp:
+        sampler = torch.utils.data.distributed.DistributedSampler(
+            dataset, num_replicas=world_size, rank=rank, shuffle=True)
+        return torch.utils.data.DataLoader(dataset, batch_size=batch_size, sampler=sampler, drop_last=True)
+    return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+
 # ================================================================
 # 合成数据生成
 # ================================================================
@@ -257,7 +311,7 @@ def validate(model, X, y, criterion, batch_size, device):
 
 
 def run_training_benchmark(model_name, params_override, device):
-    """运行单个训练 benchmark"""
+    """运行单个训练 benchmark（支持 DDP / DataParallel / 单卡）"""
     if model_name not in TRAINING_CONFIGS:
         raise ValueError(f"未知模型: {model_name}，可选: {list(TRAINING_CONFIGS.keys())}")
 
@@ -271,48 +325,77 @@ def run_training_benchmark(model_name, params_override, device):
             if k in params_override:
                 cfg[k] = params_override[k]
 
-    is_gpu = device.type == "cuda"
+    # DDP 检测
+    is_ddp, rank, local_rank, world_size = setup_distributed()
+    gpu_count = params_override.get("_gpu_count", 0) if params_override else 0
+
+    # 构建模型（先在 CPU 上构建，再由 wrap 函数放到正确的 device 上）
+    model = build_model(cfg, torch.device("cpu"))
+    model, actual_device = wrap_model_for_training(model, is_ddp, local_rank, gpu_count)
+
+    is_gpu = actual_device.type == "cuda"
     timer = EpochTimer(is_gpu)
 
-    print(f"[TRAIN] 开始训练: {model_name} | device={get_device_str(device)} | "
-          f"epochs={cfg['epochs']} | batch_size={cfg['batch_size']} | lr={cfg['lr']}", flush=True)
+    if rank == 0:
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f"[TRAIN] 开始训练: {model_name} | device={get_device_str(actual_device)} | "
+              f"epochs={cfg['epochs']} | batch_size={cfg['batch_size']} | lr={cfg['lr']}"
+              + (f" | DDP world_size={world_size}" if is_ddp else ""), flush=True)
+        print(f"[TRAIN] 模型参数: total={total_params:,}, trainable={trainable_params:,}", flush=True)
+    else:
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-    # 构建模型
-    model = build_model(cfg, device)
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"[TRAIN] 模型参数: total={total_params:,}, trainable={trainable_params:,}", flush=True)
-
-    # 生成数据
+    # 生成数据 — DDP 时数据放到 local_rank device 上
+    data_device = actual_device
     if cfg["model_type"] == "mlp":
         X_train, y_train = make_synthetic_dataset(
-            cfg["num_train_samples"], cfg["input_dim"], cfg["output_dim"], device)
+            cfg["num_train_samples"], cfg["input_dim"], cfg["output_dim"], data_device)
         X_val, y_val = make_synthetic_dataset(
-            cfg["num_val_samples"], cfg["input_dim"], cfg["output_dim"], device)
+            cfg["num_val_samples"], cfg["input_dim"], cfg["output_dim"], data_device)
     else:  # resnet50
         img_size = cfg.get("img_size", 224)
         X_train, y_train = make_synthetic_image_dataset(
-            cfg["num_train_samples"], cfg["output_dim"], img_size, device)
+            cfg["num_train_samples"], cfg["output_dim"], img_size, data_device)
         X_val, y_val = make_synthetic_image_dataset(
-            cfg["num_val_samples"], cfg["output_dim"], img_size, device)
+            cfg["num_val_samples"], cfg["output_dim"], img_size, data_device)
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=cfg["lr"])
 
+    # DDP 模式使用 DataLoader + DistributedSampler
+    train_loader = None
+    train_sampler = None
+    if is_ddp:
+        # 数据需要在 CPU 上创建 DataLoader，训练时再 move 到 device
+        X_train_cpu = X_train.cpu()
+        y_train_cpu = y_train.cpu()
+        train_loader = create_distributed_dataloader(
+            X_train_cpu, y_train_cpu, cfg["batch_size"], is_ddp, world_size, rank)
+        train_sampler = train_loader.sampler
+
     # Warmup（GPU JIT 编译）
     if is_gpu:
-        print("[TRAIN] GPU warmup (2 iterations)...", flush=True)
+        if rank == 0:
+            print("[TRAIN] GPU warmup (2 iterations)...", flush=True)
         model.train()
-        for _ in range(2):
+        if is_ddp:
+            # Use a small batch directly
             xb = X_train[:cfg["batch_size"]]
             yb = y_train[:cfg["batch_size"]]
+        else:
+            xb = X_train[:cfg["batch_size"]]
+            yb = y_train[:cfg["batch_size"]]
+        for _ in range(2):
             optimizer.zero_grad()
             out = model(xb)
             loss = criterion(out, yb)
             loss.backward()
             optimizer.step()
         torch.cuda.synchronize()
-        print("[TRAIN] GPU warmup 完成", flush=True)
+        if rank == 0:
+            print("[TRAIN] GPU warmup 完成", flush=True)
 
     # 训练循环
     epoch_results = []
@@ -320,13 +403,25 @@ def run_training_benchmark(model_name, params_override, device):
     total_start = time.perf_counter()
 
     for epoch in range(cfg["epochs"]):
+        # DDP: set epoch for sampler
+        if train_sampler is not None:
+            train_sampler.set_epoch(epoch)
+
         timer.start()
-        train_loss, train_acc = train_one_epoch(
-            model, X_train, y_train, criterion, optimizer, cfg["batch_size"], device)
+
+        if is_ddp and train_loader is not None:
+            # DDP 模式用 DataLoader
+            train_loss, train_acc = _train_one_epoch_dataloader(
+                model, train_loader, criterion, optimizer, actual_device)
+        else:
+            # 非 DDP 保持原有 tensor 操作
+            train_loss, train_acc = train_one_epoch(
+                model, X_train, y_train, criterion, optimizer, cfg["batch_size"], actual_device)
+
         epoch_time = timer.stop()
 
         # 验证
-        val_loss, val_acc = validate(model, X_val, y_val, criterion, cfg["batch_size"], device)
+        val_loss, val_acc = validate(model, X_val, y_val, criterion, cfg["batch_size"], actual_device)
 
         samples_per_sec = cfg["num_train_samples"] / epoch_time if epoch_time > 0 else 0
 
@@ -342,18 +437,28 @@ def run_training_benchmark(model_name, params_override, device):
         epoch_results.append(epoch_result)
         loss_curve.append(round(train_loss, 6))
 
-        print(f"[TRAIN] Epoch {epoch+1}/{cfg['epochs']}: "
-              f"train_loss={train_loss:.4f}, train_acc={train_acc:.4f}, "
-              f"val_loss={val_loss:.4f}, val_acc={val_acc:.4f}, "
-              f"time={epoch_time:.3f}s, throughput={samples_per_sec:.1f} samples/s", flush=True)
+        if rank == 0:
+            print(f"[TRAIN] Epoch {epoch+1}/{cfg['epochs']}: "
+                  f"train_loss={train_loss:.4f}, train_acc={train_acc:.4f}, "
+                  f"val_loss={val_loss:.4f}, val_acc={val_acc:.4f}, "
+                  f"time={epoch_time:.3f}s, throughput={samples_per_sec:.1f} samples/s", flush=True)
 
     total_time = time.perf_counter() - total_start
+
+    # DDP cleanup
+    if is_ddp:
+        import torch.distributed as dist
+        dist.destroy_process_group()
+
+    # 只有 rank==0 输出结果（非 DDP 时 rank 总是 0）
+    if rank != 0:
+        return {"model": model_name, "status": "DDP_WORKER", "rank": rank}
 
     # GPU 内存统计
     gpu_info = {}
     if is_gpu:
-        gpu_info = get_gpu_info(device)
-        gpu_info["gpu_peak_memory_mb"] = round(torch.cuda.max_memory_allocated(device) / 1048576, 2)
+        gpu_info = get_gpu_info(actual_device)
+        gpu_info["gpu_peak_memory_mb"] = round(torch.cuda.max_memory_allocated(actual_device) / 1048576, 2)
 
     # 计算汇总
     epoch_times = [e["epoch_time_sec"] for e in epoch_results]
@@ -368,7 +473,7 @@ def run_training_benchmark(model_name, params_override, device):
     result = {
         "model": model_name,
         "description": cfg["desc"],
-        "device": get_device_str(device),
+        "device": get_device_str(actual_device),
         "config": {
             "epochs": cfg["epochs"],
             "batch_size": cfg["batch_size"],
@@ -377,6 +482,7 @@ def run_training_benchmark(model_name, params_override, device):
             "num_val_samples": cfg["num_val_samples"],
             "optimizer": "Adam",
             "criterion": "CrossEntropyLoss",
+            "gpu_count": gpu_count,
         },
         "model_info": {
             "total_params": total_params,
@@ -401,10 +507,43 @@ def run_training_benchmark(model_name, params_override, device):
         "status": "PASS" if loss_decreased else "WARN",
     }
 
+    # DDP 信息
+    if is_ddp:
+        result["config"]["distributed"] = {"mode": "DDP", "world_size": world_size, "backend": "nccl"}
+
     if gpu_info:
         result.update(gpu_info)
 
     return result
+
+
+def _train_one_epoch_dataloader(model, dataloader, criterion, optimizer, device):
+    """训练一个 epoch（使用 DataLoader，DDP 模式）"""
+    model.train()
+    total_loss = 0.0
+    num_batches = 0
+    correct = 0
+    total_samples = 0
+
+    for xb, yb in dataloader:
+        xb = xb.to(device)
+        yb = yb.to(device)
+
+        optimizer.zero_grad()
+        output = model(xb)
+        loss = criterion(output, yb)
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+        num_batches += 1
+        correct += (output.argmax(dim=-1) == yb).sum().item()
+        total_samples += yb.shape[0]
+
+    avg_loss = total_loss / max(num_batches, 1)
+    accuracy = correct / max(total_samples, 1)
+    return avg_loss, accuracy
+
 
 
 # ================================================================
@@ -433,9 +572,10 @@ def main():
     elif isinstance(model_filter, str):
         model_filter = [model_filter]
 
-    # 参数覆盖
+    # 参数覆盖（包含 DDP 相关参数）
     overrides = {}
-    for k in ("epochs", "batch_size", "lr", "num_train_samples", "num_val_samples"):
+    for k in ("epochs", "batch_size", "lr", "num_train_samples", "num_val_samples",
+              "_gpu_count", "_gpu_indices", "_parallel_mode"):
         if k in params:
             overrides[k] = params[k]
 
