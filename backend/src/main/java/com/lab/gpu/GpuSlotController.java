@@ -9,6 +9,7 @@ import java.util.Map;
 
 /**
  * #396: GPU Slot API
+ * #493: 使用 GpuSlotStatus 枚举替代字符串魔法值
  */
 @RestController
 public class GpuSlotController {
@@ -36,9 +37,9 @@ public class GpuSlotController {
     public ApiResponse<Map<String, Object>> getSummary() {
         List<GpuSlot> all = gpuSlotRepository.findAll();
         long total = all.size();
-        long free = all.stream().filter(s -> "FREE".equals(s.getStatus())).count();
-        long allocated = all.stream().filter(s -> "ALLOCATED".equals(s.getStatus())).count();
-        long error = all.stream().filter(s -> "ERROR".equals(s.getStatus())).count();
+        long free = all.stream().filter(s -> s.getStatus() == GpuSlotStatus.FREE).count();
+        long allocated = all.stream().filter(s -> s.getStatus() == GpuSlotStatus.ALLOCATED).count();
+        long error = all.stream().filter(s -> s.getStatus() == GpuSlotStatus.ERROR).count();
 
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("totalSlots", total);

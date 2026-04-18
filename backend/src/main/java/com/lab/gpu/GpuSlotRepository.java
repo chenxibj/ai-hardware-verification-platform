@@ -10,6 +10,7 @@ import java.util.List;
 
 /**
  * #396: GpuSlot Repository with pessimistic locking for concurrency safety
+ * #493: 使用 GpuSlotStatus 枚举替代字符串魔法值
  */
 public interface GpuSlotRepository extends JpaRepository<GpuSlot, Long> {
 
@@ -17,16 +18,16 @@ public interface GpuSlotRepository extends JpaRepository<GpuSlot, Long> {
 
     List<GpuSlot> findByAllocatedTaskId(Long taskId);
 
-    @Query("SELECT g FROM GpuSlot g WHERE g.nodeId = :nodeId AND g.status = 'FREE' ORDER BY g.gpuIndex")
+    @Query("SELECT g FROM GpuSlot g WHERE g.nodeId = :nodeId AND g.status = com.lab.gpu.GpuSlotStatus.FREE ORDER BY g.gpuIndex")
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<GpuSlot> findFreeSlotsByNodeForUpdate(@Param("nodeId") Long nodeId);
 
-    @Query("SELECT COUNT(g) FROM GpuSlot g WHERE g.nodeId = :nodeId AND g.status = 'FREE'")
+    @Query("SELECT COUNT(g) FROM GpuSlot g WHERE g.nodeId = :nodeId AND g.status = com.lab.gpu.GpuSlotStatus.FREE")
     long countFreeByNodeId(@Param("nodeId") Long nodeId);
 
     @Query("SELECT COUNT(g) FROM GpuSlot g WHERE g.nodeId = :nodeId")
     long countTotalByNodeId(@Param("nodeId") Long nodeId);
 
-    @Query("SELECT g FROM GpuSlot g WHERE g.status = 'ALLOCATED' AND g.allocatedTaskId IS NOT NULL")
+    @Query("SELECT g FROM GpuSlot g WHERE g.status = com.lab.gpu.GpuSlotStatus.ALLOCATED AND g.allocatedTaskId IS NOT NULL")
     List<GpuSlot> findAllocatedSlots();
 }

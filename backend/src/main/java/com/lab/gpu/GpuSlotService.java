@@ -73,7 +73,7 @@ public class GpuSlotService {
         List<GpuSlot> selected = selectOptimalSlots(freeSlots, count);
 
         for (GpuSlot slot : selected) {
-            slot.setStatus("ALLOCATED");
+            slot.setStatus(GpuSlotStatus.ALLOCATED);
             slot.setAllocatedTaskId(taskId);
             slot.setAllocatedAt(Instant.now());
         }
@@ -94,7 +94,7 @@ public class GpuSlotService {
         if (allocated.isEmpty()) return;
 
         for (GpuSlot slot : allocated) {
-            slot.setStatus("FREE");
+            slot.setStatus(GpuSlotStatus.FREE);
             slot.setAllocatedTaskId(null);
             slot.setAllocatedAt(null);
         }
@@ -152,7 +152,7 @@ public class GpuSlotService {
 
             var taskOpt = taskRepository.findById(slot.getAllocatedTaskId());
             if (taskOpt.isEmpty() || TERMINAL_STATUSES.contains(taskOpt.get().getStatus())) {
-                slot.setStatus("FREE");
+                slot.setStatus(GpuSlotStatus.FREE);
                 slot.setAllocatedTaskId(null);
                 slot.setAllocatedAt(null);
                 gpuSlotRepository.save(slot);
@@ -222,7 +222,7 @@ public class GpuSlotService {
 
         // 删除多余的 FREE slot（缩容场景）
         for (GpuSlot slot : existing) {
-            if (slot.getGpuIndex() >= gpuCount && "FREE".equals(slot.getStatus())) {
+            if (slot.getGpuIndex() >= gpuCount && GpuSlotStatus.FREE == slot.getStatus()) {
                 gpuSlotRepository.delete(slot);
             }
         }
@@ -242,7 +242,7 @@ public class GpuSlotService {
             GpuSlot slot = new GpuSlot();
             slot.setNodeId(nodeId);
             slot.setGpuIndex(i);
-            slot.setStatus("FREE");
+            slot.setStatus(GpuSlotStatus.FREE);
             Map<String, Object> detail = findGpuByIndex(gpuDetails, i);
             if (detail != null) {
                 updateSlotMetadata(slot, detail);

@@ -9,7 +9,7 @@ import java.time.Instant;
 
 /**
  * GPU Slot 实体 — 追踪每个节点上每张 GPU 的使用状态
- * #396
+ * #396, #493: status 改为 GpuSlotStatus 枚举
  */
 @Data
 @Entity
@@ -34,8 +34,9 @@ public class GpuSlot {
     @Column(name = "gpu_memory_gb")
     private Integer gpuMemoryGb;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 16)
-    private String status = "FREE";
+    private GpuSlotStatus status = GpuSlotStatus.FREE;
 
     @Column(name = "allocated_task_id")
     private Long allocatedTaskId;
