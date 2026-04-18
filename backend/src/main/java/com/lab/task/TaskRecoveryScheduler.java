@@ -272,6 +272,12 @@ public class TaskRecoveryScheduler {
                 if ((task.getStatus() == EvaluationTask.TaskStatus.RUNNING || task.getStatus() == EvaluationTask.TaskStatus.DISPATCHED)) {
                     log.warn("Node {} is OFFLINE, resetting task {} to QUEUED for re-dispatch",
                             node.getName(), task.getTaskNo());
+                    // #497: Release GPU slots before resetting task
+                    try {
+                        gpuSlotService.releaseGpuSlots(task.getId());
+                    } catch (Exception e) {
+                        log.warn("#497: Failed to release GPU slots for task {} on offline node: {}", task.getId(), e.getMessage());
+                    }
                     task.setStatus(EvaluationTask.TaskStatus.QUEUED);
                     task.setAssignedNodeId(null);
                     task.setStartedAt(null);
