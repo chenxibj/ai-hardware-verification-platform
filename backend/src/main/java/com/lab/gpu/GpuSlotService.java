@@ -13,7 +13,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * GPU Slot 管理服务
@@ -163,5 +165,88 @@ public class GpuSlotService {
         return gpuSlotRepository.findAll().stream()
                 .filter(s -> s.getNodeId().equals(nodeId))
                 .count();
+    }
+
+    /**
+     * #478: 根据 Agent 上报的 GPU 信息，同步 gpu_slots 表
+     * 策略：
+     * - gpu_count == 0 → 不操作（CPU 节点）
+     * - 已有 slot 数量匹配 → 只更新元信息（型号/显存）
+     * - 数量不匹配 → 增量同步（保留 ALLOCATED slot，删除多余 FREE，补齐缺失）
+     */
+    @Transactional
+    public void initializeSlots(Long nodeId, int gpuCount, List<Map<String, Object>> gpuDetails) {
+        if (gpuCount <= 0) return;
+
+        List<GpuSlot> existing = gpuSlotRepository.findByNodeIdOrderByGpuIndex(nodeId);
+
+        if (existing.size() == gpuCount) {
+            // 数量一致，更新元信息
+            for (GpuSlot slot : existing) {
+                Map<String, Object> detail = findGpuByIndex(gpuDetails, slot.getGpuIndex());
+                if (detail != null) {
+                    updateSlotMetadata(slot, detail);
+                }
+            }
+            gpuSlotRepository.saveAll(existing);
+            log.info("GPU slots for node {} already match ({}), updated metadata", nodeId, gpuCount);
+            return;
+        }
+
+        // 增量同步
+        Set<Integer> existingIndices = existing.stream()
+                .map(GpuSlot::getGpuIndex).collect(Collectors.toSet());
+
+        // 删除多余的 FREE slot（缩容场景）
+        for (GpuSlot slot : existing) {
+            if (slot.getGpuIndex() >= gpuCount && "FREE".equals(slot.getStatus())) {
+                gpuSlotRepository.delete(slot);
+            }
+        }
+
+        // 创建缺失的 slot
+        for (int i = 0; i < gpuCount; i++) {
+            if (existingIndices.contains(i)) {
+                // 更新已有 slot 的元信息
+                final int gpuIdx = i;
+                existing.stream().filter(s -> s.getGpuIndex() == gpuIdx).findFirst().ifPresent(slot -> {
+                    Map<String, Object> detail = findGpuByIndex(gpuDetails, gpuIdx);
+                    if (detail != null) updateSlotMetadata(slot, detail);
+                    gpuSlotRepository.save(slot);
+                });
+                continue;
+            }
+            GpuSlot slot = new GpuSlot();
+            slot.setNodeId(nodeId);
+            slot.setGpuIndex(i);
+            slot.setStatus("FREE");
+            Map<String, Object> detail = findGpuByIndex(gpuDetails, i);
+            if (detail != null) {
+                updateSlotMetadata(slot, detail);
+            }
+            gpuSlotRepository.save(slot);
+        }
+
+        log.info("Synced GPU slots for node {}: {} slots (was {})", nodeId, gpuCount, existing.size());
+    }
+
+    private void updateSlotMetadata(GpuSlot slot, Map<String, Object> detail) {
+        Object name = detail.get("name");
+        if (name != null) slot.setGpuModel(String.valueOf(name));
+        Object memMb = detail.get("memory_total_mb");
+        if (memMb != null) {
+            int mb = ((Number) memMb).intValue();
+            slot.setGpuMemoryGb(mb / 1024);
+        }
+    }
+
+    private Map<String, Object> findGpuByIndex(List<Map<String, Object>> gpus, int index) {
+        if (gpus == null) return null;
+        return gpus.stream()
+                .filter(g -> {
+                    Object idx = g.get("index");
+                    return idx != null && ((Number) idx).intValue() == index;
+                })
+                .findFirst().orElse(null);
     }
 }

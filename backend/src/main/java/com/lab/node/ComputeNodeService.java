@@ -15,9 +15,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import com.lab.gpu.GpuSlotService;
 import com.lab.task.TaskDispatcher;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.http.ResponseEntity;
@@ -33,13 +36,16 @@ public class ComputeNodeService {
     private final K8sClusterRepository clusterRepo;
     private final TaskDispatcher taskDispatcher;
     private final ObjectMapper objectMapper;
+    private final GpuSlotService gpuSlotService;
 
     public ComputeNodeService(ComputeNodeRepository repo, K8sClusterRepository clusterRepo,
-                              @Lazy TaskDispatcher taskDispatcher, ObjectMapper objectMapper) {
+                              @Lazy TaskDispatcher taskDispatcher, ObjectMapper objectMapper,
+                              GpuSlotService gpuSlotService) {
         this.repo = repo;
         this.clusterRepo = clusterRepo;
         this.taskDispatcher = taskDispatcher;
         this.objectMapper = objectMapper;
+        this.gpuSlotService = gpuSlotService;
     }
 
     /**
@@ -154,6 +160,8 @@ public class ComputeNodeService {
             if (node.getIpAddress() != null && !node.getIpAddress().isBlank()) ex.setIpAddress(node.getIpAddress());
             if (node.getClusterId() != null) ex.setClusterId(node.getClusterId());
             if (node.getSource() != null) ex.setSource(node.getSource());
+            // #478: Update gpuCount
+            if (node.getGpuCount() != null && node.getGpuCount() > 0) ex.setGpuCount(node.getGpuCount());
             // Update chipModel
             updateChipModel(ex, node.getChipModel());
             // #351: 心跳更新时，只有 IP 有效才设为 ONLINE
@@ -326,6 +334,67 @@ public class ComputeNodeService {
     }
 
     private static final int UNREACHABLE_THRESHOLD = 3;
+
+    /**
+     * #478: 从注册数据中同步 GPU Slots
+     */
+    public void syncGpuSlotsFromRegistration(ComputeNode savedNode, Integer gpuCount, List<Map<String, Object>> gpuDetails) {
+        if (gpuCount == null || gpuCount <= 0) {
+            // Try to parse from hardwareInfo
+            try {
+                if (savedNode.getHardwareInfo() != null) {
+                    JsonNode root = objectMapper.readTree(savedNode.getHardwareInfo());
+                    if (root.has("gpu_count")) {
+                        gpuCount = root.get("gpu_count").asInt(0);
+                    }
+                    if (gpuCount > 0 && (gpuDetails == null || gpuDetails.isEmpty()) && root.has("gpus") && root.get("gpus").isArray()) {
+                        gpuDetails = new ArrayList<>();
+                        for (JsonNode gpu : root.get("gpus")) {
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> detail = objectMapper.convertValue(gpu, Map.class);
+                            gpuDetails.add(detail);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to parse GPU info from hardwareInfo for node {}: {}", savedNode.getId(), e.getMessage());
+            }
+        }
+
+        if (gpuCount != null && gpuCount > 0) {
+            savedNode.setGpuCount(gpuCount);
+            repo.save(savedNode);
+            gpuSlotService.initializeSlots(savedNode.getId(), gpuCount, gpuDetails);
+            log.info("Node {} registered with {} GPUs, slots initialized", savedNode.getName(), gpuCount);
+        }
+    }
+
+    /**
+     * #478: 心跳时更新 GPU 实时信息
+     */
+    @SuppressWarnings("unchecked")
+    public void updateGpuFromHeartbeat(ComputeNode node, Map<String, Object> metrics) {
+        if (metrics == null) return;
+        Object gpuCountObj = metrics.get("gpu_count");
+        if (gpuCountObj == null) return;
+        
+        int reportedGpuCount = ((Number) gpuCountObj).intValue();
+        if (reportedGpuCount <= 0) return;
+        
+        Integer currentGpuCount = node.getGpuCount();
+        if (currentGpuCount == null || currentGpuCount != reportedGpuCount) {
+            node.setGpuCount(reportedGpuCount);
+            repo.save(node);
+            
+            List<Map<String, Object>> gpuDetails = null;
+            Object gpusObj = metrics.get("gpus");
+            if (gpusObj instanceof List) {
+                gpuDetails = (List<Map<String, Object>>) gpusObj;
+            }
+            gpuSlotService.initializeSlots(node.getId(), reportedGpuCount, gpuDetails);
+            log.info("Node {} gpu_count changed to {}, slots re-synced", node.getName(), reportedGpuCount);
+        }
+    }
 
     @Scheduled(fixedRate = 30000)
     @Transactional

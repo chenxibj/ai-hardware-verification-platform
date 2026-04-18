@@ -208,7 +208,36 @@ public class ComputeNodeController {
             node.setDescription("K8s cluster: " + clusterName);
         }
 
-        return ApiResponse.ok(service.registerWithCluster(node, clusterId, clusterName));
+        // #478: GPU info
+        Integer gpuCount = null;
+        List<Map<String, Object>> gpuDetails = null;
+        if (body.containsKey("gpuCount")) {
+            gpuCount = ((Number) body.get("gpuCount")).intValue();
+            node.setGpuCount(gpuCount);
+        }
+        if (body.containsKey("gpu_count")) {
+            gpuCount = ((Number) body.get("gpu_count")).intValue();
+            node.setGpuCount(gpuCount);
+        }
+        if (body.containsKey("gpuDetails")) {
+            Object details = body.get("gpuDetails");
+            if (details instanceof List) {
+                gpuDetails = (List<Map<String, Object>>) details;
+            }
+        }
+        if (body.containsKey("gpu_details")) {
+            Object details = body.get("gpu_details");
+            if (details instanceof List) {
+                gpuDetails = (List<Map<String, Object>>) details;
+            }
+        }
+
+        ComputeNode saved = service.registerWithCluster(node, clusterId, clusterName);
+
+        // #478: Sync GPU slots after registration
+        service.syncGpuSlotsFromRegistration(saved, gpuCount, gpuDetails);
+
+        return ApiResponse.ok(saved);
     }
 
     @PutMapping("/{id}")
@@ -252,7 +281,10 @@ public class ComputeNodeController {
         // Update chipModel if provided
         if (chipModel != null && !chipModel.isBlank()) {
             node.setChipModel(chipModel);
-            // save is handled by caller or we save here
+        }
+        // #478: Process GPU metrics from heartbeat
+        if (body != null) {
+            service.updateGpuFromHeartbeat(node, body);
         }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", node.getId());

@@ -103,6 +103,12 @@ public class ComputeNode {
     @Column(name = "consecutive_unreachable_count")
     private Integer consecutiveUnreachableCount = 0;
 
+    /**
+     * #478: GPU 卡数量（Agent 上报，冗余存储用于快速查询）
+     */
+    @Column(name = "gpu_count")
+    private Integer gpuCount = 0;
+
     public enum Status {
         ONLINE, OFFLINE, BUSY, ERROR, MAINTENANCE
     }
