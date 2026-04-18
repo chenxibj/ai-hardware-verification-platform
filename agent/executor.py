@@ -5,6 +5,7 @@ import logging
 import os
 import platform
 import re
+import random
 import subprocess
 import threading
 import time
@@ -312,6 +313,29 @@ class TaskExecutor:
         except Exception as e:
             logger.warning("Batch log upload error for task %s: %s", task_id, e)
 
+
+    def _build_launch_command(self, script_path, script_params, gpu_count, parallel_mode):
+        """#478 P3: Build launch command based on GPU config.
+
+        - CPU / single GPU / multi-GPU inference: python3 script params
+        - Multi-GPU DDP/FSDP training: torchrun --nproc_per_node=N ...
+        """
+        params_json = json.dumps(script_params)
+        if gpu_count > 1 and parallel_mode in ("DDP", "FSDP"):
+            port = random.randint(29500, 39999)
+            cmd = [
+                "torchrun",
+                "--nproc_per_node={}".format(gpu_count),
+                "--master_port={}".format(port),
+                "--standalone",
+                script_path,
+                params_json,
+            ]
+            logger.info("DDP/FSDP launch: %s", " ".join(cmd))
+            return cmd
+        cmd = ["python3", script_path, params_json]
+        return cmd
+
     def _run_task(self, task_id, eval_type, params, chip_info=None):
         start_time = time.time()
         logger.info("开始执行任务 %s, 类型=%s, 参数=%s", task_id, eval_type, params)
@@ -325,12 +349,28 @@ class TaskExecutor:
             metrics_collector.start()
 
             script_params = dict(params)
+            # #478 P3: Extract GPU run spec before building script_params
+            run_spec = script_params.pop("_run_spec", {}) or {}
+            gpu_indices = run_spec.get("gpuIndices", [])
+            parallel_mode = run_spec.get("parallelMode", "")
+            gpu_count = len(gpu_indices) if gpu_indices else 0
+
+            env = os.environ.copy()
+            if gpu_indices:
+                cuda_devices = ",".join(str(i) for i in sorted(gpu_indices))
+                env["CUDA_VISIBLE_DEVICES"] = cuda_devices
+                logger.info("GPU 隔离: CUDA_VISIBLE_DEVICES=%s (%d GPUs)", cuda_devices, gpu_count)
+
             # #240: Inject chip info for GFLOPS utilization calculation
             if chip_info:
                 script_params["_chip_info"] = chip_info
-            cmd = ["python3", script_path]
-            if script_params:
-                cmd.append(json.dumps(script_params))
+
+            # #478 P3: Inject GPU info into script params
+            script_params["_gpu_count"] = gpu_count
+            script_params["_gpu_indices"] = gpu_indices
+            script_params["_parallel_mode"] = parallel_mode
+
+            cmd = self._build_launch_command(script_path, script_params, gpu_count, parallel_mode)
 
             cmd_str = " ".join(cmd)
             logger.info("执行命令: %s", cmd_str)
@@ -369,6 +409,7 @@ class TaskExecutor:
                 stderr=subprocess.PIPE,
                 text=True,
                 cwd=self.project_root,
+                env=env,
             )
 
             # 结构化日志缓冲
