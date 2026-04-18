@@ -356,6 +356,31 @@ def register_k8s_nodes():
         return jsonify({"code": -1, "message": str(e)}), 500
 
 
+def _get_k8s_node_metrics():
+    """#506: Get real K8s node CPU metrics via kubectl top nodes.
+    Returns cpuUsage percentage or None on failure."""
+    try:
+        import subprocess as _sp
+        result = _sp.run(
+            ["kubectl", "top", "nodes", "--no-headers"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return None
+        for line in result.stdout.strip().split("\n"):
+            parts = line.split()
+            if len(parts) >= 3:
+                cpu_str = parts[2].strip().rstrip("%")
+                try:
+                    return float(cpu_str)
+                except (ValueError, TypeError):
+                    pass
+        return None
+    except Exception as e:
+        logger.debug("kubectl top nodes failed: %s", e)
+        return None
+
+
 # === K8s 节点心跳代理 ===
 import threading
 import time
@@ -428,8 +453,9 @@ def _k8s_heartbeat_loop():
                 mem_cap = n.status.capacity.get("memory", "0")
                 ready = any(c.type == "Ready" and c.status == "True" for c in n.status.conditions)
                 
+                k8s_cpu = _get_k8s_node_metrics()
                 metrics = {
-                    "cpuUsage": 10.0,  # K8s 节点基础开销
+                    "cpuUsage": k8s_cpu,  # #506: real metrics from kubectl top
                     "memoryUsage": 30.0,
                     "diskUsage": 20.0,
                     "gpuUsage": 0.0,

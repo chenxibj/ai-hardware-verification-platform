@@ -32,6 +32,162 @@ DEFAULT_TIMEOUT = 600  # fallback 超时
 NO_OUTPUT_TIMEOUT = 120  # 2分钟无输出判定卡死
 
 
+# #506: Progress extraction patterns
+_PROGRESS_PATTERNS = [
+    (r'\[(\d+)\s*/\s*(\d+)\]', 'fraction'),       # [3/10]
+    (r'[Ee]poch\s+(\d+)\s*/\s*(\d+)', 'fraction'),  # Epoch 3/10
+    (r'[Ss]tep\s+(\d+)\s*/\s*(\d+)', 'fraction'),   # Step 50/200
+    (r'(\d+(?:\.\d+)?)\s*%', 'percent'),               # 45%
+]
+
+
+class ProgressReporter:
+    """#506: Throttled progress reporting — report every 10% change or 10 seconds."""
+
+    THROTTLE_PERCENT = 10
+    THROTTLE_SECONDS = 10
+
+    def __init__(self, task_id, platform_url, token):
+        self.task_id = task_id
+        self.platform_url = platform_url
+        self.token = token
+        self._last_reported_progress = None
+        self._last_report_time = 0
+        self._lock = threading.Lock()
+
+    def maybe_report(self, progress):
+        """Report progress if threshold met (10% change or 10s elapsed)."""
+        if progress is None:
+            return
+        progress = max(0, min(100, int(progress)))
+
+        with self._lock:
+            now = time.time()
+            should_report = False
+
+            if self._last_reported_progress is None:
+                should_report = True
+            elif abs(progress - self._last_reported_progress) >= self.THROTTLE_PERCENT:
+                should_report = True
+            elif (now - self._last_report_time) >= self.THROTTLE_SECONDS:
+                should_report = True
+
+            if should_report:
+                self._do_report(progress)
+                self._last_reported_progress = progress
+                self._last_report_time = now
+
+    def _do_report(self, progress):
+        """POST progress to platform."""
+        try:
+            url = "{}/tasks/{}/progress".format(self.platform_url, self.task_id)
+            requests.post(
+                url,
+                params={"progress": progress},
+                headers={"X-Agent-Token": self.token},
+                timeout=5,
+            )
+            logger.debug("Progress reported for task %s: %d%%", self.task_id, progress)
+        except Exception as e:
+            logger.debug("Progress report failed for task %s: %s", self.task_id, e)
+
+
+class AsyncResultReporter:
+    """#506: Background thread for result reporting — doesn't block worker."""
+
+    def __init__(self, platform_url, token, max_retries=3, backoff_base=1):
+        self.platform_url = platform_url
+        self.token = token
+        self.max_retries = max_retries
+        self.backoff_base = backoff_base
+        self._queue = []
+        self._lock = threading.Lock()
+        self._event = threading.Event()
+        self._thread = None
+        self._stop = threading.Event()
+
+    def start(self):
+        self._thread = threading.Thread(target=self._worker, daemon=True, name="async-result-reporter")
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        self._event.set()
+        if self._thread:
+            self._thread.join(timeout=5)
+
+    def submit(self, task_id, status, result, logs=""):
+        """Non-blocking: enqueue a result for background reporting."""
+        with self._lock:
+            self._queue.append({
+                "task_id": task_id,
+                "status": status,
+                "result": result,
+                "logs": logs,
+                "retries": 0,
+            })
+        self._event.set()
+
+    def _worker(self):
+        while not self._stop.is_set():
+            self._event.wait(timeout=5)
+            self._event.clear()
+
+            while True:
+                with self._lock:
+                    if not self._queue:
+                        break
+                    item = self._queue.pop(0)
+
+                task_id = item["task_id"]
+                status = item["status"]
+                result = item["result"]
+                logs = item["logs"]
+                retries = item["retries"]
+
+                if status == "FAILED":
+                    url = "{}/tasks/{}/failure".format(self.platform_url, task_id)
+                    payload = {
+                        "error": result.get("error", "Unknown") if isinstance(result, dict) else str(result),
+                        "logs": logs[-10000:] if logs else "",
+                    }
+                else:
+                    url = "{}/tasks/{}/result".format(self.platform_url, task_id)
+                    payload = {"status": status, "result": result, "logs": logs[-10000:] if logs else ""}
+
+                headers = {"Content-Type": "application/json", "X-Agent-Token": self.token}
+
+                try:
+                    resp = requests.post(url, json=payload, headers=headers, timeout=30)
+                    if resp.status_code == 200:
+                        logger.info("AsyncResultReporter: task %s OK", task_id)
+                        continue
+                    elif 400 <= resp.status_code < 500:
+                        logger.warning("AsyncResultReporter: task %s rejected (%s)", task_id, resp.status_code)
+                        continue
+                except Exception as e:
+                    logger.warning("AsyncResultReporter: task %s error: %s", task_id, e)
+
+                if retries < self.max_retries:
+                    item["retries"] = retries + 1
+                    backoff = self.backoff_base * (2 ** retries)
+                    time.sleep(backoff)
+                    with self._lock:
+                        self._queue.append(item)
+                else:
+                    logger.error("AsyncResultReporter: task %s exhausted retries", task_id)
+                    self._save_pending(task_id, payload)
+
+    def _save_pending(self, task_id, payload):
+        try:
+            os.makedirs(PENDING_DIR, exist_ok=True)
+            import json as _json
+            with open(os.path.join(PENDING_DIR, "{}.json".format(task_id)), "w") as f:
+                _json.dump(payload, f, ensure_ascii=False)
+        except Exception as e:
+            logger.error("AsyncResultReporter save failed: %s", e)
+
+
 import socket
 
 
@@ -70,6 +226,24 @@ class TaskExecutor:
     LOG_FLUSH_INTERVAL = 5  # 秒
     LOG_FLUSH_LINES = 50    # 行
 
+    @staticmethod
+    def _extract_progress(line):
+        """#506: Extract progress percentage from a log line.
+        Returns int (0-100) or None."""
+        if not line:
+            return None
+        for pattern, ptype in _PROGRESS_PATTERNS:
+            m = re.search(pattern, line)
+            if m:
+                if ptype == 'fraction':
+                    num, denom = int(m.group(1)), int(m.group(2))
+                    if denom <= 0:
+                        return None
+                    return min(100, int(num * 100 / denom))
+                elif ptype == 'percent':
+                    return min(100, int(float(m.group(1))))
+        return None
+
     # #402: 默认最大并发 worker 数
     DEFAULT_MAX_WORKERS = 4
 
@@ -88,6 +262,9 @@ class TaskExecutor:
         if not os.path.isabs(project_root):
             project_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), project_root)
         self.project_root = os.path.realpath(project_root)
+
+        # #506: pending results for retry
+        self.pending_results = []
 
         # #402: ThreadPoolExecutor 替代单任务模式
         self.max_workers = max_workers or self.DEFAULT_MAX_WORKERS
@@ -479,6 +656,9 @@ class TaskExecutor:
             log_entries = []
             log_entries_lock = threading.Lock()
 
+            # #506: Progress reporter for this task
+            progress_reporter = ProgressReporter(task_id, self.platform_url, self.token)
+
             def read_stream(stream, line_list, is_stderr=False):
                 """从 stdout/stderr 读取输出并分类缓冲"""
                 for line in iter(stream.readline, ''):
@@ -493,6 +673,12 @@ class TaskExecutor:
                         metrics = None
                     else:
                         log_type, level, metrics = self._classify_log_line(stripped)
+
+                    # #506: Extract and report progress from stdout
+                    if not is_stderr:
+                        prog = self._extract_progress(stripped)
+                        if prog is not None:
+                            progress_reporter.maybe_report(prog)
 
                     entry = {
                         "type": log_type,
