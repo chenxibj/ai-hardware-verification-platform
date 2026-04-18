@@ -140,6 +140,10 @@ def execute():
     if executor is None:
         return jsonify({"code": -1, "message": "Agent 未就绪"}), 503
 
+    # #505: 注册失败防护 — 注册未完成时拒绝执行任务
+    if node_info is None or node_info.get("id", 0) == 0:
+        return jsonify({"code": -1, "message": "Agent 注册未完成", "retryable": True}), 503
+
     data = request.get_json()
     if not data:
         return jsonify({"code": -1, "message": "缺少请求体"}), 400

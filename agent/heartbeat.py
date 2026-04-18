@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 # #216: 上报失败时本地持久化目录
 PENDING_DIR = "/tmp/ahvp-pending-results"
 
+# #505: 网络故障隔离 — 缓存结果目录
+CACHED_RESULTS_DIR = "/tmp/ahvp-cached-results"
+
 
 class HeartbeatThread(threading.Thread):
     """后台线程，定期发送心跳
@@ -149,7 +152,8 @@ class HeartbeatThread(threading.Thread):
                     self._last_success_time = datetime.now(timezone.utc).isoformat()
                     self._network_state = "connected"
                 if was_disconnected:
-                    logger.info("#505: 网络恢复 — 恢复正常工作")
+                    logger.info("#505: 网络恢复 DISCONNECTED -> CONNECTED，批量上报缓存结果")
+                    self._flush_cached_results()
                 logger.debug("心跳发送成功 CPU=%.1f%% MEM=%.1f%%",
                              metrics["cpu_percent"], metrics["memory_used_percent"])
             else:
@@ -202,10 +206,11 @@ class HeartbeatThread(threading.Thread):
         """#402: 批量拉取任务 — 非忙时连续 poll 直到无任务或 worker 已满"""
         if self.executor is None:
             return
-        # #505: 网络断开时不拉新任务
+
+        # #505: 网络故障隔离 — 网络断开时不 poll 新任务
         with self._lock:
             if self._network_state == "disconnected":
-                logger.debug("Network disconnected, skipping task poll")
+                logger.debug("#505: 网络断开，跳过 poll 新任务")
                 return
 
         # 连续 poll，每次拉取可用 worker 数量的任务
@@ -303,6 +308,47 @@ class HeartbeatThread(threading.Thread):
             except Exception as e:
                 logger.warning("Poll-tasks error: %s", e)
                 break
+
+    def _save_cached_result(self, task_id, payload):
+        """#505: 网络断开时缓存任务结果到本地"""
+        try:
+            os.makedirs(CACHED_RESULTS_DIR, exist_ok=True)
+            fpath = os.path.join(CACHED_RESULTS_DIR, "{}.json".format(task_id))
+            with open(fpath, "w") as f:
+                json.dump(payload, f, ensure_ascii=False)
+            logger.info("#505: 任务 %s 结果已缓存到 %s", task_id, fpath)
+        except Exception as e:
+            logger.error("#505: 缓存任务结果失败: %s", e)
+
+    def _flush_cached_results(self):
+        """#505: 网络恢复后批量上报缓存的任务结果"""
+        if not os.path.exists(CACHED_RESULTS_DIR):
+            return
+        headers = {
+            "Content-Type": "application/json",
+            "X-Agent-Token": self.token,
+        }
+        flushed = 0
+        for fname in os.listdir(CACHED_RESULTS_DIR):
+            if not fname.endswith(".json"):
+                continue
+            fpath = os.path.join(CACHED_RESULTS_DIR, fname)
+            try:
+                with open(fpath) as f:
+                    payload = json.load(f)
+                task_id = fname.replace(".json", "")
+                url = "{}/tasks/{}/result".format(self.platform_url, task_id)
+                resp = requests.post(url, json=payload, headers=headers, timeout=10)
+                if resp.status_code == 200 or (400 <= resp.status_code < 500):
+                    os.remove(fpath)
+                    flushed += 1
+                    logger.info("#505: 缓存结果 %s 上报成功 (HTTP %s)", task_id, resp.status_code)
+                else:
+                    logger.warning("#505: 缓存结果 %s 上报失败: HTTP %s", task_id, resp.status_code)
+            except Exception as e:
+                logger.warning("#505: 上报缓存结果 %s 失败: %s", fname, e)
+        if flushed > 0:
+            logger.info("#505: 批量上报完成，成功 %d 个", flushed)
 
     # #360: 每个 pending 结果最多重试次数
     MAX_PENDING_RETRIES = 3
