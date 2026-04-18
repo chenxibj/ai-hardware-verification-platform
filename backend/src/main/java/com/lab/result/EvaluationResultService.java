@@ -12,6 +12,7 @@ import com.lab.node.ComputeNode;
 import com.lab.node.ComputeNodeRepository;
 import com.lab.chip.ChipRepository;
 import com.lab.gpu.GpuSlotService;
+import com.lab.task.TaskDispatcher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -40,6 +41,7 @@ public class EvaluationResultService {
     private final ComputeNodeRepository nodeRepository;
     private final ChipRepository chipRepository;
     private final GpuSlotService gpuSlotService;
+    private final TaskDispatcher taskDispatcher;
 
     /**
      * Agent 提交任务结果
@@ -103,6 +105,14 @@ public class EvaluationResultService {
         // #403: 释放 GPU Slot
         try { gpuSlotService.releaseGpuSlots(task.getId()); } catch (Exception e) { log.warn("GPU slot release failed for task {}: {}", taskId, e.getMessage()); }
         log.info("Result submitted for task {} (score={}, metrics={})", taskId, score, metrics.keySet());
+
+        // #488 P0-2: Event-driven dispatch — trigger scheduling after task completion
+        try {
+            taskDispatcher.tryDispatchNext();
+        } catch (Exception e) {
+            log.debug("Post-result dispatch attempt: {}", e.getMessage());
+        }
+
         return result;
     }
 
@@ -147,6 +157,14 @@ public class EvaluationResultService {
         // #403: 释放 GPU Slot
         try { gpuSlotService.releaseGpuSlots(task.getId()); } catch (Exception e) { log.warn("GPU slot release failed for task {}: {}", taskId, e.getMessage()); }
         log.info("Failure reported for task {}: {}", taskId, errorMessage);
+
+        // #488 P0-2: Event-driven dispatch — trigger scheduling after task failure
+        try {
+            taskDispatcher.tryDispatchNext();
+        } catch (Exception e) {
+            log.debug("Post-failure dispatch attempt: {}", e.getMessage());
+        }
+
         return result;
     }
 

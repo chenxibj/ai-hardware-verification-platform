@@ -23,6 +23,8 @@ import com.lab.gpu.GpuSlot;
 import com.lab.gpu.GpuSlotService;
 import java.util.*;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 
 /**
@@ -44,6 +46,15 @@ public class TaskDispatcher {
     private final ObjectMapper objectMapper;
     private final RunSpecRepository runSpecRepository;
     private final GpuSlotService gpuSlotService;
+
+    /**
+     * #488 P0-1: Self-injection for proxy-based @Transactional calls.
+     * Direct self-calls bypass Spring AOP proxy, making @Transactional ineffective.
+     * Using @Lazy to break circular dependency.
+     */
+    @Lazy
+    @Autowired
+    private TaskDispatcher self;
 
     @Value("${agent.token:ahvp-agent-secret-2026}")
     private String agentToken;
@@ -108,7 +119,7 @@ public class TaskDispatcher {
             }
 
             try {
-                boolean success = dispatchSingleTask(task);
+                boolean success = self.dispatchSingleTask(task);
                 if (success) dispatched++;
             } catch (Exception e) {
                 log.debug("Dispatch failed for task {}: {}", task.getTaskNo(), e.getMessage());
@@ -139,7 +150,7 @@ public class TaskDispatcher {
 
         for (EvaluationTask task : pendingTasks) {
             try {
-                dispatchSingleTask(task);
+                self.dispatchSingleTask(task);
             } catch (Exception e) {
                 log.error("Failed to dispatch task {} ({}): {}", task.getId(), task.getTaskNo(), e.getMessage());
             }
@@ -230,7 +241,12 @@ public class TaskDispatcher {
                             task.getAllocatedGpuIndices());
                 }
             } catch (Exception e) {
-                log.warn("GPU slot allocation failed for task {} (non-fatal): {}", task.getTaskNo(), e.getMessage());
+                log.warn("GPU slot allocation failed for task {}, reverting to QUEUED: {}", task.getTaskNo(), e.getMessage());
+                task.setStatus(EvaluationTask.TaskStatus.QUEUED);
+                task.setQueueReason("GPU 分配失败，等待重试: " + e.getMessage());
+                task.setAssignedNodeId(null);
+                taskRepository.save(task);
+                return false;
             }
 
             taskRepository.save(task); // @Version 乐观锁保护 — 唯一一次 save

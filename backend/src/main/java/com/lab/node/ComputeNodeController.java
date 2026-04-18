@@ -17,6 +17,7 @@ import java.util.Map;
 import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
 import com.lab.task.TaskDispatcher;
+import com.lab.gpu.GpuSlotService;
 import java.util.stream.Collectors;
 
 @RestController
@@ -31,15 +32,17 @@ public class ComputeNodeController {
 
     private final EvaluationTaskRepository taskRepository;
     private final TaskDispatcher taskDispatcher;
+    private final GpuSlotService gpuSlotService;
 
     public ComputeNodeController(ComputeNodeService service, ComputeNodeRepository repo, 
                                   ObjectMapper objectMapper, EvaluationTaskRepository taskRepository,
-                                  TaskDispatcher taskDispatcher) {
+                                  TaskDispatcher taskDispatcher, GpuSlotService gpuSlotService) {
         this.service = service;
         this.repo = repo;
         this.objectMapper = objectMapper;
         this.taskRepository = taskRepository;
         this.taskDispatcher = taskDispatcher;
+        this.gpuSlotService = gpuSlotService;
     }
 
     @GetMapping
@@ -613,8 +616,19 @@ public class ComputeNodeController {
         task.setAssignedNodeId(null);
         task.setStartedAt(null);
         task.setLastHeartbeatAt(null);
+        task.setQueueReason("Agent 退回: " + reason);
         taskRepository.save(task);
-        
+
+        // #488 P1-13: Release GPU slots on reject
+        try { gpuSlotService.releaseGpuSlots(task.getId()); } catch (Exception e) {
+            log.warn("GPU slot release failed on reject for task {}: {}", taskId, e.getMessage());
+        }
+
+        // #488: Trigger dispatch for queued tasks
+        try { taskDispatcher.tryDispatchNext(); } catch (Exception e) {
+            log.debug("Post-reject dispatch attempt: {}", e.getMessage());
+        }
+
         return ApiResponse.ok("Task " + taskId + " rejected back to QUEUED");
     }
 
