@@ -75,6 +75,7 @@ public class SecurityConfig {
                 .requestMatchers("/tasks/*/logs/download").permitAll()  // #233 P2-2
                 .requestMatchers("/tasks/*/report").permitAll()  // #233 P2-3
                 .requestMatchers("/tasks/*/complete").permitAll()
+                .requestMatchers("/tasks/*/progress").permitAll()  // #494: agent progress report
                 .requestMatchers(HttpMethod.GET, "/templates", "/templates/**").permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 // RBAC: 用户管理仅 super_admin

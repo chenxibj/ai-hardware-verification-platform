@@ -17,6 +17,7 @@ import com.lab.node.ComputeNodeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -24,7 +25,10 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import com.lab.plan.PlanCompletedEvent;
-import org.springframework.context.event.EventListener;
+import org.springframework.transaction.event.TransactionalEventListener;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.context.ApplicationContext;
+import org.springframework.scheduling.annotation.Async;
 import java.util.stream.Collectors;
 
 import com.lab.dimension.DimensionRegistry;
@@ -48,23 +52,27 @@ public class ReportGeneratorService {
     private final ObjectMapper objectMapper;
     private final ComputeNodeRepository nodeRepository;
     private final ScoringService scoringService;
+    private final ApplicationContext applicationContext;
 
     /* #459: DIM_NAMES removed — use DimensionRegistry.getLabelByKey() */
 
     /**
-     * 事件监听：计划完成后自动生成报告
+     * #491: 事件监听：计划完成后异步生成报告（独立事务）
+     * @Async 确保不阻塞 submitResult 响应
+     * @TransactionalEventListener(AFTER_COMMIT) 确保在主事务提交后才触发
      */
-    @Transactional
-    @EventListener
+    @Async
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onPlanCompleted(PlanCompletedEvent event) {
         try {
-            generateReport(event.getPlanId());
+            // #491: Call through proxy to ensure @Transactional(REQUIRES_NEW) is honored
+            applicationContext.getBean(ReportGeneratorService.class).generateReport(event.getPlanId());
         } catch (Exception e) {
             log.error("Failed to generate report for plan {}", event.getPlanId(), e);
         }
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public ChipReport generateReport(Long planId) {
         EvaluationPlan plan = planRepository.findById(planId)
                 .orElseThrow(() -> new RuntimeException("Plan not found: " + planId));

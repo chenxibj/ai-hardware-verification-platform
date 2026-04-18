@@ -498,35 +498,15 @@ public class PlanTaskSplitter {
         task.setProgress(0);
         task.setCreatedBy(plan.getCreatedBy());
         task.setDimension(classifyDimension(testItem));
-        // #485: Smart GPU allocation by evalType
-        // OPERATOR tasks always use single GPU (gpu-1), regardless of plan RunSpec
-        // MODEL/TRAINING tasks use plan's RunSpec (supports multi-GPU)
+        // #408: Copy runSpecId/runSpecCode from plan to task
         if (plan.getRunSpecId() != null) {
-            if (subject == EvaluationTask.TestSubject.OPERATOR) {
-                // Operator benchmarks measure single-op on single-GPU; multi-GPU is meaningless
-                runSpecRepository.findByCode("gpu-1").ifPresent(gpuOneSpec -> {
-                    task.setRunSpecId(gpuOneSpec.getId());
-                    task.setRunSpecCode(gpuOneSpec.getCode());
+            task.setRunSpecId(plan.getRunSpecId());
+            try {
+                runSpecRepository.findById(plan.getRunSpecId()).ifPresent(spec -> {
+                    task.setRunSpecCode(spec.getCode());
                 });
-                // Fallback: if gpu-1 RunSpec not found, use plan's RunSpec (backward compat)
-                if (task.getRunSpecId() == null) {
-                    task.setRunSpecId(plan.getRunSpecId());
-                    try {
-                        runSpecRepository.findById(plan.getRunSpecId()).ifPresent(spec -> {
-                            task.setRunSpecCode(spec.getCode());
-                        });
-                    } catch (Exception ignored) {}
-                }
-            } else {
-                // MODEL and TRAINING tasks inherit the plan's multi-GPU RunSpec
-                task.setRunSpecId(plan.getRunSpecId());
-                try {
-                    runSpecRepository.findById(plan.getRunSpecId()).ifPresent(spec -> {
-                        task.setRunSpecCode(spec.getCode());
-                    });
-                } catch (Exception ignored) {
-                    // Fallback: just set the ID, code can be resolved later
-                }
+            } catch (Exception e) {
+                // Fallback: just set the ID, code can be resolved later
             }
         }
         return task;

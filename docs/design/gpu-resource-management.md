@@ -667,28 +667,34 @@ def _build_launch_command(self, script_path, params, gpu_count, parallel_mode):
     return ["python3", script_path, params_json]
 ```
 
-### 评测类型与 GPU 分配策略
+### 评测类型与 GPU 分配策略（Plan 级预留）
 
-> **#485 新增 (2026-04-18):** PlanTaskSplitter 按 evalType 智能分配 RunSpec
+> **#485 新增 (2026-04-18):** GPU Slot 按 Plan 级预留，executor 按 evalType 控制可见 GPU
 
-| 评测类型 | GPU 策略 | 说明 |
-|----------|----------|------|
-| OPERATOR（算子评测） | **固定单卡** (gpu-1) | 算子基准测试衡量单个算子在单张 GPU 上的性能，多卡无意义 |
-| MODEL（推理评测） | 按用户选择 | 支持 DataParallel / device_map="auto"，用户选 gpu-2/4/8 |
-| TRAINING（训练评测） | 按用户选择 | 支持 DDP + torchrun，用户选 gpu-2-ddp / gpu-4 等 |
+#### 核心设计原则
 
-#### 自动降级规则
+**GPU Slot 由 Plan 级预留，所有子任务共享同一组 Slot，任务完成不释放，Plan 完成才释放。**
 
-- `PlanTaskSplitter.createTask()` 在拆分任务时，OPERATOR 类型任务自动降级为 `gpu-1` RunSpec
-- 即使用户在方案中选择了 gpu-4/gpu-8，算子任务也只占用 1 张 GPU
-- 推理和训练任务保持用户选择的 RunSpec 不变
-- 如果数据库中不存在 `gpu-1` RunSpec，fallback 到 Plan 的 RunSpec（向后兼容）
+| 评测类型 | Slot 占用 | CUDA_VISIBLE_DEVICES | 说明 |
+|----------|-----------|---------------------|------|
+| OPERATOR（算子评测） | 全部保持 ALLOCATED | 仅第 1 张卡 | 算子基准测只需 1 张 GPU 执行，但其余卡保持占用防止被抢 |
+| MODEL（推理评测） | 全部保持 ALLOCATED | 所有已分配卡 | 支持 DataParallel / device_map="auto" |
+| TRAINING（训练评测） | 全部保持 ALLOCATED | 所有已分配卡 | 支持 DDP + torchrun |
+
+#### 为什么不降级算子任务的 RunSpec？
+
+如果把算子任务降级为 gpu-1（只占 1 张 Slot），释放的 3 张卡可能被其他方案抢占，
+导致同一 Plan 后续的推理/训练任务需要 4 张卡时资源不足而排队。
+
+正确做法：所有任务保持 Plan 的 RunSpec（如 gpu-4），GPU Slot 全部 ALLOCATED，
+只在 executor 层面通过 `CUDA_VISIBLE_DEVICES` 控制实际使用哪些卡。
 
 #### 实现位置
 
-- 后端: `PlanTaskSplitter.createTask()` — 按 `TestSubject` 判断是否降级
-- 模板: `task_templates.config_json.gpuPolicy` — 文档性质，标注各类型的 GPU 策略
-- 前端: `PlanCreate.js` Step 4 — 提示用户多卡分配规则
+- **executor.py** `_run_task()`: OPERATOR 类型只暴露 gpuIndices[0]，其余类型暴露全部
+- **PlanTaskSplitter**: 不做 RunSpec 降级，所有任务继承 Plan 的 RunSpec
+- **GpuSlotService**: 不改动，Slot 分配/释放逻辑不变（未来 Plan 级预留是更大改动）
+- **模板 gpuPolicy**: 文档性质，标注各类型的 GPU 可见性策略
 
 ### 模块 5: 评测脚本多卡改造
 

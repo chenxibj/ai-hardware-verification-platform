@@ -4,6 +4,7 @@ import com.lab.auth.RequireRole;
 import com.lab.auth.Role;
 import com.lab.common.ApiResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.BufferedReader;
@@ -531,6 +532,7 @@ public class ComputeNodeController {
      * Response: {"code": 0, "data": [{"taskId": ..., "evalType": ..., "params": ..., "config": ...}]}
      */
     @PostMapping("/{id}/poll-tasks")
+    @Transactional
     public ApiResponse<Map<String, Object>> pollTasks(
             @PathVariable Long id,
             @RequestBody(required = false) Map<String, Object> body) {

@@ -374,9 +374,24 @@ class TaskExecutor:
 
             env = os.environ.copy()
             if gpu_indices:
-                cuda_devices = ",".join(str(i) for i in sorted(gpu_indices))
+                # #485: OPERATOR tasks only use 1 GPU for execution, but all slots
+                # remain ALLOCATED (Plan-level reservation). Other eval types use all GPUs.
+                eval_upper = (eval_type or "").upper()
+                if eval_upper == "OPERATOR" and len(gpu_indices) > 1:
+                    # Operator benchmarks: expose only the first allocated GPU
+                    visible_indices = [sorted(gpu_indices)[0]]
+                    cuda_devices = str(visible_indices[0])
+                    logger.info("#485: OPERATOR task — using 1 GPU from %d allocated: "
+                                "CUDA_VISIBLE_DEVICES=%s (slots %s remain reserved)",
+                                len(gpu_indices), cuda_devices,
+                                ",".join(str(i) for i in sorted(gpu_indices)))
+                else:
+                    # MODEL / TRAINING / others: use all allocated GPUs
+                    visible_indices = sorted(gpu_indices)
+                    cuda_devices = ",".join(str(i) for i in visible_indices)
+                    logger.info("GPU 隔离: CUDA_VISIBLE_DEVICES=%s (%d GPUs)",
+                                cuda_devices, gpu_count)
                 env["CUDA_VISIBLE_DEVICES"] = cuda_devices
-                logger.info("GPU 隔离: CUDA_VISIBLE_DEVICES=%s (%d GPUs)", cuda_devices, gpu_count)
 
             # #240: Inject chip info for GFLOPS utilization calculation
             if chip_info:
@@ -465,6 +480,15 @@ class TaskExecutor:
                     if should_flush:
                         self._flush_structured_logs(task_id, log_entries, log_entries_lock)
                 stream.close()
+
+            # #494: 启动后立即上报 progress=1%，防止 Recovery 误判为卡死
+            try:
+                progress_url = "{}/tasks/{}/progress".format(self.platform_url, task_id)
+                requests.post(progress_url, params={"progress": 1},
+                              headers={"X-Agent-Token": self.token}, timeout=5)
+                logger.info("#494: 上报初始进度 1%% for task %s", task_id)
+            except Exception as e:
+                logger.warning("#494: Failed to report initial progress for task %s: %s", task_id, e)
 
             stdout_thread = threading.Thread(target=read_stream, args=(process.stdout, stdout_lines, False), daemon=True)
             stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, stderr_lines, True), daemon=True)
