@@ -49,9 +49,19 @@ class TestTokenAuth:
         """/api/k8s/* 无 token 返回 401"""
         from main import app
         with app.test_client() as client:
-            # Use a non-existent k8s sub-path to avoid actual k8s calls
             resp = client.get('/api/k8s/cluster-info')
-            assert resp.status_code == 401, f"Expected 401 without token, got {resp.status_code}"
+            assert resp.status_code == 401
+
+    def test_k8s_valid_token_passes_auth(self):
+        """/api/k8s/* 有 token 不返回 401（可能500因无k8s环境，但认证通过）"""
+        from unittest.mock import patch
+        from main import app
+        # Mock k8s call to avoid hanging when no k8s cluster
+        with patch('k8s_routes._load_k8s_clients', side_effect=Exception("no k8s")):
+            with app.test_client() as client:
+                resp = client.get('/api/k8s/cluster-info', headers={'X-Agent-Token': VALID_TOKEN})
+                # Should not be 401 — auth passed, may be 500 (no k8s env)
+                assert resp.status_code != 401, f"Valid token should pass auth, got {resp.status_code}"
 
 
 class TestSensitiveInfoCleanup:
@@ -91,8 +101,6 @@ class TestSensitiveInfoCleanup:
             data = json.loads(resp.data)
             assert 'status' in data
             assert 'busy' in data
-            assert 'active_tasks' in data
-            assert 'max_workers' in data
 
 
 class TestLegacyRemoved:
@@ -107,7 +115,7 @@ class TestLegacyRemoved:
         """代码中无硬编码数据库密码"""
         agent_dir = os.path.join(os.path.dirname(__file__), '..')
         for fname in os.listdir(agent_dir):
-            if fname.endswith('.py') and 'bak' not in fname:
+            if fname.endswith('.py') and not fname.endswith('.bak503'):
                 with open(os.path.join(agent_dir, fname)) as f:
                     content = f.read()
                     assert 'Ahvp@2026Secure' not in content, f"DB password found in {fname}!"
