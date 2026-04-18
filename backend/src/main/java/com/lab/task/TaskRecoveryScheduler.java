@@ -16,6 +16,7 @@ import jakarta.annotation.PostConstruct;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -161,12 +162,19 @@ public class TaskRecoveryScheduler {
                 taskRepository.findByStatusAndLastHeartbeatAtBefore(
                         EvaluationTask.TaskStatus.RUNNING, threshold15));
 
+        // #492: Use Set<Long> for O(1) dedup instead of ArrayList.contains O(n)
+        Set<Long> processedIds = new HashSet<>();
+        for (EvaluationTask t : staleTasks) {
+            processedIds.add(t.getId());
+        }
+
         // #382: Also catch RUNNING tasks with progress=0 after 5 minutes (using lastHeartbeatAt)
         List<EvaluationTask> stuckTasks = taskRepository.findByStatusAndLastHeartbeatAtBefore(
                 EvaluationTask.TaskStatus.RUNNING, threshold5);
         for (EvaluationTask task : stuckTasks) {
-            if (task.getProgress() != null && task.getProgress() == 0 && !staleTasks.contains(task)) {
+            if (task.getProgress() != null && task.getProgress() == 0 && !processedIds.contains(task.getId())) {
                 staleTasks.add(task);
+                processedIds.add(task.getId());
             }
         }
 

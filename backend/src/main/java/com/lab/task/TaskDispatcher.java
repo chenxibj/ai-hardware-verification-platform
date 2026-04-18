@@ -22,6 +22,7 @@ import com.lab.runspec.RunSpecRepository;
 import com.lab.gpu.GpuSlot;
 import com.lab.gpu.GpuSlotService;
 import java.util.*;
+import java.util.concurrent.locks.ReentrantLock;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
@@ -46,6 +47,11 @@ public class TaskDispatcher {
     private final ObjectMapper objectMapper;
     private final RunSpecRepository runSpecRepository;
     private final GpuSlotService gpuSlotService;
+
+    /**
+     * #492: ReentrantLock.tryLock replaces synchronized for non-blocking dispatch
+     */
+    private final ReentrantLock dispatchLock = new ReentrantLock();
 
     /**
      * #488 P0-1: Self-injection for proxy-based @Transactional calls.
@@ -92,44 +98,58 @@ public class TaskDispatcher {
      * #360: 自动取消已终态方案的残留任务
      * synchronized: 防止并发调度导致多个线程同时分发同一任务
      */
-    public synchronized void tryDispatchNext() {
-        List<ComputeNode> availableNodes = nodeRepository.findByStatus(ComputeNode.Status.ONLINE);
-        if (availableNodes.isEmpty()) return;
+    public void tryDispatchNext() {
+        // #492: tryLock — skip if another thread is already dispatching
+        if (!dispatchLock.tryLock()) {
+            log.debug("Dispatch lock busy, skipping");
+            return;
+        }
+        try {
+            // #492: Batch-load online nodes once at the top
+            List<ComputeNode> allOnline = nodeRepository.findByStatus(ComputeNode.Status.ONLINE);
+            if (allOnline.isEmpty()) return;
 
-        List<EvaluationTask> queuedTasks = taskRepository.findQueuedTasksOrderByPriorityAndCreatedAt();
-        if (queuedTasks.isEmpty()) return;
+            List<EvaluationTask> queuedTasks = taskRepository.findQueuedTasksOrderByPriorityAndCreatedAt();
+            if (queuedTasks.isEmpty()) return;
 
-        int dispatched = 0;
-        for (EvaluationTask task : queuedTasks) {
-            // #360: 跳过已取消/完成方案的任务（自动取消）
-            if (task.getPlanId() != null) {
-                var planOpt = planRepository.findById(task.getPlanId());
-                if (planOpt.isPresent()) {
-                    var plan = planOpt.get();
-                    if (plan.getStatus() == EvaluationPlan.PlanStatus.CANCELLED ||
-                        plan.getStatus() == EvaluationPlan.PlanStatus.COMPLETED) {
-                        task.setStatus(EvaluationTask.TaskStatus.CANCELLED);
-                        task.setCompletedAt(Instant.now());
-                        taskRepository.save(task);
-                        log.info("Auto-cancelled task {} (plan {} is {})",
-                            task.getTaskNo(), plan.getPlanNo(), plan.getStatus());
-                        continue;
+            // #492: Plan cache to eliminate N+1 queries (shared with findAvailableNode via ThreadLocal)
+            Map<Long, EvaluationPlan> planCache = new HashMap<>();
+            dispatchPlanCache.set(planCache);
+
+            int dispatched = 0;
+            for (EvaluationTask task : queuedTasks) {
+                // #360: 跳过已取消/完成方案的任务（自动取消）
+                if (task.getPlanId() != null) {
+                    EvaluationPlan plan = planCache.computeIfAbsent(task.getPlanId(),
+                            id -> planRepository.findById(id).orElse(null));
+                    if (plan != null) {
+                        if (plan.getStatus() == EvaluationPlan.PlanStatus.CANCELLED ||
+                            plan.getStatus() == EvaluationPlan.PlanStatus.COMPLETED) {
+                            task.setStatus(EvaluationTask.TaskStatus.CANCELLED);
+                            task.setCompletedAt(Instant.now());
+                            taskRepository.save(task);
+                            log.info("Auto-cancelled task {} (plan {} is {})",
+                                task.getTaskNo(), plan.getPlanNo(), plan.getStatus());
+                            continue;
+                        }
                     }
+                }
+
+                try {
+                    boolean success = self.dispatchSingleTask(task);
+                    if (success) dispatched++;
+                } catch (Exception e) {
+                    log.debug("Dispatch failed for task {}: {}", task.getTaskNo(), e.getMessage());
                 }
             }
 
-            try {
-                boolean success = self.dispatchSingleTask(task);
-                if (success) dispatched++;
-            } catch (Exception e) {
-                log.debug("Dispatch failed for task {}: {}", task.getTaskNo(), e.getMessage());
+            if (dispatched > 0) {
+                log.info("Event-driven dispatch: {} tasks dispatched from queue", dispatched);
             }
+        } finally {
+            dispatchPlanCache.remove();
+            dispatchLock.unlock();
         }
-
-        if (dispatched > 0) {
-            log.info("Event-driven dispatch: {} tasks dispatched from queue", dispatched);
-        }
-
     }
 
     /**
@@ -327,11 +347,24 @@ public class TaskDispatcher {
      *
      * 芯片亲和性是硬约束，宁可排队也不跑错节点
      */
+    /**
+     * #492: Thread-local plan cache for the current dispatch cycle.
+     * Set by tryDispatchNext(), used by findAvailableNode() to avoid repeated DB lookups.
+     */
+    private final ThreadLocal<Map<Long, EvaluationPlan>> dispatchPlanCache = new ThreadLocal<>();
+
     private ComputeNode findAvailableNode(EvaluationTask task) {
         EvaluationPlan plan = null;
         if (task.getPlanId() != null) {
-            Optional<EvaluationPlan> planOpt = planRepository.findById(task.getPlanId());
-            if (planOpt.isPresent()) plan = planOpt.get();
+            // #492: Use dispatch cycle plan cache if available
+            Map<Long, EvaluationPlan> cache = dispatchPlanCache.get();
+            if (cache != null) {
+                plan = cache.computeIfAbsent(task.getPlanId(),
+                        id -> planRepository.findById(id).orElse(null));
+            } else {
+                Optional<EvaluationPlan> planOpt = planRepository.findById(task.getPlanId());
+                if (planOpt.isPresent()) plan = planOpt.get();
+            }
         }
 
         // ============ 优先级 1: Plan 指定了具体 nodeId ============
@@ -452,11 +485,27 @@ public class TaskDispatcher {
         List<ComputeNode> validNodes = onlineNodes.stream()
                 .filter(n -> isValidNodeIp(n.getIpAddress()))
                 .filter(n -> !"k8s-daemonset".equals(n.getSource()))
-                
                 .toList();
+
+        // #492: GPU prefilter — skip nodes with 0 free GPU slots
         if (!validNodes.isEmpty()) {
-            task.setQueueReason(null);
-            return validNodes.get(0);
+            // Try to find a node with available GPU capacity
+            Optional<ComputeNode> bestNode = validNodes.stream()
+                    .filter(n -> {
+                        long freeGpu = gpuSlotService.countFreeSlots(n.getId());
+                        long totalGpu = gpuSlotService.countTotalSlots(n.getId());
+                        // Accept node if: no GPU slots managed (CPU node) or has free slots
+                        return totalGpu == 0 || freeGpu > 0;
+                    })
+                    .findFirst();
+            if (bestNode.isPresent()) {
+                task.setQueueReason(null);
+                return bestNode.get();
+            }
+            // All nodes have GPU slots but none free
+            String reason = String.format("所有节点 GPU 资源已满（%d 个可用节点，0 个有空闲 GPU）", validNodes.size());
+            task.setQueueReason(reason);
+            return null;
         }
         if (!onlineNodes.isEmpty()) {
             log.warn("Found {} ONLINE nodes but none reachable, cannot dispatch", onlineNodes.size());
@@ -477,7 +526,15 @@ public class TaskDispatcher {
             return runSpecRepository.findByCode(task.getRunSpecCode()).orElse(null);
         }
         if (task.getPlanId() != null) {
-            var plan = planRepository.findById(task.getPlanId()).orElse(null);
+            // #492: Use plan cache if available to avoid N+1
+            EvaluationPlan plan = null;
+            Map<Long, EvaluationPlan> cache = dispatchPlanCache.get();
+            if (cache != null) {
+                plan = cache.computeIfAbsent(task.getPlanId(),
+                        id -> planRepository.findById(id).orElse(null));
+            } else {
+                plan = planRepository.findById(task.getPlanId()).orElse(null);
+            }
             if (plan != null && plan.getRunSpecId() != null) {
                 return runSpecRepository.findById(plan.getRunSpecId()).orElse(null);
             }
