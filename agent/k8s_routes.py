@@ -15,8 +15,37 @@ k8s_bp = Blueprint("k8s", __name__, url_prefix="/api/k8s")
 KUBECONFIG_PATH = "/root/.kube/config"
 
 
+# #507: Global cached K8s clients (initialized once)
+_k8s_core_v1 = None
+_k8s_version_api = None
+_k8s_apps_v1 = None
+_k8s_init_done = False
+
+
+def _init_k8s_global():
+    """#507: Initialize K8s clients once at module level (lazy)."""
+    global _k8s_core_v1, _k8s_version_api, _k8s_apps_v1, _k8s_init_done
+    if _k8s_init_done:
+        return
+    try:
+        from kubernetes import client, config as k8s_config
+        k8s_config.load_kube_config(config_file=KUBECONFIG_PATH)
+        _k8s_core_v1 = client.CoreV1Api()
+        _k8s_version_api = client.VersionApi()
+        _k8s_apps_v1 = client.AppsV1Api()
+        _k8s_init_done = True
+        logger.info("#507: K8s clients initialized globally")
+    except Exception as e:
+        logger.debug("K8s global init failed (will retry per request): %s", e)
+
+
 def _load_k8s_clients(kubeconfig_path=None):
-    """加载 kubernetes 客户端，返回 (core_v1, version_api) 或抛异常"""
+    """加载 kubernetes 客户端，返回 (core_v1, version_api, apps_v1)
+    #507: 使用全局缓存（默认 kubeconfig），自定义路径时重新加载"""
+    if kubeconfig_path is None or kubeconfig_path == KUBECONFIG_PATH:
+        _init_k8s_global()
+        if _k8s_init_done:
+            return _k8s_core_v1, _k8s_version_api, _k8s_apps_v1
     from kubernetes import client, config as k8s_config
     path = kubeconfig_path or KUBECONFIG_PATH
     k8s_config.load_kube_config(config_file=path)

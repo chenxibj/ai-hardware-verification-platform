@@ -40,6 +40,15 @@ if os.environ.get("AGENT_IP_ADDRESS"):
     # 存储到 config 中供 register.py 使用，覆盖自动探测的 IP
     config.setdefault("_overrides", {})["ip_address"] = os.environ["AGENT_IP_ADDRESS"]
 
+
+# #507: Read agent version
+_VERSION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")
+try:
+    with open(_VERSION_FILE) as _vf:
+        AGENT_VERSION = _vf.read().strip()
+except Exception:
+    AGENT_VERSION = "unknown"
+
 # 配置日志 - RotatingFileHandler (#217)
 log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 os.makedirs(log_dir, exist_ok=True)
@@ -62,7 +71,7 @@ logger = logging.getLogger("agent")
 from register import register_node
 from heartbeat import HeartbeatThread
 from executor import TaskExecutor
-from collector import get_system_metrics
+from collector import get_system_metrics, start_cpu_sampler
 
 # Flask 应用
 app = Flask(__name__)
@@ -109,8 +118,8 @@ def status():
 
 @app.route("/health", methods=["GET"])
 def health():
-    """#503: 健康检查端点 — 仅返回 status: healthy（K8s liveness probe）"""
-    return jsonify({"status": "healthy"})
+    """#503/#507: 健康检查端点 — 返回 status + version"""
+    return jsonify({"status": "healthy", "version": AGENT_VERSION})
 
 
 def _format_uptime(seconds):
@@ -201,36 +210,10 @@ def execute():
 
 
 def shutdown_handler(sig, frame):
-    """#400: 优雅退出 — 捕获 SIGTERM，等待当前任务完成再退出"""
+    """#400/#507: 优雅退出 — 设置 shutdown event，由 main loop 退出"""
     sig_name = signal.Signals(sig).name if hasattr(signal, 'Signals') else str(sig)
     logger.info("收到退出信号 %s，开始优雅关闭...", sig_name)
     _shutting_down.set()
-
-    # 停止心跳线程
-    if heartbeat_thread:
-        heartbeat_thread.stop()
-        logger.info("心跳线程已停止")
-
-    # 等待当前正在执行的任务完成（最多等 300 秒）
-    if executor and executor.active_task_count > 0:
-        logger.info("等待 %d 个运行中任务完成...", executor.active_task_count)
-        deadline = time.time() + 300
-        while executor.active_task_count > 0 and time.time() < deadline:
-            remaining = executor.active_task_count
-            logger.info("仍有 %d 个任务运行中，等待... (剩余超时 %ds)",
-                        remaining, int(deadline - time.time()))
-            time.sleep(5)
-        if executor.active_task_count > 0:
-            logger.warning("超时！仍有 %d 个任务运行中，强制退出", executor.active_task_count)
-        else:
-            logger.info("所有任务已完成，安全退出")
-
-    # 关闭线程池
-    if executor:
-        executor.shutdown()
-
-    logger.info("Agent 已关闭")
-    sys.exit(0)
 
 
 def main():
@@ -243,6 +226,22 @@ def main():
     logger.info("节点名称: %s", config["node"]["name"])
     logger.info("Agent 端口: %s", config["agent"]["port"])
     logger.info("=" * 60)
+
+    # #507: 启动后台 CPU 采样线程
+    start_cpu_sampler()
+
+    # #507: 启动时检查磁盘空间
+    try:
+        import psutil
+        disk = psutil.disk_usage("/")
+        disk_free_gb = disk.free / (1024 ** 3)
+        disk_usage_pct = disk.percent
+        if disk_free_gb < 1.0:
+            logger.warning("#507: 磁盘空间不足! 剩余 %.1fGB (%.1f%% used)", disk_free_gb, disk_usage_pct)
+        else:
+            logger.info("#507: 磁盘空间检查通过: %.1fGB free (%.1f%% used)", disk_free_gb, disk_usage_pct)
+    except Exception as e:
+        logger.warning("#507: 磁盘空间检查失败: %s", e)
 
     # 注册信号处理 — #400: 优雅退出
     signal.signal(signal.SIGINT, shutdown_handler)
@@ -314,7 +313,22 @@ def main():
         port=config["agent"]["port"],
         debug=False,
         use_reloader=False,
+        threaded=True,
     )
+
+    # #507: Graceful shutdown after Flask exits
+    logger.info("#507: Flask stopped, cleaning up...")
+    if heartbeat_thread:
+        heartbeat_thread.stop()
+        logger.info("心跳线程已停止")
+    if executor and executor.active_task_count > 0:
+        logger.info("等待 %d 个运行中任务完成...", executor.active_task_count)
+        deadline = time.time() + 300
+        while executor.active_task_count > 0 and time.time() < deadline:
+            time.sleep(5)
+    if executor:
+        executor.shutdown()
+    logger.info("Agent 已关闭")
 
 
 if __name__ == "__main__":

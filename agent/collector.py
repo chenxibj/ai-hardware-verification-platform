@@ -1,11 +1,53 @@
-"""系统指标采集模块 (#482: pynvml-first GPU collection)"""
+"""系统指标采集模块 (#482: pynvml-first GPU collection, #507: background CPU sampling)"""
 import logging
 import platform
+import threading
 import time
 
 import psutil
 
 logger = logging.getLogger(__name__)
+
+# ── #507: Background CPU sampling ──
+_cpu_sample_lock = threading.Lock()
+_cpu_sample_value = 0.0
+_cpu_sampler_started = False
+
+
+def _cpu_sampler_loop():
+    """Background thread: sample CPU every 5 seconds, non-blocking."""
+    global _cpu_sample_value
+    while True:
+        try:
+            val = psutil.cpu_percent(interval=5)
+            with _cpu_sample_lock:
+                _cpu_sample_value = val
+        except Exception:
+            time.sleep(5)
+
+
+def start_cpu_sampler():
+    """Start the background CPU sampler (call once at startup)."""
+    global _cpu_sampler_started
+    if _cpu_sampler_started:
+        return
+    _cpu_sampler_started = True
+    try:
+        global _cpu_sample_value
+        with _cpu_sample_lock:
+            _cpu_sample_value = psutil.cpu_percent(interval=0.1)
+    except Exception:
+        pass
+    t = threading.Thread(target=_cpu_sampler_loop, daemon=True, name="cpu-sampler")
+    t.start()
+    logger.info("#507: Background CPU sampler started (5s interval)")
+
+
+def get_cpu_sample():
+    """Return the latest background CPU sample value."""
+    with _cpu_sample_lock:
+        return _cpu_sample_value
+
 
 
 def get_hardware_info() -> dict:
@@ -34,7 +76,7 @@ def get_system_metrics() -> dict:
     disk = psutil.disk_usage("/")
     load1, load5, load15 = psutil.getloadavg()
     metrics = {
-        "cpu_percent": psutil.cpu_percent(interval=1),
+        "cpu_percent": get_cpu_sample(),
         "memory_used_percent": mem.percent,
         "memory_used_gb": round(mem.used / (1024 ** 3), 2),
         "memory_available_gb": round(mem.available / (1024 ** 3), 2),
@@ -219,19 +261,3 @@ def get_gpu_info_detailed() -> dict:
     # Priority 3: torch.cuda (basic info only)
     gpus = _collect_via_torch_cuda()
     return {"gpu_count": len(gpus), "gpus": gpus}
-
-
-def collect_during_execution(duration_sec: float = 1.0) -> dict:
-    """在评测执行期间采集指标快照"""
-    cpu_percents = []
-    mem_percents = []
-    samples = max(1, int(duration_sec / 0.5))
-    for _ in range(samples):
-        cpu_percents.append(psutil.cpu_percent(interval=0.5))
-        mem_percents.append(psutil.virtual_memory().percent)
-    return {
-        "cpu_percent_avg": round(sum(cpu_percents) / len(cpu_percents), 1),
-        "cpu_percent_max": round(max(cpu_percents), 1),
-        "memory_percent_avg": round(sum(mem_percents) / len(mem_percents), 1),
-        "memory_percent_max": round(max(mem_percents), 1),
-    }

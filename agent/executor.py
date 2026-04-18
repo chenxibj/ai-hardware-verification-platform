@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor as _ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Optional, Dict, List
 import requests
-from collector import collect_during_execution
+# #507: dead import removed
 try:
     from log_reporter import LogReporter
     HAS_LOG_REPORTER = True
@@ -751,6 +751,22 @@ class TaskExecutor:
     MAX_REPORT_RETRIES = 3
     REPORT_BACKOFF_BASE = 30  # 秒: 30s, 60s, 120s
 
+    # #507: Error classification — recoverable vs fatal
+    RECOVERABLE_ERRORS = ("TimeoutError", "ConnectionError", "OSError", "timeout", "killed", "stuck")
+    FATAL_ERRORS = ("FileNotFoundError", "ValueError", "ImportError", "SyntaxError")
+
+    @staticmethod
+    def _is_recoverable_error(error_msg):
+        """#507: Classify error as recoverable (retryable) or fatal."""
+        error_lower = str(error_msg).lower()
+        for pattern in TaskExecutor.FATAL_ERRORS:
+            if pattern.lower() in error_lower:
+                return False
+        for pattern in TaskExecutor.RECOVERABLE_ERRORS:
+            if pattern.lower() in error_lower:
+                return True
+        return True  # default: recoverable
+
     def _report_result(self, task_id, status, result, logs=""):
         """上报执行结果到平台
         #360: 最多重试 3 次，指数退避，4xx 立即停止
@@ -838,8 +854,9 @@ class MetricsCollector(threading.Thread):
     def run(self):
         import psutil
         while not self._stop_event.is_set():
+            from collector import get_cpu_sample
             self.samples.append({
-                "cpu_percent": psutil.cpu_percent(interval=0),
+                "cpu_percent": get_cpu_sample(),
                 "memory_percent": psutil.virtual_memory().percent,
                 "timestamp": time.time(),
             })
