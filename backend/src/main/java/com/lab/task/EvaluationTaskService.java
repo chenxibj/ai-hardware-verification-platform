@@ -391,8 +391,9 @@ public class EvaluationTaskService {
 
     /**
      * 批量删除任务 (#336)
+     * #493: 移除外层 @Transactional，每个删除操作独立事务（deleteTask 本身有 @Transactional）
+     * 部分失败不影响其他操作
      */
-    @Transactional
     public int batchDeleteTasks(java.util.List<Long> taskIds, Long userId) {
         int deleted = 0;
         for (Long taskId : taskIds) {
@@ -408,8 +409,9 @@ public class EvaluationTaskService {
 
     /**
      * 批量取消任务 (#337)
+     * #493: 移除外层 @Transactional，每个取消操作独立事务（cancelTask 本身有 @Transactional）
+     * 部分失败不影响其他操作
      */
-    @Transactional
     public int batchCancelTasks(java.util.List<Long> taskIds, Long userId) {
         int cancelled = 0;
         for (Long taskId : taskIds) {
