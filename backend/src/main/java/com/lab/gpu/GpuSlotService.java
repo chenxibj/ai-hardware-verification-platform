@@ -160,17 +160,17 @@ public class GpuSlotService {
     }
 
     // ---- Slot counting methods for scheduler pre-check ----
+    // #487: Use @Query COUNT instead of findAll().stream() to avoid JPA L1 cache dirty reads.
+    // findAll() returns stale cached entities within a @Transactional boundary after
+    // allocateGpuSlots() modifies slot status, causing the scheduler to see "0/8 free"
+    // even when all slots are actually FREE in the DB.
 
     public long countFreeSlots(Long nodeId) {
-        return gpuSlotRepository.findAll().stream()
-                .filter(s -> s.getNodeId().equals(nodeId) && "FREE".equals(s.getStatus()))
-                .count();
+        return gpuSlotRepository.countFreeByNodeId(nodeId);
     }
 
     public long countTotalSlots(Long nodeId) {
-        return gpuSlotRepository.findAll().stream()
-                .filter(s -> s.getNodeId().equals(nodeId))
-                .count();
+        return gpuSlotRepository.countTotalByNodeId(nodeId);
     }
 
     /**

@@ -24,6 +24,9 @@ public interface GpuSlotRepository extends JpaRepository<GpuSlot, Long> {
     @Query("SELECT COUNT(g) FROM GpuSlot g WHERE g.nodeId = :nodeId AND g.status = 'FREE'")
     long countFreeByNodeId(@Param("nodeId") Long nodeId);
 
+    @Query("SELECT COUNT(g) FROM GpuSlot g WHERE g.nodeId = :nodeId")
+    long countTotalByNodeId(@Param("nodeId") Long nodeId);
+
     @Query("SELECT g FROM GpuSlot g WHERE g.status = 'ALLOCATED' AND g.allocatedTaskId IS NOT NULL")
     List<GpuSlot> findAllocatedSlots();
 }
