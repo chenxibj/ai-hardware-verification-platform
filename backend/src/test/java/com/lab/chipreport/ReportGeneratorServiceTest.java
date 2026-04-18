@@ -295,7 +295,7 @@ class ReportGeneratorServiceTest {
 
     private ReportGeneratorService createServiceWithMinimalDeps() {
         // These methods don't use any injected dependencies, so pass nulls
-        return new ReportGeneratorService(null, null, null, null, null, null, new ObjectMapper(), null, null);
+        return new ReportGeneratorService(null, null, null, null, null, null, new ObjectMapper(), null, null, null);
     }
 
     // ── #470: Score-100 operators should NOT be labeled "低性能算子" ──
