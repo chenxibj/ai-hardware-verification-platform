@@ -1,0 +1,65 @@
+{
+  "test_date": "2026-04-18",
+  "node": "gpu-l40s-01",
+  "gpu_model": "NVIDIA L40S",
+  "gpu_count": 8,
+  "tests": [
+    {
+      "name": "gpu_slot_verification",
+      "status": "PASS",
+      "details": "Node 18 (gpu-l40s-01) has 8 GPU slots, all FREE. Each slot: NVIDIA L40S, 44GB. API /gpu-slots/summary returns totalSlots=8, freeSlots=8, allocatedSlots=0, errorSlots=0. API /nodes/18/gpu-slots returns 8 individual slot records (ids 32-39, gpuIndex 0-7)."
+    },
+    {
+      "name": "agent_heartbeat_gpu",
+      "status": "PASS",
+      "details": "Agent registered with gpuCount=8. Log: [register] INFO - Node registered ID=18, Name=gpu-l40s-01, GPUs=8. Heartbeat 30s interval, pull-based dispatch enabled. Note: Agent port 8090 conflict (Address already in use) but registration and heartbeat work via platform API."
+    },
+    {
+      "name": "single_gpu_inference",
+      "status": "PASS",
+      "details": "Task 26758 (runSpec=gpu-1, chipId=952/NVIDIA L40S) completed. QUEUED->DISPATCHED(node18)->COMPLETED in ~3s. Ran on CUDA: MLP-Small bs=8, latency=0.058ms, qps=12474.7, backend=PyTorch-CUDA(NVIDIA L40S). GPU slot 0 allocated and released. Issues: allocatedGpuIndices=null (optimistic lock), gpu_count=8 visible (no CUDA_VISIBLE_DEVICES isolation)."
+    },
+    {
+      "name": "multi_gpu_inference_4x",
+      "status": "PASS",
+      "details": "Task 26759 (runSpec=gpu-4, chipId=952/NVIDIA L40S) completed. Backend allocated 4 GPU slots (0-3, version increments confirmed). MLP-Medium bs=16, latency=0.060ms, qps=12169.2, device=cuda. Issues: allocatedGpuIndices=null, gpu_count=8 (all GPUs visible, no CUDA_VISIBLE_DEVICES set by agent)."
+    },
+    {
+      "name": "queue_test",
+      "status": "PASS",
+      "details": "8-GPU task (26761) blocked all slots; 2-GPU task (26762) correctly queued with queuePosition=1, queueReason=waiting for GPU resources (0/8 free, need 2). GET /api/tasks/queue returned queued task info. After 8-GPU task completed, 2-GPU task auto-dispatched and completed. Note: estimatedWaitMinutes defaults to 10min due to SQL GROUP BY bug."
+    },
+    {
+      "name": "frontend_check",
+      "status": "PASS",
+      "details": "HTTP 200, 774 bytes, 1 static/js bundle found. Frontend loads without white screen."
+    }
+  ],
+  "summary": {
+    "total": 6,
+    "passed": 6,
+    "failed": 0
+  },
+  "known_issues": [
+    {
+      "severity": "high",
+      "description": "Agent does not set CUDA_VISIBLE_DEVICES when executing tasks. All 8 GPUs visible to every task regardless of runSpec.gpuPerNode. GPU isolation only at backend scheduling level, not runtime."
+    },
+    {
+      "severity": "medium",
+      "description": "allocatedGpuIndices always null on task records due to optimistic lock exceptions during dispatch transaction."
+    },
+    {
+      "severity": "low",
+      "description": "Queue estimatedWaitMinutes defaults to 10min due to SQL error in avg duration calculation (GROUP BY clause issue)."
+    },
+    {
+      "severity": "low",
+      "description": "Agent port 8090 conflict on GPU node. HTTP server fails but API-based registration/heartbeat works."
+    },
+    {
+      "severity": "low",
+      "description": "CreateTaskRequest missing runSpecId/runSpecCode fields. Must set via DB or Plan association."
+    }
+  ]
+}
