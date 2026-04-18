@@ -413,6 +413,9 @@ public class ComputeNodeService {
         }).orElse(false);
     }
 
+    /**
+     * TODO #493: 多实例部署时需要 @SchedulerLock 防止并发执行（同 recoverTasks 注释）
+     */
     @Scheduled(fixedRate = 30000)
     @Transactional
     public void checkOfflineNodes() {

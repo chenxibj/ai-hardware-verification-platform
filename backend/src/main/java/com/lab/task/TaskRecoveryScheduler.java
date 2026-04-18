@@ -63,6 +63,15 @@ public class TaskRecoveryScheduler {
         log.info("TaskRecoveryScheduler initialized - scanning every 60s (fixedDelay, lastHeartbeatAt-based, DISPATCHED timeout: 2min, progress=0 timeout: 5min, general timeout: 15min)");
     }
 
+    /**
+     * TODO #493: 多实例部署时需要加 @SchedulerLock（ShedLock）防止多实例同时执行恢复任务。
+     * 当前为单实例部署，暂不引入 ShedLock 依赖。
+     * 多实例部署时需要：
+     * 1. 引入 net.javacrumbs.shedlock:shedlock-spring + shedlock-provider-jdbc-template
+     * 2. 创建 shedlock 表: CREATE TABLE shedlock(name VARCHAR(64) NOT NULL PRIMARY KEY, lock_until TIMESTAMP NOT NULL, locked_at TIMESTAMP NOT NULL, locked_by VARCHAR(255) NOT NULL);
+     * 3. 启用 @EnableSchedulerLock(defaultLockAtMostFor = "PT5M")
+     * 4. 在本方法加 @SchedulerLock(name = "recoverTasks", lockAtLeastFor = "PT30S", lockAtMostFor = "PT5M")
+     */
     @Scheduled(fixedDelay = 60000)
     public void recoverTasks() {
         log.debug("TaskRecoveryScheduler scan cycle started");
