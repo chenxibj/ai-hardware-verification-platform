@@ -216,4 +216,32 @@ class AgentTokenFilterTest {
         assertEquals(200, response.getStatus());
         verify(filterChain).doFilter(request, response);
     }
+
+    @Test
+    @DisplayName("#496: heartbeat without /api prefix (servletPath stripped) -> 401")
+    void heartbeat_noApiPrefix_noToken_returns401() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/nodes/1/heartbeat");
+        request.setServletPath("/nodes/1/heartbeat");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, filterChain);
+
+        assertEquals(401, response.getStatus());
+        verify(filterChain, never()).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("#496: heartbeat without /api prefix + valid token -> passes")
+    void heartbeat_noApiPrefix_validToken_passesThrough() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/nodes/1/heartbeat");
+        request.setServletPath("/nodes/1/heartbeat");
+        request.addHeader("X-Agent-Token", VALID_TOKEN);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, filterChain);
+
+        assertEquals(200, response.getStatus());
+        verify(filterChain).doFilter(request, response);
+    }
+
 }

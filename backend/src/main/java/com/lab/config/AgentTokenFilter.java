@@ -35,14 +35,14 @@ public class AgentTokenFilter extends OncePerRequestFilter {
      * Context path (/api) is included because servletPath includes it.
      */
     private static final Pattern[] AGENT_ENDPOINT_PATTERNS = {
-        Pattern.compile("^/api/nodes/\\d+/heartbeat$"),
-        Pattern.compile("^/api/nodes/\\d+/poll-tasks$"),
-        Pattern.compile("^/api/nodes/register$"),
-        Pattern.compile("^/api/tasks/\\d+/result$"),
-        Pattern.compile("^/api/tasks/\\d+/failure$"),
-        Pattern.compile("^/api/tasks/\\d+/progress$"),
-        Pattern.compile("^/api/tasks/\\d+/complete$"),
-        Pattern.compile("^/api/tasks/\\d+/logs(/.*)?$"),
+        Pattern.compile("^(/api)?/nodes/\\d+/heartbeat$"),
+        Pattern.compile("^(/api)?/nodes/\\d+/poll-tasks$"),
+        Pattern.compile("^(/api)?/nodes/register$"),
+        Pattern.compile("^(/api)?/tasks/\\d+/result$"),
+        Pattern.compile("^(/api)?/tasks/\\d+/failure$"),
+        Pattern.compile("^(/api)?/tasks/\\d+/progress$"),
+        Pattern.compile("^(/api)?/tasks/\\d+/complete$"),
+        Pattern.compile("^(/api)?/tasks/\\d+/logs(/.*)?$"),
     };
 
     private boolean isAgentEndpoint(String path) {
@@ -59,7 +59,8 @@ public class AgentTokenFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        String path = request.getServletPath();
+        // Use requestURI for reliable matching (servletPath strips context-path in some configs)
+        String path = request.getRequestURI();
         String header = request.getHeader("X-Agent-Token");
 
         if (isAgentEndpoint(path)) {
