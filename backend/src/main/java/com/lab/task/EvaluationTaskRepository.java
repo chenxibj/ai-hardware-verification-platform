@@ -70,8 +70,8 @@ public interface EvaluationTaskRepository extends JpaRepository<EvaluationTask, 
     // #321: chipId filter
     Page<EvaluationTask> findByChipId(Long chipId, Pageable pageable);
 
-    // #478 P6: Queue position calculation
-    @Query(value = "SELECT AVG(EXTRACT(EPOCH FROM (t.completed_at - t.started_at))) FROM evaluation_tasks t WHERE t.status = 'COMPLETED' AND t.completed_at IS NOT NULL AND t.started_at IS NOT NULL ORDER BY t.completed_at DESC LIMIT 50", nativeQuery = true)
+    // #478 P6: Queue position calculation — #478 P7: Fix SQL (subquery for LIMIT with AVG)
+    @Query(value = "SELECT AVG(sub.duration) FROM (SELECT EXTRACT(EPOCH FROM (t.completed_at - t.started_at)) AS duration FROM evaluation_tasks t WHERE t.status = 'COMPLETED' AND t.completed_at IS NOT NULL AND t.started_at IS NOT NULL ORDER BY t.completed_at DESC LIMIT 50) sub", nativeQuery = true)
     Double findAverageCompletedDurationSeconds();
 }
 

@@ -208,7 +208,7 @@ public class TaskDispatcher {
             return false;
         }
 
-        // 3. 直接设 DISPATCHED + save（一次 save，乐观锁保护）
+        // 3. 直接设 DISPATCHED — #478 P7: GPU Slot 分配在 save 之前，避免乐观锁冲突
         try {
             task.setStatus(EvaluationTask.TaskStatus.DISPATCHED);
             task.setAssignedNodeId(node.getId());
@@ -216,19 +216,16 @@ public class TaskDispatcher {
             task.setLastHeartbeatAt(Instant.now());
             task.setTimeoutSeconds(900);
             task.setQueueReason(null);
-            taskRepository.save(task); // @Version 乐观锁保护，冲突时抛异常
 
-            // 4. GPU Slot 分配（同事务内）
+            // GPU Slot 分配（在唯一一次 save 之前完成）
             try {
                 if (totalSlots > 0) {
                     List<GpuSlot> allocatedSlots = gpuSlotService.allocateGpuSlots(node.getId(), gpuNeeded, task.getId());
-                    // #478 P6: Record allocated GPU indices on the task
                     if (!allocatedSlots.isEmpty()) {
                         String gpuIndicesJson = allocatedSlots.stream()
                                 .map(s -> String.valueOf(s.getGpuIndex()))
                                 .collect(java.util.stream.Collectors.joining(",", "[", "]"));
                         task.setAllocatedGpuIndices(gpuIndicesJson);
-                        taskRepository.save(task);
                     }
                     log.info("Allocated {} GPU slot(s) on {} for task {}: indices {}",
                             gpuNeeded, node.getName(), task.getTaskNo(),
@@ -237,6 +234,8 @@ public class TaskDispatcher {
             } catch (Exception e) {
                 log.warn("GPU slot allocation failed for task {} (non-fatal): {}", task.getTaskNo(), e.getMessage());
             }
+
+            taskRepository.save(task); // @Version 乐观锁保护 — 唯一一次 save
 
             log.info("Task {} dispatched (pull-mode) to node {} - waiting for agent to poll",
                     task.getTaskNo(), node.getName());

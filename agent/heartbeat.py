@@ -233,6 +233,13 @@ class HeartbeatThread(threading.Thread):
                     if isinstance(params, dict):
                         merged_params.update(params)
 
+                    # #478 P7: 注入 RunSpec 到 merged_params，使 executor 能设置 CUDA_VISIBLE_DEVICES
+                    run_spec_data = task_payload.get("runSpec", {})
+                    if run_spec_data:
+                        merged_params["_run_spec"] = run_spec_data
+                        logger.info("注入 RunSpec: gpuIndices=%s, parallelMode=%s",
+                                    run_spec_data.get("gpuIndices"), run_spec_data.get("parallelMode"))
+
                     logger.info("#402 批量拉取: 接收任务 %s (type=%s), round=%d",
                                 task_id, eval_type, round_num + 1)
                     try:

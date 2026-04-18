@@ -176,6 +176,13 @@ def execute():
     if isinstance(params, dict):
         merged_params.update(params)
 
+    # #478 P7: 注入 RunSpec 到 merged_params，使 executor 能设置 CUDA_VISIBLE_DEVICES
+    run_spec_data = data.get("runSpec", {})
+    if run_spec_data:
+        merged_params["_run_spec"] = run_spec_data
+        logger.info("注入 RunSpec: gpuIndices=%s, parallelMode=%s",
+                    run_spec_data.get("gpuIndices"), run_spec_data.get("parallelMode"))
+
     logger.info("接收任务 %s, evalType=%s, params=%s, config=%s, merged=%s",
                 task_id, eval_type, params, task_config, merged_params)
 
