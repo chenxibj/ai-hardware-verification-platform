@@ -26,6 +26,16 @@ logger = logging.getLogger(__name__)
 PENDING_DIR = "/tmp/ahvp-pending-results"
 
 
+import socket
+
+
+def _find_free_port():
+    """#480: Bind-then-release to get an available port (replaces random.randint)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        return s.getsockname()[1]
+
 class TaskExecutor:
     """管理评测任务的执行 — #402: 支持并发执行多个任务"""
 
@@ -322,7 +332,7 @@ class TaskExecutor:
         """
         params_json = json.dumps(script_params)
         if gpu_count > 1 and parallel_mode in ("DDP", "FSDP"):
-            port = random.randint(29500, 39999)
+            port = _find_free_port()
             cmd = [
                 "torchrun",
                 "--nproc_per_node={}".format(gpu_count),
