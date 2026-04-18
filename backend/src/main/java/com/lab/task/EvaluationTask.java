@@ -120,6 +120,15 @@ public class EvaluationTask {
     @Column(name = "queue_reason", length = 500)
     private String queueReason;
 
+    @Column(name = "queue_position")
+    private Integer queuePosition;
+
+    @Column(name = "estimated_wait_minutes")
+    private Integer estimatedWaitMinutes;
+
+    @Column(name = "allocated_gpu_indices", length = 200)
+    private String allocatedGpuIndices;  // JSON: "[0,1,2,3]"
+
     @Column(name = "error_message", columnDefinition = "TEXT")
     private String errorMessage;
 

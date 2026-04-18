@@ -96,12 +96,29 @@ export default function TaskTable({
             {(v === "FAILED" || v === "TIMEOUT") && r.errorMessage && (
               <ErrorSummary errorMessage={r.errorMessage} />
             )}
-            {/* 排队中任务显示排队原因 */}
-            {v === "QUEUED" && r.queueReason && (
-              <Tooltip title={r.queueReason}>
-                <Text type="warning" style={{ fontSize: 12, cursor: "pointer" }}>
-                  <ExclamationCircleOutlined /> {r.queueReason.length > 40 ? r.queueReason.substring(0, 40) + "..." : r.queueReason}
-                </Text>
+            {/* #478 P6: 排队中任务显示排队位置徽章 + 排队原因 */}
+            {v === "QUEUED" && (
+              <Tooltip
+                title={
+                  <div>
+                    {r.queuePosition && <div>排队位置: 第 {r.queuePosition} 位</div>}
+                    {r.estimatedWaitMinutes != null && <div>预估等待: {r.estimatedWaitMinutes} 分钟</div>}
+                    {r.queueReason && <div>原因: {r.queueReason}</div>}
+                  </div>
+                }
+              >
+                <span>
+                  {r.queuePosition && (
+                    <Tag color="gold" style={{ fontSize: 11, marginLeft: 4 }}>
+                      排队 #{r.queuePosition}
+                    </Tag>
+                  )}
+                  {r.queueReason && (
+                    <Text type="warning" style={{ fontSize: 12, cursor: "pointer" }}>
+                      <ExclamationCircleOutlined style={{ marginLeft: 2 }} />
+                    </Text>
+                  )}
+                </span>
               </Tooltip>
             )}
           </Space>

@@ -69,4 +69,9 @@ public interface EvaluationTaskRepository extends JpaRepository<EvaluationTask, 
     long countByStatus(EvaluationTask.TaskStatus status);
     // #321: chipId filter
     Page<EvaluationTask> findByChipId(Long chipId, Pageable pageable);
+
+    // #478 P6: Queue position calculation
+    @Query(value = "SELECT AVG(EXTRACT(EPOCH FROM (t.completed_at - t.started_at))) FROM evaluation_tasks t WHERE t.status = 'COMPLETED' AND t.completed_at IS NOT NULL AND t.started_at IS NOT NULL ORDER BY t.completed_at DESC LIMIT 50", nativeQuery = true)
+    Double findAverageCompletedDurationSeconds();
 }
+

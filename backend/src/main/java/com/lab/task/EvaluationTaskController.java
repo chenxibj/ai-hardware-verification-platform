@@ -649,4 +649,37 @@ public class EvaluationTaskController {
         return ResponseEntity.ok(response);
     }
 
+
+    /**
+     * #478 P6: GET /tasks/queue — 返回 QUEUED 任务列表（含 queuePosition, estimatedWaitMinutes, queueReason）
+     */
+    @GetMapping("/queue")
+    @RequireRole(Role.VIEWER)
+    public ResponseEntity<Map<String, Object>> getQueuedTasks() {
+        List<EvaluationTask> queuedTasks = taskRepository.findQueuedTasksOrderByPriorityAndCreatedAt();
+
+        List<Map<String, Object>> queueData = new java.util.ArrayList<>();
+        for (EvaluationTask task : queuedTasks) {
+            Map<String, Object> item = new java.util.LinkedHashMap<>();
+            item.put("id", task.getId());
+            item.put("taskNo", task.getTaskNo());
+            item.put("name", task.getName());
+            item.put("status", task.getStatus() != null ? task.getStatus().name() : null);
+            item.put("priority", task.getPriority() != null ? task.getPriority().name() : null);
+            item.put("queuePosition", task.getQueuePosition());
+            item.put("estimatedWaitMinutes", task.getEstimatedWaitMinutes());
+            item.put("queueReason", task.getQueueReason());
+            item.put("allocatedGpuIndices", task.getAllocatedGpuIndices());
+            item.put("createdAt", task.getCreatedAt());
+            queueData.add(item);
+        }
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("code", 0);
+        response.put("message", "success");
+        response.put("data", queueData);
+        response.put("total", queueData.size());
+        return ResponseEntity.ok(response);
+    }
+
 }

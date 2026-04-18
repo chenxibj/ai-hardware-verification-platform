@@ -10,7 +10,8 @@ import {
 } from "antd";
 import {
   ArrowLeftOutlined, ReloadOutlined, ClusterOutlined,
-  DashboardOutlined, BellOutlined, LineChartOutlined
+  DashboardOutlined, BellOutlined, LineChartOutlined,
+  ThunderboltOutlined
 } from "@ant-design/icons";
 import ReactECharts from "echarts-for-react";
 import api from "../utils/api";
@@ -42,20 +43,25 @@ export default function NodeDetail() {
   const [metrics, setMetrics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [metricsHours, setMetricsHours] = useState(1);
+  const [gpuSlots, setGpuSlots] = useState([]);
   const refreshTimer = useRef(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [nodeRes, envRes] = await Promise.allSettled([
+      const [nodeRes, envRes, gpuRes] = await Promise.allSettled([
         api.get(`/nodes/${nodeId}`),
         api.get(`/nodes/${nodeId}/env-info`),
+        api.get(`/nodes/${nodeId}/gpu-slots`),
       ]);
       if (nodeRes.status === "fulfilled" && nodeRes.value.data.code === 0) {
         setNode(nodeRes.value.data.data);
       }
       if (envRes.status === "fulfilled" && envRes.value.data.code === 0) {
         setEnvInfo(envRes.value.data.data);
+      }
+      if (gpuRes.status === "fulfilled" && gpuRes.value.data.code === 0) {
+        setGpuSlots(gpuRes.value.data.data || []);
       }
     } catch {
       message.error("获取节点详情失败");
@@ -238,6 +244,49 @@ export default function NodeDetail() {
                       </Text>
                     </div>
                   )}
+
+              {/* #478 P6: GPU Slot 状态卡片 */}
+              {gpuSlots.length > 0 && (
+                <Col xs={24}>
+                  <Card title={<span><ThunderboltOutlined /> GPU Slot 状态</span>} size="small" style={{ marginTop: 16 }}>
+                    <Row gutter={[12, 12]}>
+                      {gpuSlots.map((slot) => (
+                        <Col xs={12} sm={8} md={6} key={slot.id}>
+                          <Card
+                            size="small"
+                            style={{
+                              borderColor: slot.status === "FREE" ? "#52c41a" : slot.status === "ERROR" ? "#ff4d4f" : "#1890ff",
+                              borderWidth: 2,
+                            }}
+                          >
+                            <div style={{ textAlign: "center" }}>
+                              <div style={{ fontSize: 16, fontWeight: "bold", marginBottom: 4 }}>
+                                GPU #{slot.gpuIndex}
+                              </div>
+                              <Tag color={slot.status === "FREE" ? "success" : slot.status === "ERROR" ? "error" : "processing"}>
+                                {slot.status}
+                              </Tag>
+                              <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
+                                {slot.gpuModel || "Unknown"}
+                              </div>
+                              {slot.gpuMemoryGb && (
+                                <div style={{ fontSize: 12, color: "#999" }}>
+                                  {slot.gpuMemoryGb} GB
+                                </div>
+                              )}
+                              {slot.allocatedTaskId && (
+                                <div style={{ fontSize: 11, color: "#1890ff", marginTop: 2 }}>
+                                  任务 #{slot.allocatedTaskId}
+                                </div>
+                              )}
+                            </div>
+                          </Card>
+                        </Col>
+                      ))}
+                    </Row>
+                  </Card>
+                </Col>
+              )}
                 </Card>
               </Col>
             </Row>

@@ -118,6 +118,9 @@ public class TaskDispatcher {
         if (dispatched > 0) {
             log.info("Event-driven dispatch: {} tasks dispatched from queue", dispatched);
         }
+
+        // #478 P6: Refresh queue positions after dispatching
+        refreshQueuePositions();
     }
 
     /**
@@ -218,8 +221,18 @@ public class TaskDispatcher {
             // 4. GPU Slot 分配（同事务内）
             try {
                 if (totalSlots > 0) {
-                    gpuSlotService.allocateGpuSlots(node.getId(), gpuNeeded, task.getId());
-                    log.info("Allocated {} GPU slot(s) on {} for task {}", gpuNeeded, node.getName(), task.getTaskNo());
+                    List<GpuSlot> allocatedSlots = gpuSlotService.allocateGpuSlots(node.getId(), gpuNeeded, task.getId());
+                    // #478 P6: Record allocated GPU indices on the task
+                    if (!allocatedSlots.isEmpty()) {
+                        String gpuIndicesJson = allocatedSlots.stream()
+                                .map(s -> String.valueOf(s.getGpuIndex()))
+                                .collect(java.util.stream.Collectors.joining(",", "[", "]"));
+                        task.setAllocatedGpuIndices(gpuIndicesJson);
+                        taskRepository.save(task);
+                    }
+                    log.info("Allocated {} GPU slot(s) on {} for task {}: indices {}",
+                            gpuNeeded, node.getName(), task.getTaskNo(),
+                            task.getAllocatedGpuIndices());
                 }
             } catch (Exception e) {
                 log.warn("GPU slot allocation failed for task {} (non-fatal): {}", task.getTaskNo(), e.getMessage());
@@ -540,6 +553,35 @@ public class TaskDispatcher {
         }
 
         return payload;
+    }
+
+
+    /**
+     * #478 P6: Refresh queue positions for all QUEUED tasks
+     * Called after each dispatch cycle to keep position/wait estimates current
+     */
+    private void refreshQueuePositions() {
+        List<EvaluationTask> queuedTasks = taskRepository.findQueuedTasksOrderByPriorityAndCreatedAt();
+        if (queuedTasks.isEmpty()) return;
+
+        // Calculate average completion time from recent tasks (default 10 min)
+        double avgMinutes = 10.0;
+        try {
+            Double avgSeconds = taskRepository.findAverageCompletedDurationSeconds();
+            if (avgSeconds != null && avgSeconds > 0) {
+                avgMinutes = avgSeconds / 60.0;
+            }
+        } catch (Exception e) {
+            log.debug("Failed to calculate avg duration, using default 10 min: {}", e.getMessage());
+        }
+
+        for (int i = 0; i < queuedTasks.size(); i++) {
+            EvaluationTask task = queuedTasks.get(i);
+            task.setQueuePosition(i + 1);
+            task.setEstimatedWaitMinutes((int) Math.ceil((i + 1) * avgMinutes));
+        }
+        taskRepository.saveAll(queuedTasks);
+        log.debug("Refreshed queue positions for {} tasks (avg {}m)", queuedTasks.size(), String.format("%.1f", avgMinutes));
     }
 
     /**
