@@ -324,14 +324,17 @@ class TaskExecutor:
             logger.warning("Batch log upload error for task %s: %s", task_id, e)
 
 
-    def _build_launch_command(self, script_path, script_params, gpu_count, parallel_mode):
-        """#478 P3: Build launch command based on GPU config.
+    def _build_launch_command(self, script_path, script_params, gpu_count, parallel_mode, eval_type=""):
+        """#478 P3 / #484: Build launch command based on GPU config and eval type.
 
-        - CPU / single GPU / multi-GPU inference: python3 script params
-        - Multi-GPU DDP/FSDP training: torchrun --nproc_per_node=N ...
+        - Only TRAINING/MODEL_TRAINING + multi-GPU + DDP/FSDP: torchrun
+        - Everything else (OPERATOR, MODEL inference, etc.): python3
         """
         params_json = json.dumps(script_params)
-        if gpu_count > 1 and parallel_mode in ("DDP", "FSDP"):
+        # #484: Only training tasks should use torchrun
+        if (gpu_count > 1
+                and parallel_mode.upper() in ("DDP", "FSDP")
+                and eval_type.upper() in ("TRAINING", "MODEL_TRAINING")):
             port = _find_free_port()
             cmd = [
                 "torchrun",
@@ -341,7 +344,7 @@ class TaskExecutor:
                 script_path,
                 params_json,
             ]
-            logger.info("DDP/FSDP launch: %s", " ".join(cmd))
+            logger.info("DDP/FSDP training launch: %s", " ".join(cmd))
             return cmd
         cmd = ["python3", script_path, params_json]
         return cmd
@@ -380,7 +383,7 @@ class TaskExecutor:
             script_params["_gpu_indices"] = gpu_indices
             script_params["_parallel_mode"] = parallel_mode
 
-            cmd = self._build_launch_command(script_path, script_params, gpu_count, parallel_mode)
+            cmd = self._build_launch_command(script_path, script_params, gpu_count, parallel_mode, eval_type)
 
             cmd_str = " ".join(cmd)
             logger.info("执行命令: %s", cmd_str)

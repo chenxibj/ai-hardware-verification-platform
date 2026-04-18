@@ -39,7 +39,7 @@ class TestBuildLaunchCommand(unittest.TestCase):
     def test_multi_gpu_ddp(self):
         """Multi-GPU DDP training: torchrun invocation."""
         params = {"model": "llama"}
-        cmd = self.executor._build_launch_command(self.script, params, gpu_count=4, parallel_mode="DDP")
+        cmd = self.executor._build_launch_command(self.script, params, gpu_count=4, parallel_mode="DDP", eval_type="TRAINING")
         # Should start with torchrun
         self.assertEqual(cmd[0], "torchrun")
         self.assertIn("--nproc_per_node=4", cmd)
@@ -57,7 +57,7 @@ class TestBuildLaunchCommand(unittest.TestCase):
     def test_multi_gpu_fsdp(self):
         """Multi-GPU FSDP training: also torchrun."""
         params = {"model": "llama"}
-        cmd = self.executor._build_launch_command(self.script, params, gpu_count=8, parallel_mode="FSDP")
+        cmd = self.executor._build_launch_command(self.script, params, gpu_count=8, parallel_mode="FSDP", eval_type="TRAINING")
         self.assertEqual(cmd[0], "torchrun")
         self.assertIn("--nproc_per_node=8", cmd)
 
@@ -192,7 +192,7 @@ class TestRunTaskGpuIsolation(unittest.TestCase):
              patch.object(ex, '_classify_log_line', return_value=("STDOUT", "INFO", None)), \
              patch.object(ex, '_report_result'):
             try:
-                ex._run_task("task-3", "MODEL", params)
+                ex._run_task("task-3", "TRAINING", params)
             except Exception:
                 pass
 
