@@ -21,6 +21,9 @@ import java.util.HashMap;
 import java.util.Map;
 import com.lab.result.EvaluationResult;
 import com.lab.result.EvaluationResultRepository;
+import com.lab.gpu.GpuSlotService;
+import com.lab.runspec.RunSpec;
+import com.lab.runspec.RunSpecRepository;
 
 /**
  * 评测任务控制器
@@ -36,6 +39,8 @@ public class EvaluationTaskController {
     private final TaskLogRepository taskLogRepository;
     private final ComputeNodeRepository computeNodeRepository;
     private final EvaluationResultRepository evaluationResultRepository;
+    private final GpuSlotService gpuSlotService;
+    private final RunSpecRepository runSpecRepository;
 
     /**
      * #366: 从 SecurityContext 获取当前用户 ID，而非依赖 X-User-Id header
@@ -652,6 +657,7 @@ public class EvaluationTaskController {
 
     /**
      * #481: GET /tasks/queue — compute positions + wait estimates on-the-fly
+     * #486: queueReason is recomputed from current GPU state (not stale persisted value)
      * Uses per-evalType average duration from last 7 days (falls back to 10 min)
      */
     @GetMapping("/queue")
@@ -672,6 +678,22 @@ public class EvaluationTaskController {
             log.debug("Failed to compute per-type avg duration: {}", e.getMessage());
         }
 
+        // #486: Pre-fetch node GPU state for fresh queueReason computation
+        // Build nodeId -> {free, total} map for all online nodes
+        Map<Long, long[]> nodeGpuState = new HashMap<>();
+        try {
+            List<ComputeNode> allNodes = computeNodeRepository.findAll();
+            for (ComputeNode node : allNodes) {
+                long free = gpuSlotService.countFreeSlots(node.getId());
+                long total = gpuSlotService.countTotalSlots(node.getId());
+                if (total > 0) {
+                    nodeGpuState.put(node.getId(), new long[]{free, total});
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Failed to pre-fetch GPU state for queue reasons: {}", e.getMessage());
+        }
+
         List<Map<String, Object>> queueData = new java.util.ArrayList<>();
         for (int i = 0; i < queuedTasks.size(); i++) {
             EvaluationTask task = queuedTasks.get(i);
@@ -679,6 +701,9 @@ public class EvaluationTaskController {
             String evalType = task.getEvalType() != null ? task.getEvalType().name() : null;
             double avgMin = (evalType != null) ? avgMinutesByType.getOrDefault(evalType, 10.0) : 10.0;
             int estimatedWait = (int) Math.ceil(position * avgMin);
+
+            // #486: Compute fresh queueReason from current GPU state
+            String freshReason = computeFreshQueueReason(task, nodeGpuState);
 
             Map<String, Object> item = new java.util.LinkedHashMap<>();
             item.put("id", task.getId());
@@ -689,7 +714,7 @@ public class EvaluationTaskController {
             item.put("priority", task.getPriority() != null ? task.getPriority().name() : null);
             item.put("queuePosition", position);
             item.put("estimatedWaitMinutes", estimatedWait);
-            item.put("queueReason", task.getQueueReason());
+            item.put("queueReason", freshReason != null ? freshReason : task.getQueueReason());
             item.put("allocatedGpuIndices", task.getAllocatedGpuIndices());
             item.put("createdAt", task.getCreatedAt());
             queueData.add(item);
@@ -701,6 +726,80 @@ public class EvaluationTaskController {
         response.put("data", queueData);
         response.put("total", queueData.size());
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * #486: Compute a fresh queueReason based on current GPU resource state.
+     * Returns null if we can't determine a meaningful reason (caller falls back to persisted).
+     */
+    private String computeFreshQueueReason(EvaluationTask task, Map<Long, long[]> nodeGpuState) {
+        try {
+            // Resolve how many GPUs this task needs from its RunSpec
+            int gpuNeeded = 1; // default
+            RunSpec runSpec = resolveRunSpecForTask(task);
+            if (runSpec != null && runSpec.getGpuPerNode() != null && runSpec.getGpuPerNode() > 0) {
+                gpuNeeded = runSpec.getGpuPerNode();
+            }
+
+            // If task targets a specific node, check that node's GPU state
+            if (task.getAssignedNodeId() != null) {
+                long[] state = nodeGpuState.get(task.getAssignedNodeId());
+                if (state != null) {
+                    long free = state[0];
+                    long total = state[1];
+                    ComputeNode node = computeNodeRepository.findById(task.getAssignedNodeId()).orElse(null);
+                    String nodeName = node != null ? node.getName() : "ID=" + task.getAssignedNodeId();
+                    if (free < gpuNeeded) {
+                        return String.format("等待 GPU 资源释放（节点 %s: %d/%d 空闲，需要 %d）",
+                                nodeName, free, total, gpuNeeded);
+                    } else {
+                        return String.format("GPU 资源充足（节点 %s: %d/%d 空闲，需要 %d），等待调度",
+                                nodeName, free, total, gpuNeeded);
+                    }
+                }
+            }
+
+            // No specific node — check all GPU nodes
+            if (!nodeGpuState.isEmpty()) {
+                // Find best node (most free GPUs)
+                long bestFree = 0;
+                long bestTotal = 0;
+                String bestNodeName = null;
+                for (Map.Entry<Long, long[]> entry : nodeGpuState.entrySet()) {
+                    long free = entry.getValue()[0];
+                    long total = entry.getValue()[1];
+                    if (free > bestFree) {
+                        bestFree = free;
+                        bestTotal = total;
+                        ComputeNode node = computeNodeRepository.findById(entry.getKey()).orElse(null);
+                        bestNodeName = node != null ? node.getName() : "ID=" + entry.getKey();
+                    }
+                }
+                if (bestFree < gpuNeeded) {
+                    return String.format("等待 GPU 资源释放（最优节点 %s: %d/%d 空闲，需要 %d）",
+                            bestNodeName, bestFree, bestTotal, gpuNeeded);
+                } else {
+                    return String.format("GPU 资源充足（%s: %d/%d 空闲，需要 %d），等待调度",
+                            bestNodeName, bestFree, bestTotal, gpuNeeded);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Failed to compute fresh queue reason for task {}: {}", task.getTaskNo(), e.getMessage());
+        }
+        return null; // fall back to persisted queueReason
+    }
+
+    /**
+     * #486: Resolve RunSpec for a task (simplified version of TaskDispatcher.resolveRunSpec)
+     */
+    private RunSpec resolveRunSpecForTask(EvaluationTask task) {
+        if (task.getRunSpecId() != null) {
+            return runSpecRepository.findById(task.getRunSpecId()).orElse(null);
+        }
+        if (task.getRunSpecCode() != null && !task.getRunSpecCode().isBlank()) {
+            return runSpecRepository.findByCode(task.getRunSpecCode()).orElse(null);
+        }
+        return null;
     }
 
 }
