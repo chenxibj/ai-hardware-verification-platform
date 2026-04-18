@@ -6,7 +6,7 @@
 > - 🔴 排队位置改为查询时实时计算，不再 saveAll 写入
 > - 🟡 GPU 采集改用 pynvml（注册时 nvidia-smi fallback）
 > - 🟡 多卡推理改用 device_map="auto"（HuggingFace 模型）+ DataParallel（自定义模型 fallback）
-> - 🟡 移除 allocatedGpuIndices 冗余字段
+> - 🟡 ~~移除 allocatedGpuIndices 冗余字段~~ → 保留用于快速查询，gpu_slots 为权威数据源
 > - 🟡 排队预估时间按 evalType 分组计算
 
 ## 背景与目标
@@ -466,7 +466,7 @@ private void syncGpuSlotsFromHardwareInfo(ComputeNode node) {
 > 原方案的问题：每次调度循环对所有 QUEUED 任务做 saveAll，在 100+ 排队任务时产生严重的写放大。
 > 修改后：queuePosition / estimatedWaitMinutes 不持久化到 DB，由 API 层查询时实时算出返回。
 
-> **v2 变更（🟡优化）:** 移除 `allocatedGpuIndices` 字段。
+> **v2 变更（🟡优化）:** 保留 `allocatedGpuIndices` 字段用于快速查询（gpu_slots 表为权威数据源）。
 > 分配的 GPU 编号已在 `gpu_slots` 表中通过 `allocated_task_id` 关联，无需冗余存储。
 > 查询时 JOIN gpu_slots 即可得到。
 
@@ -1001,5 +1001,5 @@ P1→P2→P3 串行（数据链路依赖），P4/P5/P6 可并行。
 | 3 | 麦克雷 | 🔴 | 排队位置/预估时间改为查询时实时计算，不再 saveAll | 模块 3 |
 | 4 | 麦克雷 | 🟡 | GPU 采集改用 pynvml（进程内 C 调用），nvidia-smi 降为 fallback | 模块 1.1 |
 | 5 | 麦克雷 | 🟡 | 多卡推理优先 device_map="auto"，DataParallel 降为 fallback | 模块 5.1 |
-| 6 | 麦克雷 | 🟡 | 移除 allocatedGpuIndices 冗余字段，通过 gpu_slots JOIN 查询 | 模块 3.1 |
+| 6 | 麦克雷 | 🟡 | 保留 allocatedGpuIndices 用于快速查询，gpu_slots 为权威数据源 | 模块 3.1 |
 | 7 | 麦克雷 | 🟡 | 排队预估时间按 evalType 分组计算 | 模块 3.2 |
