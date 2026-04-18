@@ -155,24 +155,70 @@ public class TaskDispatcher {
     /**
      * 分发指定 Plan 下所有 PENDING 的 Task
      * #354: 异步执行，不阻塞 API 请求
+     * #493: 全部失败时更新 Plan 状态为 FAILED，避免卡在 DISPATCHING/RUNNING
      */
     @Async
     public void dispatchPlanTasks(Long planId) {
-        List<EvaluationTask> pendingTasks = taskRepository.findByPlanIdAndStatus(
-                planId, EvaluationTask.TaskStatus.PENDING);
+        try {
+            List<EvaluationTask> pendingTasks = taskRepository.findByPlanIdAndStatus(
+                    planId, EvaluationTask.TaskStatus.PENDING);
 
-        if (pendingTasks.isEmpty()) {
-            log.info("Plan {} has no PENDING tasks to dispatch", planId);
-            return;
-        }
+            if (pendingTasks.isEmpty()) {
+                log.info("Plan {} has no PENDING tasks to dispatch", planId);
+                return;
+            }
 
-        log.info("Dispatching {} PENDING tasks for plan {}", pendingTasks.size(), planId);
+            log.info("Dispatching {} PENDING tasks for plan {}", pendingTasks.size(), planId);
 
-        for (EvaluationTask task : pendingTasks) {
+            int successCount = 0;
+            int failCount = 0;
+            for (EvaluationTask task : pendingTasks) {
+                try {
+                    boolean dispatched = self.dispatchSingleTask(task);
+                    if (dispatched) {
+                        successCount++;
+                    } else {
+                        // Task went to QUEUED — not a failure, just waiting for resources
+                    }
+                } catch (Exception e) {
+                    failCount++;
+                    log.error("Failed to dispatch task {} ({}): {}", task.getId(), task.getTaskNo(), e.getMessage());
+                }
+            }
+
+            // #493: 如果所有任务都因异常失败（非排队），更新 Plan 状态
+            if (failCount == pendingTasks.size() && failCount > 0) {
+                log.error("All {} tasks failed to dispatch for plan {}, marking plan as FAILED", failCount, planId);
+                try {
+                    planRepository.findById(planId).ifPresent(plan -> {
+                        if (plan.getStatus() == EvaluationPlan.PlanStatus.RUNNING) {
+                            plan.setStatus(EvaluationPlan.PlanStatus.FAILED);
+                            plan.setCompletedAt(Instant.now());
+                            planRepository.save(plan);
+                            log.info("Plan {} marked FAILED after all dispatch failures", plan.getPlanNo());
+                        }
+                    });
+                } catch (Exception ex) {
+                    log.error("Failed to update plan {} status after dispatch failure: {}", planId, ex.getMessage());
+                }
+            }
+
+            log.info("Plan {} dispatch complete: {} dispatched, {} failed, {} total",
+                    planId, successCount, failCount, pendingTasks.size());
+        } catch (Exception e) {
+            log.error("#493: Unexpected error in dispatchPlanTasks for plan {}: {}", planId, e.getMessage(), e);
+            // 全局异常兜底 — Plan 不能卡在 RUNNING 状态
             try {
-                self.dispatchSingleTask(task);
-            } catch (Exception e) {
-                log.error("Failed to dispatch task {} ({}): {}", task.getId(), task.getTaskNo(), e.getMessage());
+                planRepository.findById(planId).ifPresent(plan -> {
+                    if (plan.getStatus() == EvaluationPlan.PlanStatus.RUNNING) {
+                        plan.setStatus(EvaluationPlan.PlanStatus.FAILED);
+                        plan.setCompletedAt(Instant.now());
+                        planRepository.save(plan);
+                        log.info("Plan {} marked FAILED after unexpected dispatch error", plan.getPlanNo());
+                    }
+                });
+            } catch (Exception ex) {
+                log.error("Failed to update plan {} status: {}", planId, ex.getMessage());
             }
         }
     }
