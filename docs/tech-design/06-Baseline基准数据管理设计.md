@@ -515,3 +515,89 @@ private BaselineConfig findLatestL40SPlan(Long runSpecId) {
 - [ ] Baseline 覆盖详情可展开查看每个算子的 baseline 数据
 - [ ] 首次部署自动初始化 baseline_configs
 - [ ] 旧报告不受影响
+
+
+---
+
+## 📝 Review Comments（[麦克雷]）
+
+> 基于 2026-04-19 L40S Round 4/5/6 实测数据 + 评分链路代码分析
+> Review 时间：2026-04-19 20:28
+
+### 总体评价
+
+方案质量很高。问题陈述精准（单卡 vs 多卡混用是 400% 虚高的根因），数据模型清晰，前端 UX 设计直观。
+
+---
+
+### 🔴 P0 — 必须解决
+
+#### 1. 彻底废弃 log10 fallback
+
+§4.1 说"无同规格 baseline → 不 fallback 到 log10"，正确。但需确认 ScoringService 中所有路径都清理干净。当前代码至少有 3 处 fallback 到 log10。
+
+> **建议**：代码清理阶段 grep 所有 `Math.log10` 并确认全部移除。
+
+#### 2. run_spec_id 为空时的兜底
+
+实测发现部分旧 Plan 的 `run_spec_id = NULL`。`getBaselineLatencyMap(null)` 会怎么处理？
+
+> **建议**：`runSpecId == null` 时从 `evalConfig` JSON 中提取 `gpuCount`，反查 `run_specs` 表匹配。
+
+---
+
+### 🟡 P1 — 建议补充
+
+#### 3. baseline 数据的"新鲜度"问题
+
+评测脚本更新后（改了 warmup/iteration），新旧数据不可比。
+
+> **建议**：baseline_configs 增加 `stale_warning_days`（默认 30 天），超期在前端标 ⚠️ 并在报告中标注。
+
+#### 4. 自动检测的优先级策略
+
+§4.4 选"最新 COMPLETED Plan"，但最新的可能覆盖率低。
+
+> **建议**：覆盖率 >=80% 中选最新的，而非纯最新。
+
+#### 5. 切换 baseline 后的报告重新生成
+
+切换 baseline 后已有报告分数过时。
+
+> **建议**：增加 `POST /api/plans/{id}/regenerate-report` API。切换后提示用户重新生成受影响报告。
+
+#### 6. 多 Plan 聚合（未来扩展）
+
+V1 不做聚合，但数据模型应兼容。baseline_configs 允许同一 chip+spec 多条 plan_id（UNIQUE 约束已支持）。
+
+---
+
+### 🟢 P2 — 建议优化
+
+#### 7. 跨规格覆盖率对比视图
+
+增加全局矩阵视图，横向对比所有规格×算子覆盖情况。
+
+#### 8. baseline 数据统计信息
+
+覆盖详情增加"数据轮次"和"标准差"——多轮更可靠，标准差大说明不稳定。
+
+#### 9. 实施计划
+
+5-6 天偏紧，建议 7-8 天。自动初始化阶段边界情况多。
+
+---
+
+### 📊 实测验证
+
+| R6 现象 | 本方案是否解决 |
+|---------|--------------|
+| MLP score=500%（多卡混单卡） | ✅ 规格隔离 |
+| baseline 来源不透明 | ✅ baseline_source + 报告标注 |
+| 覆盖率不可见 | ✅ 覆盖详情弹窗 |
+| 无 baseline fallback log10 | ✅ 返回 null |
+| 旧 Plan run_spec_id=NULL | ⚠️ 需补充兜底 |
+
+### 总结
+
+核心设计正确。重点补充：log10 全面清理、run_spec_id 空值兜底、baseline 新鲜度告警、报告重新生成。
