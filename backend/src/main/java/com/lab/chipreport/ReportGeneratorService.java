@@ -839,12 +839,18 @@ public class ReportGeneratorService {
         return precisions.split(",").length;
     }
 
-        private String generateReportNo() {
+        /**
+     * #518: Generate unique report number using DB count instead of Math.random()
+     * Format: RPT-{yyyyMMdd}-{sequence padded to 3 digits}
+     */
+    private String generateReportNo() {
         String date = DateTimeFormatter.ofPattern("yyyyMMdd")
                 .withZone(ZoneId.of("Asia/Shanghai"))
                 .format(Instant.now());
-        String seq = String.format("%03d", (int) (Math.random() * 1000));
-        return "RPT-" + date + "-" + seq;
+        String prefix = "RPT-" + date + "-";
+        long count = reportRepository.countByReportNoStartingWith(prefix);
+        String seq = String.format("%03d", count + 1);
+        return prefix + seq;
     }
 
     private double toDouble(Object val) {

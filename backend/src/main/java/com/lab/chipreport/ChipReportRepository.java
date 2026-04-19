@@ -36,4 +36,9 @@ public interface ChipReportRepository extends JpaRepository<ChipReport, Long>, J
     long countByDeletedFalse();
     long countByDeletedFalseAndStatus(ChipReport.ReportStatus status);
     long countByDeletedFalseAndArchivedTrue();
+
+    /**
+     * #518: Count reports with a given prefix for sequential report number generation
+     */
+    long countByReportNoStartingWith(String prefix);
 }

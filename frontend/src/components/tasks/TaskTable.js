@@ -2,17 +2,20 @@
  * @file TaskTable.js
  * @description 评测任务表格组件 — 搜索/筛选/操作/失败原因显示
  * @fix #303 任务失败原因摘要显示
+ * @feat #519 卡顿任务橙色告警 + 重试/取消快捷按钮
+ * @feat #520 排队任务显示排队位置徽标
  */
 import React from "react";
 import {
   Card, Table, Tag, Space, Button, Input, Select, Tooltip, Typography,
-  Badge, Popover, Dropdown, Popconfirm,
+  Badge, Popover, Dropdown, Popconfirm, Alert,
 } from "antd";
 import {
   SearchOutlined, PlusOutlined, ReloadOutlined,
   EyeOutlined, CopyOutlined, CloseCircleOutlined,
   RedoOutlined, DeleteOutlined, BugOutlined,
   ExclamationCircleOutlined, MoreOutlined,
+  WarningOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 
@@ -86,17 +89,31 @@ export default function TaskTable({
       render: (v) => v || "-",
     },
     {
-      title: "状态", dataIndex: "status", key: "status", width: 100,
+      title: "状态", dataIndex: "status", key: "status", width: 120,
       render: (v, r) => {
         const info = STATUS_MAP[v] || { text: v, color: "default" };
         return (
           <Space direction="vertical" size={0}>
-            <Badge status={info.badge || "default"} text={info.text} />
+            <Space size={4}>
+              <Badge status={info.badge || "default"} text={info.text} />
+              {/* #519: 卡顿任务显示橙色告警图标 */}
+              {r.isStalled && (
+                <Tooltip title={r.warningMessage || "任务可能已卡顿"}>
+                  <WarningOutlined style={{ color: "#fa8c16", fontSize: 14 }} />
+                </Tooltip>
+              )}
+            </Space>
+            {/* #519: 卡顿告警提示文字 */}
+            {r.isStalled && r.warningMessage && (
+              <Text type="warning" style={{ fontSize: 11 }}>
+                <WarningOutlined /> {r.warningMessage}
+              </Text>
+            )}
             {/* #303: 失败任务显示错误原因摘要 */}
             {(v === "FAILED" || v === "TIMEOUT") && r.errorMessage && (
               <ErrorSummary errorMessage={r.errorMessage} />
             )}
-            {/* #478 P6: 排队中任务显示排队位置徽章 + 排队原因 */}
+            {/* #520: 排队中任务显示排队位置徽章 + 排队原因 */}
             {v === "QUEUED" && (
               <Tooltip
                 title={
@@ -151,12 +168,17 @@ export default function TaskTable({
       defaultSortOrder: "descend",
     },
     {
-      title: "操作", key: "action", width: 160, fixed: "right",
+      title: "操作", key: "action", width: 180, fixed: "right",
       render: (_, r) => {
         const items = [
           { key: "view", icon: <EyeOutlined />, label: "详情", onClick: () => onShowDetail(r) },
           { key: "clone", icon: <CopyOutlined />, label: "克隆", onClick: () => onClone(r.id) },
         ];
+        /* #519: 卡顿任务提供重试和取消快捷按钮 */
+        if (r.isStalled) {
+          items.push({ key: "retry-stalled", icon: <RedoOutlined />, label: "重试(卡顿)", onClick: () => onRetry(r.id) });
+          items.push({ key: "cancel-stalled", icon: <CloseCircleOutlined />, label: "取消(卡顿)", danger: true, onClick: () => onCancel(r.id) });
+        }
         if (r.status === "PENDING" || r.status === "QUEUED" || r.status === "DISPATCHED" || r.status === "RUNNING") {
           items.push({ key: "cancel", icon: <CloseCircleOutlined />, label: "取消", danger: true, onClick: () => onCancel(r.id) });
         }
@@ -172,6 +194,13 @@ export default function TaskTable({
         return (
           <Space size={4}>
             <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => onShowDetail(r)}>详情</Button>
+            {/* #519: 卡顿任务快捷重试按钮 */}
+            {r.isStalled && (
+              <Tooltip title="卡顿重试">
+                <Button type="link" size="small" icon={<RedoOutlined />} style={{ color: "#fa8c16" }}
+                  onClick={() => onRetry(r.id)} />
+              </Tooltip>
+            )}
             <Dropdown menu={{
               items: items.filter(i => i.key !== "view").map(i => ({
                 key: i.key, icon: i.icon, label: i.label, danger: i.danger,

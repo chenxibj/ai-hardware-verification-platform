@@ -2,13 +2,15 @@
  * @file TaskDetailDrawer.js
  * @description 任务详情弹窗（基本信息 + 执行记录 + 实时日志）
  * #225 - 日志 tab 使用 TaskExecutionLogs 组件实时轮询
+ * #519 - 卡顿告警 Banner + 重试/取消按钮
+ * #520 - 排队信息面板
  */
 import React from "react";
 import {
   Modal, Tabs, Descriptions, Badge, Progress, Tag, Table,
   Divider, Button, Space, Row, Col, Card, Alert, Typography, message,
 } from "antd";
-import { FileTextOutlined } from "@ant-design/icons";
+import { FileTextOutlined, WarningOutlined, ClockCircleOutlined, RedoOutlined, CloseCircleOutlined } from "@ant-design/icons";
 import {
   EVAL_TYPES, PRIORITIES, PRIORITY_COLORS, STATUS_MAP, STATUS_COLORS,
 } from "./taskConstants";
@@ -19,11 +21,78 @@ const { Text } = Typography;
 
 export default function TaskDetailDrawer({
   visible, selected, executions, taskReport, reportLoading, onClose,
+  onRetry, onCancel,
 }) {
   if (!selected) return null;
 
   const infoTab = (
     <div>
+      {/* #519: 卡顿告警 Banner */}
+      {selected.isStalled && (
+        <Alert
+          message="任务卡顿告警"
+          description={selected.warningMessage || "任务运行中进度长时间未更新，可能已卡顿"}
+          type="warning"
+          showIcon
+          icon={<WarningOutlined />}
+          style={{ marginBottom: 16 }}
+          action={
+            <Space direction="vertical" size={4}>
+              {onRetry && (
+                <Button size="small" type="primary" icon={<RedoOutlined />}
+                  onClick={() => { onRetry(selected.id); onClose(); }}>
+                  重试
+                </Button>
+              )}
+              {onCancel && (
+                <Button size="small" danger icon={<CloseCircleOutlined />}
+                  onClick={() => { onCancel(selected.id); onClose(); }}>
+                  取消
+                </Button>
+              )}
+            </Space>
+          }
+        />
+      )}
+
+      {/* #520: 排队信息面板 */}
+      {selected.status === "QUEUED" && (
+        <Card
+          size="small"
+          style={{ marginBottom: 16, background: "#fffbe6", border: "1px solid #ffe58f" }}
+        >
+          <Space size={24}>
+            <div style={{ textAlign: "center" }}>
+              <ClockCircleOutlined style={{ fontSize: 24, color: "#faad14" }} />
+              <div style={{ fontSize: 12, color: "#8c8c8c", marginTop: 4 }}>排队状态</div>
+            </div>
+            {selected.queuePosition && (
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 24, fontWeight: 700, color: "#faad14" }}>#{selected.queuePosition}</div>
+                <div style={{ fontSize: 12, color: "#8c8c8c" }}>排队位置</div>
+              </div>
+            )}
+            {selected.estimatedWaitMinutes != null && (
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 24, fontWeight: 700, color: "#faad14" }}>~{selected.estimatedWaitMinutes}min</div>
+                <div style={{ fontSize: 12, color: "#8c8c8c" }}>预计等待</div>
+              </div>
+            )}
+            {selected.queueReason && (
+              <div>
+                <Text type="warning" style={{ fontSize: 13 }}>{selected.queueReason}</Text>
+              </div>
+            )}
+            {onCancel && (
+              <Button size="small" danger icon={<CloseCircleOutlined />}
+                onClick={() => { onCancel(selected.id); onClose(); }}>
+                取消排队
+              </Button>
+            )}
+          </Space>
+        </Card>
+      )}
+
       <Descriptions bordered column={2} size="small">
         <Descriptions.Item label="编号">{selected.taskNo}</Descriptions.Item>
         <Descriptions.Item label="状态">
@@ -115,7 +184,6 @@ export default function TaskDetailDrawer({
     ? <Table size="small" dataSource={executions} rowKey="id" pagination={false} columns={execColumns} />
     : <Text type="secondary">暂无执行记录</Text>;
 
-  // #225: 使用 TaskExecutionLogs 组件实时轮询日志
   const logTab = (
     <TaskExecutionLogs taskId={selected.id} taskStatus={selected.status} />
   );

@@ -2,6 +2,7 @@
  * @file Tasks.js
  * @description 评测任务页面入口，只做布局和子组件编排
  * #228 - 集成调试面板
+ * #519 - 传递 retry/cancel 到详情弹窗
  */
 import React, { useState } from "react";
 import useTaskData from "../hooks/useTaskData";
@@ -72,6 +73,8 @@ export default function Tasks() {
         taskReport={data.taskReport}
         reportLoading={data.reportLoading}
         onClose={() => { setDetailVisible(false); data.setExecutions([]); data.setTaskReport(null); }}
+        onRetry={data.handleRetry}
+        onCancel={data.handleCancel}
       />
 
       <DebugPanel

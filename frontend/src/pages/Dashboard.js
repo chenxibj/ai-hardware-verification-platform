@@ -2,17 +2,20 @@
  * @file Dashboard.js
  * @description 工作台总览页 — 统计卡片 + 实时动态 + 雷达图 + 最近评测任务 + 快速操作
  * @feat #166
+ * @feat #519 异常任务统计卡片
+ * @feat #520 排队信息卡片
  */
 import React, { useState, useEffect, useCallback } from "react";
 import {
   Card, Row, Col, Statistic, Tag, Badge, Progress, Space, Button,
-  Typography, Timeline, List, Empty, Skeleton, Tooltip
+  Typography, Timeline, List, Empty, Skeleton, Tooltip, Alert,
 } from "antd";
 import {
   ExperimentOutlined, PlayCircleOutlined, CheckCircleOutlined,
   ClockCircleOutlined, PlusCircleOutlined,
   BarChartOutlined, AppstoreOutlined,
-  SyncOutlined, RocketOutlined
+  SyncOutlined, RocketOutlined, WarningOutlined,
+  CloseCircleOutlined,
 } from "@ant-design/icons";
 import RadarChart from "../components/RadarChart";
 import HotAssetsCard from "./assets/HotAssetsCard";
@@ -43,18 +46,24 @@ export default function Dashboard() {
   const [recentPlans, setRecentPlans] = useState([]);
   const [radarChips, setRadarChips] = useState([]);
   const [loading, setLoading] = useState(true);
+  // #520: queue status
+  const [queueStatus, setQueueStatus] = useState(null);
+  // #519: stalled tasks
+  const [stalledTasks, setStalledTasks] = useState([]);
 
   const fetchData = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
     try {
       /* #286: 从已有 API 聚合 Dashboard 数据 */
-      const [tasksRes, nodesRes, reportsRes, assetsRes, plansRes, chipsRes] = await Promise.allSettled([
+      const [tasksRes, nodesRes, reportsRes, assetsRes, plansRes, chipsRes, queueRes, stalledRes] = await Promise.allSettled([
         api.get("/tasks", { params: { size: 5, page: 0 } }),
         api.get("/nodes", { params: { size: 100 } }),
         api.get("/chip-reports", { params: { size: 5, page: 0 } }),
         api.get("/assets", { params: { size: 100 } }),
         api.get("/plans", { params: { size: 5, page: 0, sortBy: "createdAt", sortDir: "desc" } }),
         api.get("/chips", { params: { size: 100 } }),
+        api.get("/tasks/queue-status"),
+        api.get("/tasks/stalled"),
       ]);
 
       // Build stats from aggregated data
@@ -81,6 +90,16 @@ export default function Dashboard() {
         assetCount: assets.length,
         reportCount: reports.length,
       });
+
+      // #520: Queue status
+      if (queueRes.status === "fulfilled" && queueRes.value.data?.code === 0) {
+        setQueueStatus(queueRes.value.data.data);
+      }
+
+      // #519: Stalled tasks
+      if (stalledRes.status === "fulfilled" && stalledRes.value.data?.code === 0) {
+        setStalledTasks(stalledRes.value.data.data || []);
+      }
 
       // Build activity feed from tasks + reports
       const activityItems = [];
@@ -235,6 +254,134 @@ export default function Dashboard() {
             </Card>
           </Col>
         ))}
+      </Row>
+
+      {/* #519: 异常任务告警卡片 + #520: 排队信息卡片 */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+        {/* #519: 异常（卡顿）任务卡片 */}
+        <Col xs={24} md={12}>
+          <Card
+            title={<><WarningOutlined style={{ color: "#fa8c16" }} /> 异常任务监控</>}
+            size="small"
+            style={stalledTasks.length > 0 ? {
+              borderColor: "#fa8c16",
+              background: "linear-gradient(135deg, #fff7e6 0%, #fffbe6 100%)",
+            } : {}}
+          >
+            {stalledTasks.length > 0 ? (
+              <div>
+                <Alert
+                  message={`${stalledTasks.length} 个任务疑似卡顿`}
+                  description="以下任务运行中超过 5 分钟进度无更新"
+                  type="warning"
+                  showIcon
+                  style={{ marginBottom: 12 }}
+                />
+                <List
+                  size="small"
+                  dataSource={stalledTasks.slice(0, 5)}
+                  renderItem={(task) => (
+                    <List.Item>
+                      <div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div>
+                          <Text strong>{task.taskNo}</Text>
+                          <Text style={{ marginLeft: 8 }}>{task.name}</Text>
+                          <br />
+                          <Text type="warning" style={{ fontSize: 12 }}>
+                            {task.warningMessage || "进度无更新"}
+                          </Text>
+                        </div>
+                        <Space>
+                          <Tag color="orange">{task.progress || 0}%</Tag>
+                        </Space>
+                      </div>
+                    </List.Item>
+                  )}
+                />
+              </div>
+            ) : (
+              <Empty
+                description="所有任务运行正常"
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                style={{ padding: "20px 0" }}
+              />
+            )}
+          </Card>
+        </Col>
+
+        {/* #520: 排队信息卡片 */}
+        <Col xs={24} md={12}>
+          <Card
+            title={<><ClockCircleOutlined style={{ color: "#faad14" }} /> 排队信息</>}
+            size="small"
+          >
+            {queueStatus ? (
+              <div>
+                <Row gutter={16} style={{ marginBottom: 16 }}>
+                  <Col span={8} style={{ textAlign: "center" }}>
+                    <Statistic
+                      title="总排队数"
+                      value={queueStatus.totalQueued || 0}
+                      valueStyle={{ color: "#faad14" }}
+                    />
+                  </Col>
+                  <Col span={8} style={{ textAlign: "center" }}>
+                    <Statistic
+                      title="我的排队"
+                      value={queueStatus.myQueuedCount || 0}
+                      valueStyle={{ color: "#1890ff" }}
+                    />
+                  </Col>
+                  <Col span={8} style={{ textAlign: "center" }}>
+                    <Statistic
+                      title="预计最长等待"
+                      value={
+                        queueStatus.myQueuedTasks && queueStatus.myQueuedTasks.length > 0
+                          ? Math.max(...queueStatus.myQueuedTasks.map(t => t.estimatedWaitMinutes || 0))
+                          : 0
+                      }
+                      suffix="分钟"
+                      valueStyle={{ color: "#fa8c16" }}
+                    />
+                  </Col>
+                </Row>
+                {queueStatus.myQueuedTasks && queueStatus.myQueuedTasks.length > 0 && (
+                  <List
+                    size="small"
+                    dataSource={queueStatus.myQueuedTasks}
+                    renderItem={(task) => (
+                      <List.Item>
+                        <div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div>
+                            <Text strong>{task.taskNo}</Text>
+                            <Text style={{ marginLeft: 8 }}>{task.name}</Text>
+                          </div>
+                          <Space>
+                            <Tag color="gold">#{task.queuePosition}</Tag>
+                            <Text type="secondary" style={{ fontSize: 12 }}>~{task.estimatedWaitMinutes}min</Text>
+                          </Space>
+                        </div>
+                      </List.Item>
+                    )}
+                  />
+                )}
+                {(!queueStatus.myQueuedTasks || queueStatus.myQueuedTasks.length === 0) && queueStatus.totalQueued === 0 && (
+                  <Empty
+                    description="当前无排队任务"
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    style={{ padding: "20px 0" }}
+                  />
+                )}
+              </div>
+            ) : (
+              <Empty
+                description="加载中..."
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                style={{ padding: "20px 0" }}
+              />
+            )}
+          </Card>
+        </Col>
       </Row>
 
       {/* 中间区域：实时动态 + 最近评测任务 */}
