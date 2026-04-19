@@ -155,21 +155,7 @@ class SpecAwareScoringTest {
         assertTrue(baseline.isEmpty());
     }
 
-    @Test
-    @DisplayName("#528: scoreFromMetrics falls back to absolute scoring when no baseline")
-    void scoreFromMetrics_noBaseline_fallsBackToAbsolute() {
-        Chip l40s = makeL40S();
-        when(chipRepository.findByNameContainingIgnoreCase("L40S")).thenReturn(List.of(l40s));
-        when(planRepository.findByChipIdAndRunSpecIdAndStatus(952L, 99L, EvaluationPlan.PlanStatus.COMPLETED))
-                .thenReturn(List.of());
-
-        String chipMetrics = "{\"latency_ms_mean\": 1.0}";
-        double score = scoringService.scoreFromMetrics(chipMetrics, "MatMul", 99L);
-
-        // Should use fallback scoreLatency formula
-        assertTrue(score > 0, "Score should be positive even without baseline");
-        assertTrue(score <= 200, "Score should be bounded");
-    }
+    // Old test removed by #529 — log10 fallback eliminated
 
     @Test
     @DisplayName("#528: getBaselineSource returns source info for available baseline")

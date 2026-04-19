@@ -550,6 +550,8 @@ public class EvaluationResultService {
                 // #434: use ScoringService for vs L40S percentage scoring
                 String testItem = task != null ? task.getTestItem() : null;
                 double score = scoringService.scoreFromMetrics(r.getMetricsSummary(), testItem, runSpecId);
+                // #529: Skip entries with no baseline (score=-1)
+                if (score < 0) continue;
                 String dimension = categorizeToDimension(task);
                 if (dimScores.containsKey(dimension)) {
                     dimScores.get(dimension).add(score);

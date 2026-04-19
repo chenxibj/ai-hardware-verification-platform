@@ -88,8 +88,9 @@ private final RunSpecRepository runSpecRepository;
                 .orElseThrow(() -> new RuntimeException("Plan not found: " + planId));
 
         // 1. 计算维度评分
-        // #528: Use spec-aware dimension scoring
-        Map<String, Double> dimScores = resultService.calculateDimensionScores(planId, plan.getRunSpecId());
+        // #528/#530: Use spec-aware dimension scoring with runSpecId inference for old plans
+        Long effectiveRunSpecId = scoringService.resolveRunSpecId(plan);
+        Map<String, Double> dimScores = resultService.calculateDimensionScores(planId, effectiveRunSpecId);
 
         // #515: Removed baseline 100% forcing — keep raw computed scores for all chips
         Chip targetChip = chipRepository.findById(plan.getChipId()).orElse(null);
@@ -110,7 +111,7 @@ private final RunSpecRepository runSpecRepository;
         }
 
         // 2. 生成算子排行 (with three-state: VALID/NO_DATA/FAILED)
-        List<Map<String, Object>> operatorRanking = buildOperatorRanking(planId, plan.getRunSpecId());
+        List<Map<String, Object>> operatorRanking = buildOperatorRanking(planId, effectiveRunSpecId);
 
         // #515: Removed baseline 100% forcing for operator ranking — keep raw scores
 
@@ -237,8 +238,13 @@ private final RunSpecRepository runSpecRepository;
 
         // #528: Add baseline source info (spec-aware)
         try {
-            Long runSpecId = plan.getRunSpecId();
+            Long runSpecId = effectiveRunSpecId;
             Map<String, Object> baselineSourceInfo = scoringService.getBaselineSource(runSpecId);
+            // #530: Note if runSpecId was inferred
+            if (plan.getRunSpecId() == null && runSpecId != null) {
+                baselineSourceInfo.put("inferred", true);
+                baselineSourceInfo.put("inferredFrom", "eval_config");
+            }
             // Enrich with runSpec details
             if (runSpecId != null) {
                 runSpecRepository.findById(runSpecId).ifPresent(rs -> {
@@ -728,9 +734,15 @@ private final RunSpecRepository runSpecRepository;
                 entry.put("latencyP95", Math.round(p95Latency * 100.0) / 100.0);
                 entry.put("latencyP99", Math.round(p99Latency * 100.0) / 100.0);
                 entry.put("throughput", Math.round(throughput * 100.0) / 100.0);
-                entry.put("score", dataStatus.equals("NO_DATA") ? null : Math.round(score * 10.0) / 10.0);
+                // #529: score=-1 means no baseline data available
+                boolean noBaseline = score < 0 && "VALID".equals(dataStatus);
+                entry.put("score", (dataStatus.equals("NO_DATA") || score < 0) ? null : Math.round(score * 10.0) / 10.0);
                 entry.put("passed", dataStatus.equals("VALID") && score >= 80.0); // #434: 80% of L40S baseline
                 entry.put("dataStatus", dataStatus);
+                if (noBaseline) {
+                    entry.put("noBaseline", true);
+                    entry.put("noBaselineNote", "无同规格基准数据");
+                }
                 // #524: Include failureType from task for report display (grey vs red distinction)
                 if (task != null && task.getFailureType() != null) {
                     entry.put("failureType", task.getFailureType().name());

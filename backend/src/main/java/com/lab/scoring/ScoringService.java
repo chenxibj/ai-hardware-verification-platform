@@ -23,6 +23,7 @@ import com.lab.dimension.DimensionRegistry;
 /**
  * 评分计算服务
  * Issue: #135, #139 (六维度增强), #434 (vs L40S 百分比), #528 (按规格匹配 baseline)
+ * #529 (废弃 log10 fallback), #530 (run_spec_id=NULL 推断规格)
  */
 @Slf4j
 @Service
@@ -51,6 +52,24 @@ public class ScoringService {
 
     /** Legacy cache for backward compat (all specs mixed) */
     private volatile Map<String, Double> baselineLatencyCache = null;
+
+    /**
+     * #530: Cache of inferred runSpecId from eval_config for plans with run_spec_id=NULL.
+     * Key: planId → inferred runSpecId (or -1 if inference failed/not possible)
+     */
+    private final Map<Long, Long> inferredSpecCache = new ConcurrentHashMap<>();
+
+    /**
+     * #530: GPU count to runSpecId mapping.
+     * Based on run_specs table: 1→单卡(13), 2→双卡(14), 4→四卡(15), 8→八卡(16), 0/null→CPU(11)
+     */
+    private static final Map<Integer, Long> GPU_COUNT_TO_SPEC_ID = Map.of(
+        0, 11L,   // CPU
+        1, 13L,   // 单卡GPU
+        2, 14L,   // 双卡GPU
+        4, 15L,   // 四卡GPU
+        8, 16L    // 八卡GPU
+    );
 
     /**
      * Navigate nested JSON to find actual metrics data.
@@ -103,6 +122,8 @@ public class ScoringService {
      */
     public Map<String, Double> getBaselineLatencyMap(Long runSpecId) {
         if (runSpecId == null) {
+            // #530: When callers pass null, fall back to legacy all-spec baseline
+            // Callers should prefer resolveRunSpecId(plan) to attempt inference first
             return getBaselineLatencyMapLegacy();
         }
 
@@ -151,8 +172,10 @@ public class ScoringService {
 
     /**
      * Legacy: Load ALL L40S data without run_spec filtering (backward compat).
+     * @deprecated #529: No longer used as fallback. Use spec-aware matching with resolveRunSpecId.
      */
-    private Map<String, Double> getBaselineLatencyMapLegacy() {
+    @Deprecated
+    Map<String, Double> getBaselineLatencyMapLegacy() {
         if (baselineLatencyCache != null) return baselineLatencyCache;
 
         Map<String, Double> baseline = new HashMap<>();
@@ -225,11 +248,69 @@ public class ScoringService {
     }
 
     /**
+     * #530: Resolve the effective runSpecId for a plan.
+     * If plan.runSpecId is set, use it directly.
+     * If NULL, try to infer from plan.evalConfig JSON (gpuCount field).
+     * Returns null if inference is not possible.
+     */
+    public Long resolveRunSpecId(EvaluationPlan plan) {
+        if (plan == null) return null;
+        if (plan.getRunSpecId() != null) return plan.getRunSpecId();
+
+        // Check cache first
+        Long cached = inferredSpecCache.get(plan.getId());
+        if (cached != null) {
+            return cached == -1L ? null : cached;
+        }
+
+        // Try to infer from eval_config
+        Long inferred = inferRunSpecIdFromEvalConfig(plan.getEvalConfig());
+        inferredSpecCache.put(plan.getId(), inferred != null ? inferred : -1L);
+
+        if (inferred != null) {
+            log.info("#530: Inferred runSpecId={} from eval_config for plan {} (id={})",
+                    inferred, plan.getPlanNo(), plan.getId());
+        } else {
+            log.debug("#530: Cannot infer runSpecId from eval_config for plan {} (id={})",
+                    plan.getPlanNo(), plan.getId());
+        }
+        return inferred;
+    }
+
+    /**
+     * #530: Infer runSpecId from eval_config JSON string.
+     * Looks for gpuCount field: 1→单卡(13), 2→双卡(14), 4→四卡(15), 8→八卡(16), 0/null→CPU(11)
+     */
+    Long inferRunSpecIdFromEvalConfig(String evalConfig) {
+        if (evalConfig == null || evalConfig.isEmpty()) return null;
+        try {
+            JsonNode config = objectMapper.readTree(evalConfig);
+            JsonNode gpuCountNode = config.get("gpuCount");
+            if (gpuCountNode == null || gpuCountNode.isNull()) {
+                // No gpuCount field → assume CPU
+                return GPU_COUNT_TO_SPEC_ID.get(0);
+            }
+            int gpuCount = gpuCountNode.asInt(0);
+            Long specId = GPU_COUNT_TO_SPEC_ID.get(gpuCount);
+            if (specId != null) {
+                return specId;
+            }
+            // Unknown gpu count → cannot infer
+            log.warn("#530: Unknown gpuCount={} in eval_config, cannot infer runSpecId", gpuCount);
+            return null;
+        } catch (Exception e) {
+            log.warn("#530: Failed to parse eval_config for runSpecId inference: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Clear baseline cache (useful when new L40S data is added)
      */
     public void clearBaselineCache() {
         baselineLatencyCache = null;
         baselineCacheBySpec.clear();
+        inferredSpecCache.clear();
     }
 
     /**
@@ -269,12 +350,12 @@ public class ScoringService {
     }
 
     /**
-     * 基于延迟计算单个任务评分（旧算法 0-100，用作 fallback）
+     * #529: scoreLatency (log10) 已废弃。找不到 baseline 时 score=null，不再 fallback。
+     * @deprecated Removed in #529. Use scoreFromMetrics with baseline comparison only.
      */
+    @Deprecated
     public double scoreLatency(double latencyMs) {
-        if (latencyMs <= 0) return 0;
-        double score = 100 - 20 * Math.log10(latencyMs);
-        return Math.max(0, Math.min(100, score));
+        throw new UnsupportedOperationException("#529: log10 scoring has been removed. Use baseline comparison only.");
     }
 
     /**
@@ -309,8 +390,9 @@ public class ScoringService {
                 }
             }
 
-            // Fallback to old scoring if no baseline found
-            return roundTo2(scoreLatency(chipLatency));
+            // #529: No fallback — return -1 to indicate "无同规格基准数据"
+            log.debug("#529: No baseline found for testItem={}, runSpecId={}, score=null", testItem, runSpecId);
+            return -1;
         } catch (Exception e) {
             log.warn("Failed to parse metricsSummary: {}", e.getMessage());
             return 0;
@@ -333,30 +415,49 @@ public class ScoringService {
     }
 
     /**
+     * #530: Score from metrics with plan-based spec resolution.
+     * If plan.runSpecId is NULL, attempts to infer from evalConfig.
+     */
+    public double scoreFromMetrics(String metricsSummary, String testItem, EvaluationPlan plan) {
+        Long effectiveSpecId = resolveRunSpecId(plan);
+        return scoreFromMetrics(metricsSummary, testItem, effectiveSpecId);
+    }
+
+    /**
      * #434: 计算综合评分（需要 tasks 来获取 testItem 做 vs L40S 比较）
      */
     public double calculateOverallScore(List<EvaluationResult> results, List<EvaluationTask> tasks) {
         Map<Long, EvaluationTask> taskMap = tasks.stream()
                 .collect(Collectors.toMap(EvaluationTask::getId, t -> t));
 
-        return roundTo2(results.stream()
+        // #529: Filter out -1 scores (no baseline) before averaging
+        double[] validScores = results.stream()
                 .filter(r -> r.getPassed() != null && r.getPassed())
                 .mapToDouble(r -> {
                     EvaluationTask task = taskMap.get(r.getTaskId());
                     String testItem = task != null ? task.getTestItem() : null;
                     return scoreFromMetrics(r.getMetricsSummary(), testItem);
                 })
-                .average().orElse(0));
+                .filter(s -> s >= 0)
+                .toArray();
+        return validScores.length > 0
+                ? roundTo2(Arrays.stream(validScores).average().orElse(0))
+                : 0;
     }
 
     /**
      * 兼容旧调用
      */
     public double calculateOverallScore(List<EvaluationResult> results) {
-        return roundTo2(results.stream()
+        // #529: Filter out -1 scores (no baseline) before averaging
+        double[] validScores = results.stream()
                 .filter(r -> r.getPassed() != null && r.getPassed())
                 .mapToDouble(r -> scoreFromMetrics(r.getMetricsSummary()))
-                .average().orElse(0));
+                .filter(s -> s >= 0)
+                .toArray();
+        return validScores.length > 0
+                ? roundTo2(Arrays.stream(validScores).average().orElse(0))
+                : 0;
     }
 
     /**
@@ -377,6 +478,8 @@ public class ScoringService {
 
             String dimension = DimensionRegistry.getKeyByOperator(task.getTestItem());
             double score = scoreFromMetrics(result.getMetricsSummary(), task.getTestItem(), runSpecId);
+            // #529: Skip entries with no baseline (score=-1)
+            if (score < 0) continue;
             dimScores.computeIfAbsent(dimension, k -> new ArrayList<>()).add(score);
         }
 
@@ -497,7 +600,7 @@ public class ScoringService {
             item.put("testItem", testItem != null ? testItem : "Unknown");
             item.put("dimension", testItem != null ? getDimension(testItem) : "compute");
             item.put("passed", result.getPassed() != null && result.getPassed());
-            item.put("score", scoreFromMetrics(result.getMetricsSummary(), testItem));
+            double rawScore = scoreFromMetrics(result.getMetricsSummary(), testItem);
 
             // Determine dataStatus
             String dataStatus;
@@ -511,6 +614,14 @@ public class ScoringService {
                 dataStatus = "FAILED";
             } else {
                 dataStatus = "NO_DATA";
+            }
+            // #529: score=-1 means no baseline data available
+            if (rawScore < 0 && "VALID".equals(dataStatus)) {
+                item.put("score", null);
+                item.put("noBaseline", true);
+                item.put("noBaselineNote", "无同规格基准数据");
+            } else {
+                item.put("score", rawScore < 0 ? null : rawScore);
             }
             item.put("dataStatus", dataStatus);
 

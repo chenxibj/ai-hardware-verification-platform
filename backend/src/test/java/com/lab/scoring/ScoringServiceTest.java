@@ -80,14 +80,14 @@ class ScoringServiceTest {
     }
 
     @Test
-    @DisplayName("#434: no baseline -> old scoring fallback")
-    void scoreFromMetrics_noBaseline_shouldFallback() {
+    @DisplayName("#529: no baseline -> score=-1 (no fallback to log10)")
+    void scoreFromMetrics_noBaseline_shouldReturnNegative() {
         setupL40SBaseline("MatMul", 0.022);
 
         String chipMetrics = "{\"latency_ms_mean\": 1.0}";
         double score = scoringService.scoreFromMetrics(chipMetrics, "UnknownOp");
-        // Old formula: 100 - 20 * log10(1.0) = 100
-        assertEquals(100.0, score, 0.1, "No baseline should fallback to old scoring");
+        // #529: No longer falls back to log10, returns -1
+        assertEquals(-1.0, score, 0.01, "No baseline should return -1, not fallback to log10");
     }
 
     @Test
@@ -258,22 +258,22 @@ class ScoringServiceTest {
     }
 
     @Test
-    @DisplayName("#527: fallback score should also be rounded")
-    void scoreFromMetrics_fallbackScore_shouldBeRounded() {
+    @DisplayName("#529: no baseline returns -1, no log10 fallback")
+    void scoreFromMetrics_noBaseline_returnsNegativeOne() {
         setupL40SBaseline("MatMul", 0.022);
 
-        // Unknown operator → fallback to old scoring
-        // scoreLatency(1.5) = 100 - 20 * log10(1.5) = 100 - 20*0.17609... = 96.478...
+        // Unknown operator -> no baseline -> score=-1 (was log10 fallback)
         String chipMetrics = "{\"latency_ms_mean\": 1.5}";
         double score = scoringService.scoreFromMetrics(chipMetrics, "UnknownOp");
+        assertEquals(-1.0, score, 0.01, "No baseline should return -1, not use log10");
+    }
 
-        String scoreStr = String.valueOf(score);
-        if (scoreStr.contains(".")) {
-            String decimals = scoreStr.substring(scoreStr.indexOf('.') + 1);
-            String trimmed = decimals.replaceAll("0+$", "");
-            assertTrue(trimmed.length() <= 2,
-                "Fallback score " + scoreStr + " should have at most 2 decimal places");
-        }
+    @Test
+    @DisplayName("#529: scoreLatency throws UnsupportedOperationException")
+    void scoreLatency_shouldThrow() {
+        assertThrows(UnsupportedOperationException.class,
+            () -> scoringService.scoreLatency(1.0),
+            "scoreLatency should throw since log10 is removed");
     }
     private EvaluationTask makeTask(Long id, String testItem) {
         EvaluationTask t = new EvaluationTask();
