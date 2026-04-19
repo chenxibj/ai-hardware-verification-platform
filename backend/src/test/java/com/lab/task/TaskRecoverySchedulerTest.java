@@ -3,12 +3,10 @@ package com.lab.task;
 import com.lab.gpu.GpuSlotService;
 import com.lab.node.ComputeNode;
 import com.lab.node.ComputeNodeRepository;
-import com.lab.plan.EvaluationPlan;
 import com.lab.plan.EvaluationPlanRepository;
 import com.lab.result.EvaluationResultRepository;
 import com.lab.chipreport.ChipReportRepository;
 import com.lab.chipreport.ReportGeneratorService;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -18,7 +16,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -100,16 +97,14 @@ class TaskRecoverySchedulerTest {
         stuckTask.setProgress(0);
         stuckTask.setRetryCount(0);
 
-        // 15min threshold returns empty, 5min threshold returns our task
         when(taskRepository.findByStatusAndLastHeartbeatAtBefore(
                 eq(EvaluationTask.TaskStatus.RUNNING), any(Instant.class)))
-                .thenReturn(Collections.emptyList())   // first call (15min)
-                .thenReturn(List.of(stuckTask));        // second call (5min)
+                .thenReturn(Collections.emptyList())
+                .thenReturn(List.of(stuckTask));
         when(taskRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         scheduler.recoverStaleRunningTasks();
 
-        // #509: progress=0 tasks should be re-queued, not immediately failed
         assertEquals(EvaluationTask.TaskStatus.QUEUED, stuckTask.getStatus());
         assertEquals(1, stuckTask.getRetryCount());
         assertNull(stuckTask.getAssignedNodeId());
@@ -120,16 +115,15 @@ class TaskRecoverySchedulerTest {
     void recoverStaleRunningTasks_withProgress_shouldNotFailEarly() {
         Instant sixMinAgo = Instant.now().minus(6, ChronoUnit.MINUTES);
         EvaluationTask activeTask = makeTask(3L, EvaluationTask.TaskStatus.RUNNING, sixMinAgo);
-        activeTask.setProgress(50);  // Has progress, not stuck
+        activeTask.setProgress(50);
 
         when(taskRepository.findByStatusAndLastHeartbeatAtBefore(
                 eq(EvaluationTask.TaskStatus.RUNNING), any(Instant.class)))
-                .thenReturn(Collections.emptyList())    // 15min
-                .thenReturn(List.of(activeTask));        // 5min
+                .thenReturn(Collections.emptyList())
+                .thenReturn(List.of(activeTask));
 
         scheduler.recoverStaleRunningTasks();
 
-        // progress > 0, should NOT be failed at 5min mark
         assertEquals(EvaluationTask.TaskStatus.RUNNING, activeTask.getStatus());
     }
 }

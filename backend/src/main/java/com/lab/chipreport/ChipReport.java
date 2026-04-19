@@ -92,6 +92,9 @@ public class ChipReport {
     @Column(name = "baseline_chip", length = 200)
     private String baselineChip;
 
+    @Column(name = "coverage", columnDefinition = "TEXT")
+    private String coverage;
+
     @Transient
     private String chipName;
 

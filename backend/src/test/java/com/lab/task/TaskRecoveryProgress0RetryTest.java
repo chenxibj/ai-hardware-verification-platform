@@ -25,10 +25,6 @@ import static org.mockito.Mockito.*;
 
 /**
  * #509: progress=0 超时任务应回退重试而非直接失败
- * 
- * 根因：poll-tasks 在后端将 DISPATCHED->RUNNING 后，如果 Agent 未收到 HTTP 响应
- * （网络闪断、超时、Agent 重启等），任务留在 RUNNING+progress=0 无人执行。
- * 修复：progress=0 的超时任务先回退为 QUEUED 重试（最多 2 次），而非直接 FAILED。
  */
 @ExtendWith(MockitoExtension.class)
 class TaskRecoveryProgress0RetryTest {
@@ -74,17 +70,15 @@ class TaskRecoveryProgress0RetryTest {
 
         scheduler.recoverStaleRunningTasks();
 
-        assertEquals(EvaluationTask.TaskStatus.QUEUED, task.getStatus(),
-                "progress=0 task should be re-queued, not failed");
-        assertEquals(1, task.getRetryCount(), "retryCount should increment to 1");
-        assertNull(task.getAssignedNodeId(), "nodeId should be cleared");
-        assertNull(task.getStartedAt(), "startedAt should be cleared");
-        assertNull(task.getLastHeartbeatAt(), "lastHeartbeatAt should be cleared");
-        assertNull(task.getAllocatedGpuIndices(), "GPU indices should be cleared");
-        assertTrue(task.getQueueReason().contains("#509"), "queueReason should reference #509");
+        assertEquals(EvaluationTask.TaskStatus.QUEUED, task.getStatus());
+        assertEquals(1, task.getRetryCount());
+        assertNull(task.getAssignedNodeId());
+        assertNull(task.getStartedAt());
+        assertNull(task.getLastHeartbeatAt());
+        assertNull(task.getAllocatedGpuIndices());
+        assertTrue(task.getQueueReason().contains("#509"));
         verify(gpuSlotService).releaseGpuSlots(1L);
         verify(taskDispatcher).tryDispatchNext();
-        // Should NOT create a timeout result
         verify(resultRepository, never()).findByTaskId(any());
     }
 
@@ -102,8 +96,7 @@ class TaskRecoveryProgress0RetryTest {
 
         scheduler.recoverStaleRunningTasks();
 
-        assertEquals(EvaluationTask.TaskStatus.QUEUED, task.getStatus(),
-                "Should still re-queue on second retry");
+        assertEquals(EvaluationTask.TaskStatus.QUEUED, task.getStatus());
         assertEquals(2, task.getRetryCount());
     }
 
@@ -121,8 +114,7 @@ class TaskRecoveryProgress0RetryTest {
 
         scheduler.recoverStaleRunningTasks();
 
-        assertEquals(EvaluationTask.TaskStatus.FAILED, task.getStatus(),
-                "Should fail after exhausting retries");
+        assertEquals(EvaluationTask.TaskStatus.FAILED, task.getStatus());
         assertNotNull(task.getErrorMessage());
         assertTrue(task.getErrorMessage().contains("progress=0"));
         verify(lifecycle).onTaskTerminated(3L);
@@ -142,9 +134,8 @@ class TaskRecoveryProgress0RetryTest {
 
         scheduler.recoverStaleRunningTasks();
 
-        assertEquals(EvaluationTask.TaskStatus.FAILED, task.getStatus(),
-                "Tasks with progress should still fail after 15min");
-        assertEquals(0, task.getRetryCount(), "retryCount should not change for progress>0");
+        assertEquals(EvaluationTask.TaskStatus.FAILED, task.getStatus());
+        assertEquals(0, task.getRetryCount());
     }
 
     @Test
@@ -152,7 +143,7 @@ class TaskRecoveryProgress0RetryTest {
     void progress0_retryNull_shouldRequeue() {
         Instant sixMinAgo = Instant.now().minus(6, ChronoUnit.MINUTES);
         EvaluationTask task = makeTask(5L, EvaluationTask.TaskStatus.RUNNING, sixMinAgo, 0, 0);
-        task.setRetryCount(null);  // Simulate old data without retryCount
+        task.setRetryCount(null);
 
         when(taskRepository.findByStatusAndLastHeartbeatAtBefore(
                 eq(EvaluationTask.TaskStatus.RUNNING), any(Instant.class)))
@@ -162,8 +153,7 @@ class TaskRecoveryProgress0RetryTest {
 
         scheduler.recoverStaleRunningTasks();
 
-        assertEquals(EvaluationTask.TaskStatus.QUEUED, task.getStatus(),
-                "Null retryCount should be treated as 0");
+        assertEquals(EvaluationTask.TaskStatus.QUEUED, task.getStatus());
         assertEquals(1, task.getRetryCount());
     }
 
@@ -173,17 +163,14 @@ class TaskRecoveryProgress0RetryTest {
         Instant sixMinAgo = Instant.now().minus(6, ChronoUnit.MINUTES);
         Instant twentyMinAgo = Instant.now().minus(20, ChronoUnit.MINUTES);
 
-        // progress=0, retry 0 -> should requeue
         EvaluationTask requeueable = makeTask(10L, EvaluationTask.TaskStatus.RUNNING, sixMinAgo, 0, 0);
-        // progress=0, retry 2 -> should fail
         EvaluationTask exhausted = makeTask(11L, EvaluationTask.TaskStatus.RUNNING, sixMinAgo, 0, 2);
-        // progress=50, stale 20min -> should fail
         EvaluationTask progressed = makeTask(12L, EvaluationTask.TaskStatus.RUNNING, twentyMinAgo, 50, 0);
 
         when(taskRepository.findByStatusAndLastHeartbeatAtBefore(
                 eq(EvaluationTask.TaskStatus.RUNNING), any(Instant.class)))
-                .thenReturn(List.of(progressed))       // 15min threshold
-                .thenReturn(List.of(requeueable, exhausted, progressed));  // 5min threshold
+                .thenReturn(List.of(progressed))
+                .thenReturn(List.of(requeueable, exhausted, progressed));
         when(taskRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         scheduler.recoverStaleRunningTasks();

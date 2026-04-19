@@ -190,6 +190,8 @@ public class ReportGeneratorService {
             report.setRadarData(objectMapper.writeValueAsString(radarData));
             report.setBottleneckAnalysis(objectMapper.writeValueAsString(bottleneckAnalysis));
             report.setScenarioRecommendations(objectMapper.writeValueAsString(scenarioRecommendations));
+            // #517: Store coverage statistics as dedicated field
+            report.setCoverage(objectMapper.writeValueAsString(coverage));
         } catch (Exception e) {
             log.error("Failed to serialize report data", e);
         }
