@@ -38,7 +38,9 @@ async function run() {
   try {
     browser = await puppeteer.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+      // #513: --disable-features=HttpsUpgrades prevents Chrome 115+ HTTPS-First mode
+      // from auto-upgrading http:// to https:// (307 internal redirect)
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--disable-features=HttpsUpgrades'],
       timeout: TIMEOUT,
     });
 

@@ -147,7 +147,9 @@ services:
     container_name: ahvp-frontend
     ports:
       - "80:80"
-      - "443:443"
+      # #513: Removed 443 mapping - no SSL cert in dev; open 443 caused Chrome HTTPS-First
+      # to connect, get TLS error, and not fall back to HTTP properly
+      # - "443:443"
     depends_on:
       - backend
     networks:
