@@ -15,13 +15,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import com.lab.dimension.DimensionRegistry;
 
 /**
  * 评分计算服务
- * Issue: #135, #139 (六维度增强), #434 (vs L40S 百分比)
+ * Issue: #135, #139 (六维度增强), #434 (vs L40S 百分比), #528 (按规格匹配 baseline)
  */
 @Slf4j
 @Service
@@ -42,10 +43,14 @@ public class ScoringService {
         return Math.round(value * 100.0) / 100.0;
     }
 
-    /** Cached baseline latency map: testItem -> latency_ms_mean */
-    private volatile Map<String, Double> baselineLatencyCache = null;
+    /**
+     * #528: Per-runSpec baseline cache: runSpecId -> (testItem -> latency_ms_mean)
+     * null key = legacy "all specs mixed" cache (for backward compat)
+     */
+    private final Map<Long, Map<String, Double>> baselineCacheBySpec = new ConcurrentHashMap<>();
 
-    
+    /** Legacy cache for backward compat (all specs mixed) */
+    private volatile Map<String, Double> baselineLatencyCache = null;
 
     /**
      * Navigate nested JSON to find actual metrics data.
@@ -92,10 +97,62 @@ public class ScoringService {
     }
 
     /**
-     * Load L40S baseline latency data (cached).
+     * #528: Load L40S baseline latency data filtered by runSpecId.
+     * Only includes data from COMPLETED plans with matching run_spec_id.
      * Returns map: testItem -> average latency_ms_mean
      */
-    private Map<String, Double> getBaselineLatencyMap() {
+    public Map<String, Double> getBaselineLatencyMap(Long runSpecId) {
+        if (runSpecId == null) {
+            return getBaselineLatencyMapLegacy();
+        }
+
+        return baselineCacheBySpec.computeIfAbsent(runSpecId, specId -> {
+            Map<String, Double> baseline = new HashMap<>();
+            try {
+                List<Chip> l40sChips = chipRepository.findByNameContainingIgnoreCase("L40S");
+                if (l40sChips.isEmpty()) {
+                    log.warn("#528: No L40S baseline chip found");
+                    return baseline;
+                }
+
+                Set<Long> l40sChipIds = l40sChips.stream().map(Chip::getId).collect(Collectors.toSet());
+
+                // #528: Only get plans for L40S chips with MATCHING run_spec_id and COMPLETED status
+                List<Long> planIds = new ArrayList<>();
+                for (Long chipId : l40sChipIds) {
+                    planRepository.findByChipIdAndRunSpecIdAndStatus(chipId, specId, EvaluationPlan.PlanStatus.COMPLETED)
+                            .forEach(p -> planIds.add(p.getId()));
+                }
+
+                if (planIds.isEmpty()) {
+                    log.warn("#528: No COMPLETED L40S plans found for runSpecId={}", specId);
+                    return baseline;
+                }
+
+                // Build testItem -> latencies map from matching L40S plans only
+                Map<String, List<Double>> latencies = new HashMap<>();
+                for (Long planId : planIds) {
+                    collectPlanLatencies(planId, latencies);
+                }
+
+                // Average each test item's latencies
+                for (Map.Entry<String, List<Double>> entry : latencies.entrySet()) {
+                    double avg = entry.getValue().stream().mapToDouble(Double::doubleValue).average().orElse(0);
+                    if (avg > 0) baseline.put(entry.getKey(), avg);
+                }
+
+                log.info("#528: Loaded L40S baseline for runSpecId={}: {} test items", specId, baseline.size());
+            } catch (Exception e) {
+                log.error("#528: Failed to load L40S baseline for runSpecId={}: {}", specId, e.getMessage());
+            }
+            return baseline;
+        });
+    }
+
+    /**
+     * Legacy: Load ALL L40S data without run_spec filtering (backward compat).
+     */
+    private Map<String, Double> getBaselineLatencyMapLegacy() {
         if (baselineLatencyCache != null) return baselineLatencyCache;
 
         Map<String, Double> baseline = new HashMap<>();
@@ -107,10 +164,8 @@ public class ScoringService {
                 return baseline;
             }
 
-            // Collect all L40S chip IDs
             Set<Long> l40sChipIds = l40sChips.stream().map(Chip::getId).collect(Collectors.toSet());
 
-            // Get all plans for L40S chips
             List<Long> planIds = new ArrayList<>();
             for (Long chipId : l40sChipIds) {
                 planRepository.findByChipId(chipId).forEach(p -> planIds.add(p.getId()));
@@ -122,43 +177,17 @@ public class ScoringService {
                 return baseline;
             }
 
-            // Build testItem -> latencies map from all L40S plans
             Map<String, List<Double>> latencies = new HashMap<>();
             for (Long planId : planIds) {
-                List<EvaluationTask> tasks = taskRepository.findByPlanId(planId);
-                List<EvaluationResult> results = resultRepository.findByPlanId(planId);
-                Map<Long, String> taskItemMap = tasks.stream()
-                        .filter(t -> t.getTestItem() != null)
-                        .collect(Collectors.toMap(EvaluationTask::getId, EvaluationTask::getTestItem));
-
-                for (EvaluationResult r : results) {
-                    // #525: Accept results with valid metrics regardless of passed/data_status
-                    // Old data may have passed=false or data_status=NULL but still contain
-                    // valid latency measurements. Only skip explicit FAILED status.
-                    if ("FAILED".equals(r.getDataStatus())) continue;
-                    String testItem = taskItemMap.get(r.getTaskId());
-                    if (testItem == null || r.getMetricsSummary() == null) continue;
-
-                    try {
-                        JsonNode root = objectMapper.readTree(r.getMetricsSummary());
-                        JsonNode node = findMetricsNode(root);
-                        double lat = extractLatency(node);
-                        if (lat > 0) {
-                            latencies.computeIfAbsent(testItem, k -> new ArrayList<>()).add(lat);
-                        }
-                    } catch (Exception e) {
-                        log.debug("Failed to parse L40S baseline metrics for {}: {}", testItem, e.getMessage());
-                    }
-                }
+                collectPlanLatencies(planId, latencies);
             }
 
-            // Average each test item's latencies
             for (Map.Entry<String, List<Double>> entry : latencies.entrySet()) {
                 double avg = entry.getValue().stream().mapToDouble(Double::doubleValue).average().orElse(0);
                 if (avg > 0) baseline.put(entry.getKey(), avg);
             }
 
-            log.info("#434: Loaded L40S baseline for {} test items", baseline.size());
+            log.info("#434: Loaded L40S baseline for {} test items (legacy, all specs)", baseline.size());
         } catch (Exception e) {
             log.error("#434: Failed to load L40S baseline: {}", e.getMessage());
         }
@@ -168,19 +197,66 @@ public class ScoringService {
     }
 
     /**
+     * Collect latencies from a single plan into the map.
+     */
+    private void collectPlanLatencies(Long planId, Map<String, List<Double>> latencies) {
+        List<EvaluationTask> tasks = taskRepository.findByPlanId(planId);
+        List<EvaluationResult> results = resultRepository.findByPlanId(planId);
+        Map<Long, String> taskItemMap = tasks.stream()
+                .filter(t -> t.getTestItem() != null)
+                .collect(Collectors.toMap(EvaluationTask::getId, EvaluationTask::getTestItem));
+
+        for (EvaluationResult r : results) {
+            if ("FAILED".equals(r.getDataStatus())) continue;
+            String testItem = taskItemMap.get(r.getTaskId());
+            if (testItem == null || r.getMetricsSummary() == null) continue;
+
+            try {
+                JsonNode root = objectMapper.readTree(r.getMetricsSummary());
+                JsonNode node = findMetricsNode(root);
+                double lat = extractLatency(node);
+                if (lat > 0) {
+                    latencies.computeIfAbsent(testItem, k -> new ArrayList<>()).add(lat);
+                }
+            } catch (Exception e) {
+                log.debug("Failed to parse L40S baseline metrics for {}: {}", testItem, e.getMessage());
+            }
+        }
+    }
+
+    /**
      * Clear baseline cache (useful when new L40S data is added)
      */
     public void clearBaselineCache() {
         baselineLatencyCache = null;
+        baselineCacheBySpec.clear();
+    }
+
+    /**
+     * #528: Clear cache for a specific runSpec only.
+     */
+    public void clearBaselineCache(Long runSpecId) {
+        if (runSpecId == null) {
+            clearBaselineCache();
+        } else {
+            baselineCacheBySpec.remove(runSpecId);
+        }
     }
 
     /**
      * #515: Get baseline latency for a specific test item (for scoring explainability).
-     * Returns null if no baseline data exists for this test item.
+     * Uses legacy (all-spec) baseline. For spec-specific, use getBaselineLatency(testItem, runSpecId).
      */
     public Double getBaselineLatency(String testItem) {
+        return getBaselineLatency(testItem, (Long) null);
+    }
+
+    /**
+     * #528: Get baseline latency for a specific test item filtered by runSpecId.
+     */
+    public Double getBaselineLatency(String testItem, Long runSpecId) {
         if (testItem == null) return null;
-        Map<String, Double> baseline = getBaselineLatencyMap();
+        Map<String, Double> baseline = getBaselineLatencyMap(runSpecId);
         Double lat = baseline.get(testItem);
         if (lat != null) return lat;
         // Try prefix match
@@ -202,10 +278,9 @@ public class ScoringService {
     }
 
     /**
-     * #434: 从 metricsSummary JSON 中提取延迟并计算 vs L40S 百分比
-     * 新签名：带 testItem 参数
+     * #528: scoreFromMetrics with runSpecId for spec-aware baseline comparison.
      */
-    public double scoreFromMetrics(String metricsSummary, String testItem) {
+    public double scoreFromMetrics(String metricsSummary, String testItem, Long runSpecId) {
         if (metricsSummary == null || metricsSummary.isEmpty()) return 0;
         try {
             JsonNode root = objectMapper.readTree(metricsSummary);
@@ -213,23 +288,20 @@ public class ScoringService {
             double chipLatency = extractLatency(node);
 
             if (chipLatency <= 0) {
-                // Try score field as fallback
                 if (root.has("score") && !root.get("score").isNull()) {
                     return roundTo2(Math.min(root.get("score").asDouble(), MAX_SCORE_PERCENT));
                 }
                 return 0;
             }
 
-            // #434: Try percentage vs L40S baseline
+            // #528: Try percentage vs L40S baseline (spec-filtered)
             if (testItem != null) {
-                Map<String, Double> baseline = getBaselineLatencyMap();
+                Map<String, Double> baseline = getBaselineLatencyMap(runSpecId);
                 Double baselineLatency = baseline.get(testItem);
                 if (baselineLatency != null && baselineLatency > 0) {
-                    // percentage = (baseline / chip) * 100
-                    // If chip is faster (lower latency), percentage > 100%
                     return roundTo2(Math.min((baselineLatency / chipLatency) * 100.0, MAX_SCORE_PERCENT));
                 }
-                // Try prefix match for test items like "MLP-Medium/batch=4"
+                // Try prefix match
                 for (Map.Entry<String, Double> entry : baseline.entrySet()) {
                     if (testItem.startsWith(entry.getKey()) && entry.getValue() > 0) {
                         return roundTo2(Math.min((entry.getValue() / chipLatency) * 100.0, MAX_SCORE_PERCENT));
@@ -246,10 +318,18 @@ public class ScoringService {
     }
 
     /**
+     * #434: 从 metricsSummary JSON 中提取延迟并计算 vs L40S 百分比
+     * Backward compat — uses legacy all-spec baseline
+     */
+    public double scoreFromMetrics(String metricsSummary, String testItem) {
+        return scoreFromMetrics(metricsSummary, testItem, (Long) null);
+    }
+
+    /**
      * 兼容旧调用（无 testItem 参数）
      */
     public double scoreFromMetrics(String metricsSummary) {
-        return scoreFromMetrics(metricsSummary, null);
+        return scoreFromMetrics(metricsSummary, null, (Long) null);
     }
 
     /**
@@ -280,10 +360,10 @@ public class ScoringService {
     }
 
     /**
-     * 按维度分组计算评分（#434: 返回 vs L40S 百分比）
+     * #528: 按维度分组计算评分（spec-aware）
      */
     public Map<String, Double> calculateDimensionScores(
-            List<EvaluationResult> results, List<EvaluationTask> tasks) {
+            List<EvaluationResult> results, List<EvaluationTask> tasks, Long runSpecId) {
 
         Map<Long, EvaluationTask> taskMap = tasks.stream()
                 .collect(Collectors.toMap(EvaluationTask::getId, t -> t));
@@ -296,7 +376,7 @@ public class ScoringService {
             if (task == null || task.getTestItem() == null) continue;
 
             String dimension = DimensionRegistry.getKeyByOperator(task.getTestItem());
-            double score = scoreFromMetrics(result.getMetricsSummary(), task.getTestItem());
+            double score = scoreFromMetrics(result.getMetricsSummary(), task.getTestItem(), runSpecId);
             dimScores.computeIfAbsent(dimension, k -> new ArrayList<>()).add(score);
         }
 
@@ -309,11 +389,95 @@ public class ScoringService {
     }
 
     /**
+     * 按维度分组计算评分（backward compat — legacy baseline）
+     */
+    public Map<String, Double> calculateDimensionScores(
+            List<EvaluationResult> results, List<EvaluationTask> tasks) {
+        return calculateDimensionScores(results, tasks, null);
+    }
+
+    /**
      * 获取 testItem 对应的维度 key（英文）
-     * #459: Delegates to DimensionRegistry
      */
     public String getDimension(String testItem) {
         return DimensionRegistry.getKeyByOperator(testItem);
+    }
+
+    /**
+     * #528: Get baseline coverage info for a given runSpecId.
+     * Returns map with coveredItems, totalItems, etc.
+     */
+    public Map<String, Object> getBaselineCoverage(Long runSpecId) {
+        Map<String, Double> baseline = getBaselineLatencyMap(runSpecId);
+        Map<String, Object> coverage = new LinkedHashMap<>();
+        coverage.put("runSpecId", runSpecId);
+        coverage.put("coveredItems", baseline.size());
+        coverage.put("testItems", new ArrayList<>(baseline.keySet()));
+        return coverage;
+    }
+
+    /**
+     * #528: Get baseline source info for a run_spec_id.
+     * Returns detailed info about which L40S plan(s) provided baseline data.
+     */
+    public Map<String, Object> getBaselineSource(Long runSpecId) {
+        Map<String, Object> source = new LinkedHashMap<>();
+        try {
+            List<Chip> l40sChips = chipRepository.findByNameContainingIgnoreCase("L40S");
+            if (l40sChips.isEmpty()) {
+                source.put("available", false);
+                source.put("reason", "无L40S基准芯片");
+                return source;
+            }
+
+            Chip l40s = l40sChips.stream()
+                    .filter(c -> "CHIP-BASELINE-L40S".equals(c.getChipNo()))
+                    .findFirst().orElse(l40sChips.get(0));
+
+            source.put("chipName", l40s.getName());
+            source.put("chipNo", l40s.getChipNo());
+
+            if (runSpecId == null) {
+                source.put("available", true);
+                source.put("matchMode", "all_specs");
+                Map<String, Double> baseline = getBaselineLatencyMap(null);
+                source.put("coveredItems", baseline.size());
+                return source;
+            }
+
+            // Find matching L40S plans for this runSpec
+            List<EvaluationPlan> matchingPlans = planRepository
+                    .findByChipIdAndRunSpecIdAndStatus(l40s.getId(), runSpecId, EvaluationPlan.PlanStatus.COMPLETED);
+
+            if (matchingPlans.isEmpty()) {
+                source.put("available", false);
+                source.put("reason", "无同规格基准数据");
+                source.put("runSpecId", runSpecId);
+                return source;
+            }
+
+            // Use the latest completed plan
+            EvaluationPlan latestPlan = matchingPlans.stream()
+                    .max(Comparator.comparing(p -> p.getCompletedAt() != null ? p.getCompletedAt() : p.getCreatedAt()))
+                    .orElse(matchingPlans.get(0));
+
+            Map<String, Double> baseline = getBaselineLatencyMap(runSpecId);
+
+            source.put("available", true);
+            source.put("matchMode", "same_spec");
+            source.put("planNo", latestPlan.getPlanNo());
+            source.put("planId", latestPlan.getId());
+            source.put("runSpecId", runSpecId);
+            source.put("evaluatedAt", latestPlan.getCompletedAt() != null ?
+                    latestPlan.getCompletedAt().toString() : null);
+            source.put("coveredItems", baseline.size());
+            source.put("totalPlans", matchingPlans.size());
+        } catch (Exception e) {
+            log.error("#528: Failed to get baseline source for runSpecId={}: {}", runSpecId, e.getMessage());
+            source.put("available", false);
+            source.put("reason", "查询失败: " + e.getMessage());
+        }
+        return source;
     }
 
     /**
@@ -335,7 +499,7 @@ public class ScoringService {
             item.put("passed", result.getPassed() != null && result.getPassed());
             item.put("score", scoreFromMetrics(result.getMetricsSummary(), testItem));
 
-            // Determine dataStatus for frontend compatibility (#405)
+            // Determine dataStatus
             String dataStatus;
             if (result.getMetricsSummary() != null && result.getPassed() != null) {
                 if (result.getErrorMessage() != null && !result.getErrorMessage().isEmpty()) {

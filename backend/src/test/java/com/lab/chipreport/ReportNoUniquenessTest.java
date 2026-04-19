@@ -72,7 +72,7 @@ class ReportNoUniquenessTest {
     void generateReportNo_usesPlanId() throws Exception {
         // Create service with null deps (generateReportNo doesn't use them)
         ReportGeneratorService service = new ReportGeneratorService(
-            null, null, null, null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null, null, null, null);
 
         Method method = ReportGeneratorService.class.getDeclaredMethod("generateReportNo", Long.class);
         method.setAccessible(true);
@@ -91,7 +91,7 @@ class ReportNoUniquenessTest {
     @DisplayName("#518: same planId on same day → same reportNo (deterministic)")
     void generateReportNo_deterministic() throws Exception {
         ReportGeneratorService service = new ReportGeneratorService(
-            null, null, null, null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null, null, null, null);
 
         Method method = ReportGeneratorService.class.getDeclaredMethod("generateReportNo", Long.class);
         method.setAccessible(true);
@@ -115,7 +115,7 @@ class ReportNoUniquenessTest {
     @DisplayName("#518: different planIds → different reportNos on same day")
     void generateReportNo_differentPlansAreDifferent() throws Exception {
         ReportGeneratorService service = new ReportGeneratorService(
-            null, null, null, null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null, null, null, null);
 
         Method method = ReportGeneratorService.class.getDeclaredMethod("generateReportNo", Long.class);
         method.setAccessible(true);

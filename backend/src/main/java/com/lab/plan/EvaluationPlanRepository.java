@@ -13,5 +13,8 @@ public interface EvaluationPlanRepository extends JpaRepository<EvaluationPlan, 
     List<EvaluationPlan> findByChipId(Long chipId);
     Page<EvaluationPlan> findByStatus(EvaluationPlan.PlanStatus status, Pageable pageable);
     Page<EvaluationPlan> findByChipId(Long chipId, Pageable pageable);
+    List<EvaluationPlan> findByChipIdAndRunSpecId(Long chipId, Long runSpecId);
+    List<EvaluationPlan> findByChipIdAndRunSpecIdAndStatus(Long chipId, Long runSpecId, EvaluationPlan.PlanStatus status);
+
     long countByStatus(EvaluationPlan.PlanStatus status);
 }

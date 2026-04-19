@@ -15,6 +15,7 @@ import com.lab.task.FailureType;
 import com.lab.task.EvaluationTaskRepository;
 import com.lab.node.ComputeNode;
 import com.lab.node.ComputeNodeRepository;
+import com.lab.runspec.RunSpec;import com.lab.runspec.RunSpecRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -53,6 +54,7 @@ public class ReportGeneratorService {
     private final ObjectMapper objectMapper;
     private final ComputeNodeRepository nodeRepository;
     private final ScoringService scoringService;
+private final RunSpecRepository runSpecRepository;
     private final ApplicationContext applicationContext;
 
     /* #459: DIM_NAMES removed — use DimensionRegistry.getLabelByKey() */
@@ -86,7 +88,8 @@ public class ReportGeneratorService {
                 .orElseThrow(() -> new RuntimeException("Plan not found: " + planId));
 
         // 1. 计算维度评分
-        Map<String, Double> dimScores = resultService.calculateDimensionScores(planId);
+        // #528: Use spec-aware dimension scoring
+        Map<String, Double> dimScores = resultService.calculateDimensionScores(planId, plan.getRunSpecId());
 
         // #515: Removed baseline 100% forcing — keep raw computed scores for all chips
         Chip targetChip = chipRepository.findById(plan.getChipId()).orElse(null);
@@ -107,7 +110,7 @@ public class ReportGeneratorService {
         }
 
         // 2. 生成算子排行 (with three-state: VALID/NO_DATA/FAILED)
-        List<Map<String, Object>> operatorRanking = buildOperatorRanking(planId);
+        List<Map<String, Object>> operatorRanking = buildOperatorRanking(planId, plan.getRunSpecId());
 
         // #515: Removed baseline 100% forcing for operator ranking — keep raw scores
 
@@ -230,6 +233,26 @@ public class ReportGeneratorService {
             report.setInferenceSummary(objectMapper.writeValueAsString(infSummary));
         } catch (Exception e) {
             log.warn("#436: Failed to fill training/inference summary: {}", e.getMessage());
+        }
+
+        // #528: Add baseline source info (spec-aware)
+        try {
+            Long runSpecId = plan.getRunSpecId();
+            Map<String, Object> baselineSourceInfo = scoringService.getBaselineSource(runSpecId);
+            // Enrich with runSpec details
+            if (runSpecId != null) {
+                runSpecRepository.findById(runSpecId).ifPresent(rs -> {
+                    baselineSourceInfo.put("runSpec", rs.getName());
+                    baselineSourceInfo.put("runSpecCode", rs.getCode());
+                    baselineSourceInfo.put("gpuPerNode", rs.getGpuPerNode());
+                    baselineSourceInfo.put("category", rs.getCategory());
+                });
+            }
+            // Add total items from this plan
+            baselineSourceInfo.put("totalItems", operatorRanking.size());
+            report.setBaselineSource(objectMapper.writeValueAsString(baselineSourceInfo));
+        } catch (Exception e) {
+            log.warn("#528: Failed to set baseline source: {}", e.getMessage());
         }
 
         ChipReport saved = reportRepository.save(report);
@@ -656,7 +679,7 @@ public class ReportGeneratorService {
     /**
      * 构建算子排行表
      */
-    private List<Map<String, Object>> buildOperatorRanking(Long planId) {
+    private List<Map<String, Object>> buildOperatorRanking(Long planId, Long runSpecId) {
         List<EvaluationResult> results = resultRepository.findByPlanId(planId);
         List<EvaluationTask> tasks = taskRepository.findByPlanId(planId);
         Map<Long, EvaluationTask> taskMap = tasks.stream()
@@ -683,7 +706,7 @@ public class ReportGeneratorService {
                 double score;
                 String dataStatus;
                 if (avgLatency > 0 && throughput > 0) {
-                    score = scoringService.scoreFromMetrics(r.getMetricsSummary(), name);
+                    score = scoringService.scoreFromMetrics(r.getMetricsSummary(), name, runSpecId);
                     dataStatus = "VALID";
                 } else if (r.getPassed() != null && r.getPassed()) {
                     score = -1;
@@ -715,7 +738,7 @@ public class ReportGeneratorService {
 
                 // #515: Add baseline latency and ratio for scoring explainability
                 if ("VALID".equals(dataStatus) && avgLatency > 0) {
-                    Double baselineLat = scoringService.getBaselineLatency(name);
+                    Double baselineLat = scoringService.getBaselineLatency(name, runSpecId);
                     if (baselineLat != null && baselineLat > 0) {
                         entry.put("baselineLatency", Math.round(baselineLat * 100.0) / 100.0);
                         entry.put("ratio", Math.round((baselineLat / avgLatency) * 1000.0) / 1000.0);

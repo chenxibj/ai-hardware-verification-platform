@@ -63,6 +63,7 @@ public class SecurityConfig {
                 .requestMatchers("/dashboard/**").permitAll()
                 .requestMatchers("/metrics/**").permitAll()  // #493 dispatch metrics
                 .requestMatchers("/dimensions", "/dimensions/**").permitAll()  // #459
+.requestMatchers("/baselines/**").permitAll()  // #528 baseline coverage
                 .requestMatchers("/community/**").permitAll()
                 .requestMatchers("/nodes/*/heartbeat", "/nodes/*/poll-tasks").permitAll()
                 .requestMatchers("/nodes/register").permitAll()

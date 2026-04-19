@@ -123,6 +123,9 @@ public class Chip {
     @Column(name = "supported_precisions", length = 200)
     private String supportedPrecisions;
 
+    @Column(name = "default_baseline_plan_id")
+    private Long defaultBaselinePlanId;
+
     private String tags;
     private String remark;
 

@@ -513,6 +513,13 @@ public class EvaluationResultService {
      * 计算各维度评分
      */
     public Map<String, Double> calculateDimensionScores(Long planId) {
+        return calculateDimensionScores(planId, null);
+    }
+
+    /**
+     * #528: 计算各维度评分（带 runSpecId 用于 spec-aware baseline 匹配）
+     */
+    public Map<String, Double> calculateDimensionScores(Long planId, Long runSpecId) {
         List<EvaluationResult> results = resultRepository.findByPlanId(planId);
         List<EvaluationTask> tasks = taskRepository.findByPlanId(planId);
 
@@ -542,7 +549,7 @@ public class EvaluationResultService {
                 EvaluationTask task = taskMap.get(r.getTaskId());
                 // #434: use ScoringService for vs L40S percentage scoring
                 String testItem = task != null ? task.getTestItem() : null;
-                double score = scoringService.scoreFromMetrics(r.getMetricsSummary(), testItem);
+                double score = scoringService.scoreFromMetrics(r.getMetricsSummary(), testItem, runSpecId);
                 String dimension = categorizeToDimension(task);
                 if (dimScores.containsKey(dimension)) {
                     dimScores.get(dimension).add(score);
