@@ -48,7 +48,7 @@ public interface EvaluationTaskRepository extends JpaRepository<EvaluationTask, 
             @Param("threshold") Instant threshold);
 
     // Heartbeat-based stale detection for recovery scheduler
-    @Query("SELECT t FROM EvaluationTask t WHERE t.status = :status AND t.lastHeartbeatAt < :threshold")
+    @Query("SELECT t FROM EvaluationTask t WHERE t.status = :status AND (t.lastHeartbeatAt < :threshold OR t.lastHeartbeatAt IS NULL)")
     List<EvaluationTask> findByStatusAndLastHeartbeatAtBefore(
             @Param("status") EvaluationTask.TaskStatus status,
             @Param("threshold") Instant threshold);
