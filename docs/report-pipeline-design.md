@@ -487,3 +487,58 @@ coverageRate < 30% 的 DRAFT 报告，推送管理员审核通知（站内通知
 | 9 | P2 | 浮点精度 | ✅ 采纳。roundTo2 处理 | §5.1 + §6.8 |
 | 10 | P2 | 报告号并发 | ✅ 采纳。RPT-{date}-{planId} 格式 | §7.4 |
 | 11 | P2 | 实施计划偏乐观 | ✅ 采纳。MetricsNormalizer 2-3 天，E2E 2 天 | §11 |
+
+---
+
+## 十三、Baseline 基准数据管理（v3.1 补充，chenxi 20:19 指示）
+
+### 13.1 核心问题
+
+当前 ScoringService 把 L40S 所有规格的评测数据混在一起取均值，不区分单卡/双卡/四卡/八卡。
+导致：单卡 MatMul baseline 被 4 卡并行数据拉低 → 被测芯片单卡 score 虚高到 400%。
+
+### 13.2 设计原则
+
+1. **Baseline 必须按规格（run_spec）匹配** — 单卡对单卡，4 卡对 4 卡
+2. **Baseline 可选择/切换** — 不硬编码 L40S，用户可在芯片管理页面设置
+3. **Baseline 覆盖率透明** — 哪些算子有 baseline、哪些没有，一目了然
+4. **无同规格 baseline 不评分** — 不 fallback 到 log10，直接标注"无同规格基准数据"
+
+### 13.3 评分匹配逻辑
+
+```
+被测 Plan (run_spec = 四卡GPU, gpu_per_node=4)
+  → 查找 baseline: L40S + run_spec.gpu_per_node=4 的最新 Plan
+  → 只用该 Plan 的 result 作为 baseline
+  → MatMul baseline = L40S 四卡 MatMul 延迟（而非所有规格的均值）
+```
+
+### 13.4 Baseline 管理（芯片管理页面）
+
+芯片详情页新增 Baseline Tab：
+- 按规格分组展示可用 baseline：单卡 / 双卡 / 四卡 / 八卡
+- 每个 baseline 显示：Plan 编号、规格、评测时间、覆盖算子数/总算子数
+- 用户可设置每个规格的默认 baseline Plan
+- 缺失算子红色标注
+
+### 13.5 报告中的 Baseline 标注
+
+```json
+{
+  "baselineSource": {
+    "chipName": "NVIDIA L40S",
+    "planNo": "PLAN-20260419-021",
+    "runSpec": "单卡GPU",
+    "gpuPerNode": 1,
+    "evaluatedAt": "2026-04-19T14:00:00Z",
+    "coveredItems": 15,
+    "totalItems": 17,
+    "coverageRate": 88.2
+  }
+}
+```
+
+### 13.6 实施
+
+Issue: #528（P0）
+预估：2-3 天（后端评分重构 + 前端 baseline 管理 UI）
