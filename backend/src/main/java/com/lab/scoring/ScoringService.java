@@ -259,24 +259,24 @@ public class ScoringService {
         Map<Long, EvaluationTask> taskMap = tasks.stream()
                 .collect(Collectors.toMap(EvaluationTask::getId, t -> t));
 
-        return results.stream()
+        return roundTo2(results.stream()
                 .filter(r -> r.getPassed() != null && r.getPassed())
                 .mapToDouble(r -> {
                     EvaluationTask task = taskMap.get(r.getTaskId());
                     String testItem = task != null ? task.getTestItem() : null;
                     return scoreFromMetrics(r.getMetricsSummary(), testItem);
                 })
-                .average().orElse(0);
+                .average().orElse(0));
     }
 
     /**
      * 兼容旧调用
      */
     public double calculateOverallScore(List<EvaluationResult> results) {
-        return results.stream()
+        return roundTo2(results.stream()
                 .filter(r -> r.getPassed() != null && r.getPassed())
                 .mapToDouble(r -> scoreFromMetrics(r.getMetricsSummary()))
-                .average().orElse(0);
+                .average().orElse(0));
     }
 
     /**
@@ -303,7 +303,7 @@ public class ScoringService {
         Map<String, Double> averaged = new LinkedHashMap<>();
         for (Map.Entry<String, List<Double>> entry : dimScores.entrySet()) {
             averaged.put(entry.getKey(),
-                    entry.getValue().stream().mapToDouble(Double::doubleValue).average().orElse(0));
+                    roundTo2(entry.getValue().stream().mapToDouble(Double::doubleValue).average().orElse(0)));
         }
         return averaged;
     }

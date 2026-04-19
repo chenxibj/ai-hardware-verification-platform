@@ -35,6 +35,11 @@ public class EvaluationResultService {
     private final TaskLifecycleService lifecycle;
     private final MetricsNormalizer metricsNormalizer;
 
+    /** #527: Round to 2 decimal places to avoid floating point precision tails */
+    private static double roundTo2(double value) {
+        return Math.round(value * 100.0) / 100.0;
+    }
+
     /**
      * Agent 提交任务结果
      */
@@ -80,7 +85,7 @@ public class EvaluationResultService {
         result.setRawData(rawData);
 
         Map<String, Object> summary = new HashMap<>(metrics);
-        summary.put("score", score);
+        summary.put("score", roundTo2(score));
         summary.put("eval_type", evalType);
         try {
             result.setMetricsSummary(objectMapper.writeValueAsString(summary));
@@ -287,7 +292,7 @@ public class EvaluationResultService {
                 accSummary.put("fail", accFail);
                 if (!accList.isEmpty()) {
                     accSummary.put("accuracy_pass_rate",
-                        Math.round(accPass * 1000.0 / accList.size()) / 10.0);
+                        roundTo2(accPass * 100.0 / accList.size()));
                 }
                 // Add avg cosine_similarity
                 double sumCos = 0;
@@ -554,7 +559,7 @@ public class EvaluationResultService {
             if (scores.isEmpty()) {
                 result.put(dim, 0.0); // no data for this dimension
             } else {
-                result.put(dim, scores.stream().mapToDouble(Double::doubleValue).average().orElse(0));
+                result.put(dim, roundTo2(scores.stream().mapToDouble(Double::doubleValue).average().orElse(0)));
             }
         }
         return result;
