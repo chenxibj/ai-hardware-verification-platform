@@ -16,3 +16,4 @@ agent/logs/*.log
 agent/__pycache__/
 agent/*.pyc
 __pycache__
+*.pyc

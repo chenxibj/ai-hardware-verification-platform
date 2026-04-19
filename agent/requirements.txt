@@ -4,3 +4,4 @@ psutil>=5.9
 requests>=2.31
 numpy>=1.24
 nvidia-ml-py>=12.0
+jsonschema>=4.0

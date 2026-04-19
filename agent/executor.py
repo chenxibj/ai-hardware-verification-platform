@@ -21,6 +21,13 @@ try:
 except ImportError:
     HAS_LOG_REPORTER = False
 
+# #521: eval output schema validation
+try:
+    from eval_validator import validate_eval_output, EvalValidationError, build_no_data_result
+    HAS_EVAL_VALIDATOR = True
+except ImportError:
+    HAS_EVAL_VALIDATOR = False
+
 logger = logging.getLogger(__name__)
 
 # #216: 上报失败时本地持久化目录
@@ -847,6 +854,22 @@ class TaskExecutor:
                 else:
                     eval_result = {"raw_output": stdout_text}
                     logger.warning("Could not parse structured JSON from stdout for task %s, using raw_output fallback", task_id)
+
+            # #521: Validate eval output against JSON Schema
+            if HAS_EVAL_VALIDATOR and eval_result and "raw_output" not in eval_result:
+                try:
+                    validate_eval_output(eval_result)
+                    logger.info("#521: Eval output for task %s passed schema validation", task_id)
+                except EvalValidationError as ve:
+                    logger.warning("#521: Eval output for task %s failed schema validation: %s", task_id, ve)
+                    no_data = build_no_data_result(stdout_text, str(ve))
+                    self._report_result(task_id, "COMPLETED", {
+                        "eval_result": no_data,
+                        "runtime_metrics": runtime_metrics,
+                        "duration_sec": round(elapsed, 2),
+                        "node_id": self.node_id,
+                    }, logs=stdout_text + "\n" + stderr_text)
+                    return  # Skip normal reporting — already reported as NO_DATA
 
             # #229: 上报 SYSTEM 任务完成摘要日志
             summary_entry = [{

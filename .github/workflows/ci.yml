@@ -25,3 +25,49 @@ jobs:
       - name: Cleanup test data
         if: always()
         run: bash deploy/cleanup-test-data.sh
+
+  agent-schema-tests:
+    name: "Agent Schema Validation Tests (#521)"
+    runs-on: self-hosted
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: pip install jsonschema pytest -q
+
+      - name: Run schema validation tests
+        run: |
+          cd agent
+          python -m pytest tests/test_521_schema_validation.py -v
+
+  e2e-report-tests:
+    name: "Report E2E Tests (#522)"
+    runs-on: self-hosted
+    timeout-minutes: 15
+    needs: [backend-api-tests]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Wait for backend readiness
+        run: |
+          for i in $(seq 1 30); do
+            STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/auth/login \
+              -X POST -H 'Content-Type: application/json' \
+              -d '{"email":"test@ahvp.com","password":"Test1234"}')
+            [ "$STATUS" = "200" ] && exit 0
+            sleep 3
+          done
+          echo "Backend not ready after 90s"
+          exit 1
+
+      - name: Run report E2E tests
+        run: |
+          chmod +x e2e-tests/test-report-e2e.sh
+          bash e2e-tests/test-report-e2e.sh
+
+      - name: Cleanup test data
+        if: always()
+        run: bash deploy/cleanup-test-data.sh 2>/dev/null || true
