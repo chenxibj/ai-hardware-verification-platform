@@ -61,13 +61,12 @@ def setup_model_for_inference(model, chip_info, params):
     """根据可用 GPU 数量设置推理模型
     #483: For HuggingFace string model names, prefer device_map="auto"
     #485: Use _gpu_count from scheduler instead of torch.cuda.device_count()
-          device_count() returns ALL visible GPUs on the node (e.g. 8) even when
-          the scheduler only allocated a subset (e.g. 4). _gpu_count reflects
-          the actual allocation from RunSpec/GPU slot assignment.
+    #512: Do NOT use DataParallel for nn.Module instances — it causes deadlocks
+          on small benchmark models. Only HF string models use device_map="auto".
     - 0 GPU (CPU): model.to("cpu")
     - 1 GPU: model.to("cuda:0")
     - N GPU + string model name: AutoModelForCausalLM.from_pretrained(device_map="auto")
-    - N GPU + nn.Module: torch.nn.DataParallel(model) (fallback)
+    - N GPU + nn.Module: model.to("cuda:0") — single GPU only (DataParallel removed)
     """
     device = resolve_device(chip_info)
 
@@ -116,11 +115,14 @@ def setup_model_for_inference(model, chip_info, params):
             print(f"[MULTI-GPU] device_map='auto' failed for {model}: {e}, skipping", flush=True)
             return None, torch.device("cuda:0"), gpu_count
 
-    # nn.Module instance — DataParallel fallback
+    # #512: nn.Module instance — DO NOT use DataParallel.
+    # DataParallel causes deadlocks/hangs on small benchmark models (MLP-Small/Medium/Large).
+    # For built-in models, just run on cuda:0. Multi-GPU is only beneficial for
+    # large HuggingFace models (handled above via device_map="auto").
     model = model.to("cuda:0")
-    model = torch.nn.DataParallel(model)
-    print(f"[MULTI-GPU] DataParallel inference on {gpu_count} GPUs", flush=True)
-    return model, torch.device("cuda:0"), gpu_count
+    print(f"[MULTI-GPU] Skipping DataParallel for nn.Module (gpu_count={gpu_count}), "
+          f"using cuda:0 only to avoid deadlock (#512)", flush=True)
+    return model, torch.device("cuda:0"), 1
 
 
 def get_system_info():

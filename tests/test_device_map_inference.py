@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""#483: Comprehensive tests for device_map="auto" preference in multi-GPU inference.
+"""#483/#512: Comprehensive tests for multi-GPU inference setup.
 
 TDD tests that verify actual behavior:
 - HF model name (string) + multi-GPU → device_map="auto"
 - HF model name (string) + transformers fails → graceful handling
-- Custom nn.Module + multi-GPU → DataParallel (unchanged)
+- #512: Custom nn.Module + multi-GPU → cuda:0 only (DataParallel removed — causes deadlock)
 - Single GPU → .to(device) (unchanged)
 - CPU → .to("cpu") (unchanged)
 
@@ -75,18 +75,17 @@ class TestHFModelDeviceMapAuto(unittest.TestCase):
 
 
 class TestCustomModelDataParallel(unittest.TestCase):
-    """Test that nn.Module objects still use DataParallel (backward compat)."""
+    """#512: nn.Module objects should NOT use DataParallel (causes deadlock).
+    Multi-GPU nn.Module instances just use cuda:0 directly."""
 
-    @patch('model_inference.torch.nn.DataParallel')
     @patch('model_inference.torch.cuda.device_count', return_value=4)
     @patch('model_inference.resolve_device', return_value=torch.device("cuda:0"))
-    def test_custom_model_uses_dataparallel(self, mock_resolve, mock_count, mock_dp):
-        """nn.Module instance + multi-GPU → DataParallel (not device_map)."""
+    def test_custom_model_uses_dataparallel(self, mock_resolve, mock_count):
+        """#512: nn.Module instance + multi-GPU → cuda:0 only (no DataParallel)."""
         import model_inference
 
         model = MagicMock(spec=nn.Module)
         model.to = MagicMock(return_value=model)
-        mock_dp.return_value = model
 
         chip_info = {"chipType": "GPU", "chipName": "NVIDIA L40S"}
         params = {"_gpu_count": 4}
@@ -95,10 +94,9 @@ class TestCustomModelDataParallel(unittest.TestCase):
             model, chip_info, params
         )
 
-        # Should call .to("cuda:0") then DataParallel, not device_map
+        # #512: Should call .to("cuda:0") but NOT DataParallel
         model.to.assert_called_with("cuda:0")
-        mock_dp.assert_called_once_with(model)
-        self.assertEqual(gpu_count, 4)
+        self.assertEqual(gpu_count, 1)  # Single GPU execution
 
     def test_torch_mlp_is_module_not_string(self):
         """TorchMLP (the actual model used in main()) is nn.Module, not string.

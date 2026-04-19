@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-#485 TDD: Test that setup_model_for_inference correctly uses multiple GPUs
-when CUDA_VISIBLE_DEVICES provides >1 GPU.
+#485/#512 TDD: Test setup_model_for_inference behavior.
+#512: nn.Module instances no longer use DataParallel (causes deadlock).
+Only HF string model names use device_map="auto" for multi-GPU.
 
 This test mocks torch.cuda to simulate multi-GPU environments.
 """
@@ -21,7 +22,7 @@ class TestSetupModelForInference(unittest.TestCase):
     @patch("model_inference.torch")
     @patch("model_inference.resolve_device")
     def test_multi_gpu_returns_correct_count(self, mock_resolve, mock_torch):
-        """When CUDA_VISIBLE_DEVICES=0,1,2,3 => device_count()=4 => DataParallel on 4 GPUs"""
+        """#512: Multi-GPU nn.Module → cuda:0 only (no DataParallel), effective_gpus=1"""
         from model_inference import setup_model_for_inference
         import torch.nn as nn
 
@@ -38,19 +39,15 @@ class TestSetupModelForInference(unittest.TestCase):
         fake_model = MagicMock(spec=nn.Module)
         fake_model.to.return_value = fake_model
 
-        # DataParallel mock
-        dp_model = MagicMock()
-        mock_torch.nn.DataParallel.return_value = dp_model
-
         chip_info = {"chipType": "GPU", "chipName": "NVIDIA L40S"}
         params = {"_gpu_count": 4, "_gpu_indices": [0, 1, 2, 3]}
 
         model, device, effective_gpus = setup_model_for_inference(fake_model, chip_info, params)
 
-        # Must use all 4 GPUs
-        self.assertEqual(effective_gpus, 4, "Should use 4 GPUs when device_count=4")
-        # Must have called DataParallel
-        mock_torch.nn.DataParallel.assert_called_once()
+        # #512: nn.Module should use single GPU (DataParallel removed)
+        self.assertEqual(effective_gpus, 1, "#512: nn.Module should use 1 GPU (no DataParallel)")
+        # DataParallel must NOT be called
+        mock_torch.nn.DataParallel.assert_not_called()
 
     @patch("model_inference.torch")
     @patch("model_inference.resolve_device")
