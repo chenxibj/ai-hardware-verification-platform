@@ -117,6 +117,14 @@ public class EvaluationTask {
 
     @Column(name = "last_heartbeat_at")
     private Instant lastHeartbeatAt;
+    @Column(name = "last_progress_update_at")
+    private Instant lastProgressUpdateAt;
+
+    @Transient
+    private String warningMessage;
+
+    @Transient
+    private Boolean isStalled;
     @Column(name = "queue_reason", length = 500)
     private String queueReason;
 

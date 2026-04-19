@@ -46,11 +46,20 @@ public class EvaluationResultService {
         Map<String, Object> normalizedMetrics = metricsNormalizer.normalize(rawData);
         String dataStatus = (String) normalizedMetrics.getOrDefault("dataStatus", "NO_DATA");
 
-        // 根据评测类型计算评分
-        String evalType = task.getTestSubject() != null ? task.getTestSubject().name() : "OPERATOR";
-        // Use the old extractMetrics for score calculation compatibility
+        // #515: Use unified ScoringService for scoring
+        String testItem = task.getTestItem();
         Map<String, Object> metrics = extractMetrics(rawData);
-        double score = calculateScore(metrics, evalType);
+        // Build metricsSummary first for scoringService
+        Map<String, Object> summaryForScoring = new HashMap<>(metrics);
+        String evalType = task.getTestSubject() != null ? task.getTestSubject().name() : "OPERATOR";
+        summaryForScoring.put("eval_type", evalType);
+        String metricsSummaryJson;
+        try {
+            metricsSummaryJson = objectMapper.writeValueAsString(summaryForScoring);
+        } catch (Exception e) {
+            metricsSummaryJson = "{}";
+        }
+        double score = scoringService.scoreFromMetrics(metricsSummaryJson, testItem);
 
         // #353: chipId 防御 — 如果 task 没有 chipId，从 Plan 获取
         Long chipId = task.getChipId();
@@ -325,7 +334,9 @@ public class EvaluationResultService {
      * 
      * OPERATOR 评测：latency_ms_mean/p50/p95 + throughput_ops + pass_rate
      * MODEL 评测：inference_time_ms/p50/p95 + throughput_fps + accuracy + memory_mb
+     * @deprecated #515: Use {@link com.lab.scoring.ScoringService#scoreFromMetrics} instead
      */
+    @Deprecated
     public double calculateScore(Map<String, Object> metrics, String evalType) {
         if ("MODEL".equalsIgnoreCase(evalType)) {
             return calculateModelScore(metrics);
@@ -335,7 +346,9 @@ public class EvaluationResultService {
 
     /**
      * 向后兼容的 calculateScore（无 evalType 时默认 OPERATOR）
+     * @deprecated #515: Use {@link com.lab.scoring.ScoringService#scoreFromMetrics} instead
      */
+    @Deprecated
     public double calculateScore(Map<String, Object> metrics) {
         return calculateScore(metrics, "OPERATOR");
     }
@@ -546,7 +559,9 @@ public class EvaluationResultService {
 
     /**
      * 综合评分 = 各维度等权平均
+     * @deprecated #515: Use {@link com.lab.scoring.ScoringService#calculateOverallScore} instead
      */
+    @Deprecated
     public double calculateOverallScore(Map<String, Double> dimensionScores) {
         return dimensionScores.values().stream()
                 .mapToDouble(Double::doubleValue)

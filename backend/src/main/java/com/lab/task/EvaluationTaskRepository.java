@@ -91,4 +91,19 @@ public interface EvaluationTaskRepository extends JpaRepository<EvaluationTask, 
             "FROM evaluation_tasks t WHERE t.status IN ('COMPLETED','RUNNING','FAILED') " +
             "AND t.started_at IS NOT NULL AND t.started_at > NOW() - INTERVAL '1 hour'", nativeQuery = true)
     Double findAverageDispatchDelaySecondsLastHour();
+
+    // #519: Find RUNNING tasks with stale progress (no update for 5+ minutes)
+    @Query("SELECT t FROM EvaluationTask t WHERE t.status = com.lab.task.EvaluationTask$TaskStatus.RUNNING AND (t.lastProgressUpdateAt IS NOT NULL AND t.lastProgressUpdateAt < :threshold OR t.lastProgressUpdateAt IS NULL AND t.startedAt IS NOT NULL AND t.startedAt < :threshold)")
+    List<EvaluationTask> findStalledRunningTasks(@Param("threshold") Instant threshold);
+
+    // #519: Count stalled running tasks
+    @Query("SELECT COUNT(t) FROM EvaluationTask t WHERE t.status = com.lab.task.EvaluationTask$TaskStatus.RUNNING AND (t.lastProgressUpdateAt IS NOT NULL AND t.lastProgressUpdateAt < :threshold OR t.lastProgressUpdateAt IS NULL AND t.startedAt IS NOT NULL AND t.startedAt < :threshold)")
+    long countStalledRunningTasks(@Param("threshold") Instant threshold);
+
+    // #520: Count queued tasks by user
+    long countByCreatedByAndStatusIn(Long userId, List<EvaluationTask.TaskStatus> statuses);
+
+    // #520: Find queued tasks by user, ordered
+    @Query("SELECT t FROM EvaluationTask t WHERE t.createdBy = :userId AND t.status = 'QUEUED' ORDER BY t.createdAt ASC")
+    List<EvaluationTask> findQueuedTasksByUser(@Param("userId") Long userId);
 }
