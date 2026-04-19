@@ -32,6 +32,7 @@ public class EvaluationResultService {
     private final ObjectMapper objectMapper;
     private final ScoringService scoringService;
     private final TaskLifecycleService lifecycle;
+    private final MetricsNormalizer metricsNormalizer;
 
     /**
      * Agent 提交任务结果
@@ -41,11 +42,14 @@ public class EvaluationResultService {
         EvaluationTask task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new RuntimeException("Task not found: " + taskId));
 
-        // 解析指标摘要
-        Map<String, Object> metrics = extractMetrics(rawData);
+        // #514: 使用 MetricsNormalizer 统一提取指标
+        Map<String, Object> normalizedMetrics = metricsNormalizer.normalize(rawData);
+        String dataStatus = (String) normalizedMetrics.getOrDefault("dataStatus", "NO_DATA");
 
         // 根据评测类型计算评分
         String evalType = task.getTestSubject() != null ? task.getTestSubject().name() : "OPERATOR";
+        // Use the old extractMetrics for score calculation compatibility
+        Map<String, Object> metrics = extractMetrics(rawData);
         double score = calculateScore(metrics, evalType);
 
         // #353: chipId 防御 — 如果 task 没有 chipId，从 Plan 获取
@@ -74,6 +78,7 @@ public class EvaluationResultService {
             result.setMetricsSummary("{\"score\":" + score + "}");
         }
         result.setPassed(score >= 60.0);
+        result.setDataStatus(dataStatus);
         try {
             result = resultRepository.save(result);
         } catch (Exception dbEx) {

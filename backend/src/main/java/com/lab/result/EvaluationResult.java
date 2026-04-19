@@ -33,6 +33,9 @@ public class EvaluationResult {
 
     private Boolean passed;
 
+    @Column(name = "data_status", length = 16)
+    private String dataStatus;
+
     @Column(name = "error_message", columnDefinition = "text")
     private String errorMessage;
 
