@@ -11,21 +11,31 @@ import com.lab.result.EvaluationResultRepository;
 import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
 import com.lab.scoring.ScoringService;
+import com.lab.chipreport.ChipReport;
+import com.lab.chipreport.ChipReportRepository;
+import com.lab.chipreport.ReportGeneratorService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * #528: Baseline 管理服务
- * 管理芯片的基准评测数据，支持按运行规格分组查看和设置默认 baseline。
+ * #528: Baseline management service
+ * #531: Baseline staleness warning (isStale)
+ * #532: Auto-recommend plans with coverage >= 80% (recommended)
+ * #533: Trigger report regeneration on baseline switch
+ * #534: Coverage detail with roundCount and stdDev
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class BaselineService {
 
     private final ChipRepository chipRepository;
@@ -34,21 +44,66 @@ public class BaselineService {
     private final EvaluationTaskRepository taskRepository;
     private final RunSpecRepository runSpecRepository;
     private final ScoringService scoringService;
+    private final ChipReportRepository reportRepository;
+    private final ReportGeneratorService reportGeneratorService;
+    private final ObjectMapper objectMapper;
 
     /**
-     * 列出某芯片所有可用的 baseline 数据（按 run_spec 分组）
+     * #531: Baseline staleness warning days (default 90)
+     */
+    @Value("${ahvp.baseline.stale-warning-days:90}")
+    private int staleWarningDays;
+
+    /**
+     * #534: Unstable stddev threshold (default 0.3 = 30% coefficient of variation)
+     */
+    @Value("${ahvp.baseline.unstable-stddev-threshold:0.3}")
+    private double unstableStddevThreshold;
+
+    public BaselineService(
+            ChipRepository chipRepository,
+            EvaluationPlanRepository planRepository,
+            EvaluationResultRepository resultRepository,
+            EvaluationTaskRepository taskRepository,
+            RunSpecRepository runSpecRepository,
+            ScoringService scoringService,
+            ChipReportRepository reportRepository,
+            ReportGeneratorService reportGeneratorService,
+            ObjectMapper objectMapper) {
+        this.chipRepository = chipRepository;
+        this.planRepository = planRepository;
+        this.resultRepository = resultRepository;
+        this.taskRepository = taskRepository;
+        this.runSpecRepository = runSpecRepository;
+        this.scoringService = scoringService;
+        this.reportRepository = reportRepository;
+        this.reportGeneratorService = reportGeneratorService;
+        this.objectMapper = objectMapper;
+    }
+
+    // Test helpers
+    void setStaleWarningDays(int days) {
+        this.staleWarningDays = days;
+    }
+
+    void setUnstableStddevThreshold(double threshold) {
+        this.unstableStddevThreshold = threshold;
+    }
+
+    /**
+     * List baselines for a chip grouped by run_spec.
+     * #531: adds isStale, staleDays per group
+     * #532: adds recommended, recommendedPlanId per group
      */
     public List<Map<String, Object>> listBaselines(Long chipId) {
         Chip chip = chipRepository.findById(chipId)
                 .orElseThrow(() -> new RuntimeException("Chip not found: " + chipId));
 
-        // Get all completed plans for this chip
         List<EvaluationPlan> plans = planRepository.findByChipId(chipId).stream()
                 .filter(p -> p.getStatus() == EvaluationPlan.PlanStatus.COMPLETED)
                 .filter(p -> p.getRunSpecId() != null)
                 .collect(Collectors.toList());
 
-        // Group by runSpecId
         Map<Long, List<EvaluationPlan>> byRunSpec = plans.stream()
                 .collect(Collectors.groupingBy(EvaluationPlan::getRunSpecId));
 
@@ -61,19 +116,21 @@ public class BaselineService {
 
             Map<String, Object> group = new LinkedHashMap<>();
             group.put("runSpecId", runSpecId);
-            group.put("runSpecName", runSpec != null ? runSpec.getName() : "未知规格");
+            group.put("runSpecName", runSpec != null ? runSpec.getName() : "Unknown");
             group.put("runSpecCode", runSpec != null ? runSpec.getCode() : null);
             group.put("gpuPerNode", runSpec != null ? runSpec.getGpuPerNode() : null);
             group.put("category", runSpec != null ? runSpec.getCategory() : null);
 
-            // Count total test items across all plans for this spec
+            // Count covered test items
             Set<String> coveredItems = new HashSet<>();
+            int totalTestItems = 0;
             for (EvaluationPlan plan : specPlans) {
                 List<EvaluationResult> results = resultRepository.findByPlanId(plan.getId());
                 List<EvaluationTask> tasks = taskRepository.findByPlanId(plan.getId());
                 Map<Long, String> taskItemMap = tasks.stream()
                         .filter(t -> t.getTestItem() != null)
                         .collect(Collectors.toMap(EvaluationTask::getId, EvaluationTask::getTestItem));
+                totalTestItems = Math.max(totalTestItems, taskItemMap.size());
                 for (EvaluationResult r : results) {
                     if (!"FAILED".equals(r.getDataStatus()) && r.getMetricsSummary() != null) {
                         String item = taskItemMap.get(r.getTaskId());
@@ -83,11 +140,16 @@ public class BaselineService {
             }
 
             group.put("coveredItems", coveredItems.size());
+            group.put("totalTestItems", totalTestItems);
             group.put("planCount", specPlans.size());
             group.put("isDefault", chip.getDefaultBaselinePlanId() != null &&
                     specPlans.stream().anyMatch(p -> p.getId().equals(chip.getDefaultBaselinePlanId())));
 
-            // Latest plan info
+            double coverageRate = totalTestItems > 0 ?
+                    Math.round(coveredItems.size() * 1000.0 / totalTestItems) / 10.0 : 0;
+            group.put("coverageRate", coverageRate);
+
+            // Latest plan
             EvaluationPlan latest = specPlans.stream()
                     .max(Comparator.comparing(p -> p.getCompletedAt() != null ? p.getCompletedAt() : p.getCreatedAt()))
                     .orElse(null);
@@ -95,9 +157,21 @@ public class BaselineService {
                 group.put("latestPlanNo", latest.getPlanNo());
                 group.put("latestPlanId", latest.getId());
                 group.put("evaluatedAt", latest.getCompletedAt() != null ? latest.getCompletedAt().toString() : null);
+
+                // #531: Staleness check
+                Instant latestTime = latest.getCompletedAt() != null ? latest.getCompletedAt() : latest.getCreatedAt();
+                boolean isStale = latestTime != null &&
+                        latestTime.isBefore(Instant.now().minus(staleWarningDays, ChronoUnit.DAYS));
+                group.put("isStale", isStale);
+                if (isStale) {
+                    long daysSince = ChronoUnit.DAYS.between(latestTime, Instant.now());
+                    group.put("staleDays", daysSince);
+                }
+            } else {
+                group.put("isStale", false);
             }
 
-            // List all plans in this group
+            // Plan list with per-plan coverage and recommended flag
             List<Map<String, Object>> planList = new ArrayList<>();
             for (EvaluationPlan plan : specPlans) {
                 Map<String, Object> planInfo = new LinkedHashMap<>();
@@ -108,14 +182,29 @@ public class BaselineService {
                 planInfo.put("totalTasks", plan.getTotalTasks());
                 planInfo.put("completedTasks", plan.getCompletedTasks());
                 planInfo.put("isDefault", plan.getId().equals(chip.getDefaultBaselinePlanId()));
+
+                double planCoverage = computePlanCoverage(plan);
+                planInfo.put("coverageRate", planCoverage);
+                // #532: recommended if coverage >= 80%
+                planInfo.put("recommended", planCoverage >= 80.0);
+
                 planList.add(planInfo);
             }
             group.put("plans", planList);
 
+            // #532: Group-level recommended plan
+            Optional<Map<String, Object>> recommendedPlan = planList.stream()
+                    .filter(p -> (boolean) p.get("recommended"))
+                    .max(Comparator.comparingDouble(p -> (double) p.get("coverageRate")));
+            if (recommendedPlan.isEmpty()) {
+                recommendedPlan = planList.stream()
+                        .max(Comparator.comparingDouble(p -> (double) p.get("coverageRate")));
+            }
+            group.put("recommendedPlanId", recommendedPlan.map(p -> p.get("planId")).orElse(null));
+
             baselines.add(group);
         }
 
-        // Sort: more covered items first
         baselines.sort((a, b) -> Integer.compare(
                 (int) b.getOrDefault("coveredItems", 0),
                 (int) a.getOrDefault("coveredItems", 0)));
@@ -124,7 +213,73 @@ public class BaselineService {
     }
 
     /**
-     * 设置芯片的默认 baseline plan
+     * #532: Compute coverage rate for a single plan
+     */
+    double computePlanCoverage(EvaluationPlan plan) {
+        List<EvaluationTask> tasks = taskRepository.findByPlanId(plan.getId());
+        List<EvaluationResult> results = resultRepository.findByPlanId(plan.getId());
+
+        Set<String> allItems = tasks.stream()
+                .filter(t -> t.getTestItem() != null)
+                .map(EvaluationTask::getTestItem)
+                .collect(Collectors.toSet());
+
+        if (allItems.isEmpty()) return 0;
+
+        Map<Long, String> taskItemMap = tasks.stream()
+                .filter(t -> t.getTestItem() != null)
+                .collect(Collectors.toMap(EvaluationTask::getId, EvaluationTask::getTestItem));
+
+        Set<String> covered = new HashSet<>();
+        for (EvaluationResult r : results) {
+            if (!"FAILED".equals(r.getDataStatus()) && r.getMetricsSummary() != null) {
+                String item = taskItemMap.get(r.getTaskId());
+                if (item != null) covered.add(item);
+            }
+        }
+
+        return Math.round(covered.size() * 1000.0 / allItems.size()) / 10.0;
+    }
+
+    /**
+     * #532: Find the recommended plan for auto-selection
+     * Prefers plans with coverage >= 80%, falls back to highest coverage
+     */
+    public Long findRecommendedPlan(Long chipId, Long runSpecId) {
+        List<EvaluationPlan> plans;
+        if (runSpecId != null) {
+            plans = planRepository.findByChipIdAndRunSpecIdAndStatus(
+                    chipId, runSpecId, EvaluationPlan.PlanStatus.COMPLETED);
+        } else {
+            plans = planRepository.findByChipId(chipId).stream()
+                    .filter(p -> p.getStatus() == EvaluationPlan.PlanStatus.COMPLETED)
+                    .collect(Collectors.toList());
+        }
+
+        if (plans.isEmpty()) return null;
+
+        Map<Long, Double> coverageMap = new LinkedHashMap<>();
+        for (EvaluationPlan plan : plans) {
+            coverageMap.put(plan.getId(), computePlanCoverage(plan));
+        }
+
+        Optional<Map.Entry<Long, Double>> recommended = coverageMap.entrySet().stream()
+                .filter(e -> e.getValue() >= 80.0)
+                .max(Map.Entry.comparingByValue());
+
+        if (recommended.isPresent()) {
+            return recommended.get().getKey();
+        }
+
+        return coverageMap.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(null);
+    }
+
+    /**
+     * Set default baseline plan for a chip.
+     * #533: Triggers report regeneration when baseline changes.
      */
     @Transactional
     public Map<String, Object> setDefaultBaseline(Long chipId, Long planId) {
@@ -135,17 +290,17 @@ public class BaselineService {
                 .orElseThrow(() -> new RuntimeException("Plan not found: " + planId));
 
         if (!plan.getChipId().equals(chipId)) {
-            throw new RuntimeException("Plan " + planId + " does not belong to chip " + chipId);
+            throw new RuntimeException("Plan does not belong to chip");
         }
 
         if (plan.getStatus() != EvaluationPlan.PlanStatus.COMPLETED) {
-            throw new RuntimeException("Plan " + planId + " is not COMPLETED (status=" + plan.getStatus() + ")");
+            throw new RuntimeException("Plan is not COMPLETED");
         }
 
+        Long previousBaselinePlanId = chip.getDefaultBaselinePlanId();
         chip.setDefaultBaselinePlanId(planId);
         chipRepository.save(chip);
 
-        // Clear scoring cache so new baseline takes effect
         scoringService.clearBaselineCache();
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -155,30 +310,90 @@ public class BaselineService {
         result.put("planNo", plan.getPlanNo());
         result.put("runSpecId", plan.getRunSpecId());
 
-        log.info("#528: Set default baseline for chip {} to plan {} (runSpec={})",
+        // #533: Trigger report regeneration if baseline actually changed
+        if (!planId.equals(previousBaselinePlanId)) {
+            Long regeneratedReportId = triggerLatestReportRegeneration(chipId);
+            result.put("reportRegenerated", regeneratedReportId != null);
+            result.put("regeneratedReportId", regeneratedReportId);
+        }
+
+        log.info("#528/#533: Set default baseline for chip {} to plan {} (runSpec={})",
                 chip.getChipNo(), plan.getPlanNo(), plan.getRunSpecId());
 
         return result;
     }
 
     /**
-     * 查询 baseline 覆盖率
+     * #533: Trigger regeneration of the latest report for a chip
+     */
+    Long triggerLatestReportRegeneration(Long chipId) {
+        List<ChipReport> reports = reportRepository.findByChipIdOrderByCreatedAtAsc(chipId);
+        if (reports.isEmpty()) {
+            log.info("#533: No reports found for chip {}, skip regeneration", chipId);
+            return null;
+        }
+
+        ChipReport latest = reports.get(reports.size() - 1);
+        Long planId = latest.getPlanId();
+
+        if (planId == null) {
+            log.warn("#533: Latest report {} has no planId, cannot regenerate", latest.getReportNo());
+            return null;
+        }
+
+        try {
+            reportRepository.delete(latest);
+            reportRepository.flush();
+
+            ChipReport newReport = reportGeneratorService.generateReport(planId);
+            log.info("#533: Regenerated report {} for chip {} (planId={})",
+                    newReport.getReportNo(), chipId, planId);
+            return newReport.getId();
+        } catch (Exception e) {
+            log.error("#533: Failed to regenerate report for chip {}: {}", chipId, e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /**
+     * #533: Manual report regeneration by report ID
+     */
+    @Transactional
+    public ChipReport regenerateReport(Long reportId) {
+        ChipReport existing = reportRepository.findById(reportId)
+                .orElseThrow(() -> new RuntimeException("Report not found: " + reportId));
+
+        Long planId = existing.getPlanId();
+        if (planId == null) {
+            throw new RuntimeException("Report has no associated plan, cannot regenerate");
+        }
+
+        reportRepository.delete(existing);
+        reportRepository.flush();
+
+        ChipReport newReport = reportGeneratorService.generateReport(planId);
+        log.info("#533: Manually regenerated report {} -> {} for plan {}",
+                existing.getReportNo(), newReport.getReportNo(), planId);
+
+        return newReport;
+    }
+
+    /**
+     * Get baseline coverage with operator details.
+     * #534: Adds roundCount, stdDev, unstable per operator.
      */
     public Map<String, Object> getBaselineCoverage(Long chipId, Long runSpecId) {
         Map<String, Object> coverage = new LinkedHashMap<>();
 
-        // Get chip info
         Chip chip = null;
         if (chipId != null) {
             chip = chipRepository.findById(chipId).orElse(null);
         }
 
-        // Get L40S baseline coverage for the given runSpec
         Map<String, Double> baselineMap = scoringService.getBaselineLatencyMap(runSpecId);
         coverage.put("baselineCoveredItems", baselineMap.size());
         coverage.put("baselineTestItems", new ArrayList<>(baselineMap.keySet()));
 
-        // If chipId provided, compare with chip's test items
         if (chip != null) {
             List<EvaluationPlan> chipPlans;
             if (runSpecId != null) {
@@ -198,7 +413,6 @@ public class BaselineService {
                         .forEach(t -> chipTestItems.add(t.getTestItem()));
             }
 
-            // How many of chip's test items have baseline data
             long covered = chipTestItems.stream()
                     .filter(item -> baselineMap.containsKey(item) ||
                             baselineMap.keySet().stream().anyMatch(item::startsWith))
@@ -214,9 +428,12 @@ public class BaselineService {
                     .filter(item -> !baselineMap.containsKey(item) &&
                             baselineMap.keySet().stream().noneMatch(item::startsWith))
                     .collect(Collectors.toList()));
+
+            // #534: Per-operator round count and stdDev
+            List<Map<String, Object>> operatorDetails = buildOperatorDetails(chipPlans);
+            coverage.put("operators", operatorDetails);
         }
 
-        // Get baseline source info
         Map<String, Object> source = scoringService.getBaselineSource(runSpecId);
         coverage.put("baselineSource", source);
 
@@ -230,5 +447,84 @@ public class BaselineService {
         }
 
         return coverage;
+    }
+
+    /**
+     * #534: Build per-operator details with roundCount and stdDev
+     */
+    List<Map<String, Object>> buildOperatorDetails(List<EvaluationPlan> plans) {
+        Map<String, List<Double>> latencyByOperator = new LinkedHashMap<>();
+
+        for (EvaluationPlan plan : plans) {
+            List<EvaluationTask> tasks = taskRepository.findByPlanId(plan.getId());
+            List<EvaluationResult> results = resultRepository.findByPlanId(plan.getId());
+
+            Map<Long, String> taskItemMap = tasks.stream()
+                    .filter(t -> t.getTestItem() != null)
+                    .collect(Collectors.toMap(EvaluationTask::getId, EvaluationTask::getTestItem));
+
+            for (EvaluationResult r : results) {
+                if ("FAILED".equals(r.getDataStatus()) || r.getMetricsSummary() == null) continue;
+                String item = taskItemMap.get(r.getTaskId());
+                if (item == null) continue;
+
+                Double latency = extractLatency(r.getMetricsSummary());
+                if (latency != null) {
+                    latencyByOperator.computeIfAbsent(item, k -> new ArrayList<>()).add(latency);
+                }
+            }
+        }
+
+        List<Map<String, Object>> details = new ArrayList<>();
+        for (Map.Entry<String, List<Double>> entry : latencyByOperator.entrySet()) {
+            String operator = entry.getKey();
+            List<Double> values = entry.getValue();
+
+            Map<String, Object> detail = new LinkedHashMap<>();
+            detail.put("operator", operator);
+            detail.put("roundCount", values.size());
+
+            if (values.size() >= 2) {
+                double mean = values.stream().mapToDouble(Double::doubleValue).average().orElse(0);
+                double variance = values.stream()
+                        .mapToDouble(v -> Math.pow(v - mean, 2))
+                        .sum() / (values.size() - 1);  // Sample standard deviation
+                double stdDev = Math.sqrt(variance);
+                double relativeStdDev = mean > 0 ? stdDev / mean : 0;
+
+                detail.put("meanLatency", Math.round(mean * 1000.0) / 1000.0);
+                detail.put("stdDev", Math.round(stdDev * 1000.0) / 1000.0);
+                detail.put("relativeStdDev", Math.round(relativeStdDev * 1000.0) / 1000.0);
+                detail.put("unstable", relativeStdDev > unstableStddevThreshold);
+            } else if (values.size() == 1) {
+                detail.put("meanLatency", Math.round(values.get(0) * 1000.0) / 1000.0);
+                detail.put("stdDev", 0.0);
+                detail.put("relativeStdDev", 0.0);
+                detail.put("unstable", false);
+            }
+
+            details.add(detail);
+        }
+
+        details.sort(Comparator.comparing(d -> (String) d.get("operator")));
+        return details;
+    }
+
+    /**
+     * #534: Extract latency_ms_mean from metrics_summary JSON
+     */
+    Double extractLatency(String metricsSummary) {
+        try {
+            JsonNode node = objectMapper.readTree(metricsSummary);
+            if (node.has("latency_ms_mean")) {
+                return node.get("latency_ms_mean").asDouble();
+            }
+            if (node.has("avg_latency_ms")) {
+                return node.get("avg_latency_ms").asDouble();
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

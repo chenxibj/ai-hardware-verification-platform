@@ -20,7 +20,7 @@ import {
   EyeOutlined, ThunderboltOutlined, DatabaseOutlined, AppstoreOutlined,
   RadarChartOutlined, HistoryOutlined, ProfileOutlined, InfoCircleOutlined,
   RiseOutlined, ExperimentOutlined, NumberOutlined, FireOutlined,
-  DashboardOutlined, SwapOutlined, SafetyCertificateOutlined,
+  DashboardOutlined, SwapOutlined, SafetyCertificateOutlined, WarningOutlined, StarOutlined,
 } from "@ant-design/icons";
 import ReactECharts from "echarts-for-react";
 import RadarChart, { DIMENSIONS } from "../components/RadarChart";
@@ -94,6 +94,10 @@ export default function ChipProfile() {
   const [compareData, setCompareData] = useState(null);
   const [showCompare, setShowCompare] = useState(false);
 
+  /* #531/#532: Baseline 数据 */
+  const [baselines, setBaselines] = useState([]);
+  const [baselinesLoading, setBaselinesLoading] = useState(false);
+
   /* 编辑 Modal */
   const [techModalVisible, setTechModalVisible] = useState(false);
   const [swModalVisible, setSwModalVisible] = useState(false);
@@ -147,7 +151,15 @@ export default function ChipProfile() {
     } catch (_) {}
   }, [chipId, selectedReportId]);
 
-  useEffect(() => { fetchChip(); fetchPlans(); fetchReports(); }, [fetchChip, fetchPlans, fetchReports]);
+  const fetchBaselines = useCallback(async () => {
+    setBaselinesLoading(true);
+    try {
+      const { data: resp } = await api.get(`/chips/${chipId}/baselines`);
+      if (resp.code === 0) setBaselines(resp.data || []);
+    } catch (_) {}
+    finally { setBaselinesLoading(false); }
+  }, [chipId]);
+  useEffect(() => { fetchChip(); fetchPlans(); fetchReports(); fetchBaselines(); }, [fetchChip, fetchPlans, fetchReports, fetchBaselines]);
 
   /* ── 编辑技术规格（增强版 #160） ── */
   const openTechModal = () => {
@@ -1110,6 +1122,67 @@ export default function ChipProfile() {
         </div>
       ),
     },
+    ,{
+      key: "baseline",
+      label: <span><SafetyCertificateOutlined /> Baseline</span>,
+      children: (
+        <Spin spinning={baselinesLoading}>
+          {baselines.length > 0 ? (
+            <div>
+              {baselines.map((group, idx) => (
+                <Card key={idx} size="small" style={{ marginBottom: 12 }}
+                  title={
+                    <Space>
+                      <Text strong>{group.runSpecName}</Text>
+                      <Tag>{group.runSpecCode}</Tag>
+                      {group.gpuPerNode && <Tag color="blue">{group.gpuPerNode} GPU</Tag>}
+                      {group.isDefault && <Tag color="green">当前默认</Tag>}
+                      {group.isStale && <Tag icon={<WarningOutlined />} color="warning">数据过期 ({group.staleDays}天前)</Tag>}
+                    </Space>
+                  }
+                  extra={
+                    <Space>
+                      <Text type="secondary">覆盖 {group.coveredItems} 项 ({group.coverageRate}%)</Text>
+                      {group.recommendedPlanId && <Tag icon={<StarOutlined />} color="gold">推荐</Tag>}
+                    </Space>
+                  }
+                >
+                  <Table
+                    dataSource={group.plans || []}
+                    rowKey="planId"
+                    size="small"
+                    pagination={false}
+                    columns={[
+                      { title: "Plan", dataIndex: "planNo", width: 140 },
+                      { title: "覆盖率", dataIndex: "coverageRate", width: 100, render: v => (
+                        <span style={{ color: v >= 80 ? "#52c41a" : v >= 50 ? "#faad14" : "#ff4d4f" }}>{v}%</span>
+                      )},
+                      { title: "状态", dataIndex: "status", width: 90, render: v => (
+                        <Tag color={v === "COMPLETED" ? "success" : "default"}>{v}</Tag>
+                      )},
+                      { title: "完成时间", dataIndex: "completedAt", width: 180, render: v => v ? new Date(v).toLocaleString() : "-" },
+                      { title: "标记", key: "flags", width: 160, render: (_, row) => (
+                        <Space size={4}>
+                          {row.isDefault && <Tag color="green">默认</Tag>}
+                          {row.recommended && <Tag icon={<StarOutlined />} color="gold">推荐</Tag>}
+                          {row.planId === group.recommendedPlanId && !row.isDefault && (
+                            <Tag color="blue">最优</Tag>
+                          )}
+                        </Space>
+                      )},
+                    ]}
+                  />
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <Empty description="暂无 Baseline 数据" style={{ padding: 60 }}>
+              <Text type="secondary">完成评测任务后将自动生成 Baseline</Text>
+            </Empty>
+          )}
+        </Spin>
+      ),
+    }
   ];
 
   return (
