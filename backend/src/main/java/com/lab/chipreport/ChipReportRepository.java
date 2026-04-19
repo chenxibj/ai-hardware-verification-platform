@@ -18,6 +18,11 @@ public interface ChipReportRepository extends JpaRepository<ChipReport, Long>, J
     List<ChipReport> findByChipId(Long chipId);
     List<ChipReport> findByPlanId(Long planId);
 
+    /**
+     * #518: Find existing report for a plan (for idempotency check)
+     */
+    Optional<ChipReport> findFirstByPlanId(Long planId);
+
     // For #169: version trend — all reports for a chip ordered by time
     @Query("SELECT r FROM ChipReport r WHERE r.chipId = :chipId AND r.deleted = false ORDER BY r.createdAt ASC")
     List<ChipReport> findByChipIdOrderByCreatedAtAsc(@Param("chipId") Long chipId);

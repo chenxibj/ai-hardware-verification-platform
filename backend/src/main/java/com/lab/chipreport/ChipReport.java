@@ -22,7 +22,7 @@ public class ChipReport {
 
     @Column(name = "chip_id", nullable = false)
     private Long chipId;
-    @Column(name = "plan_id", nullable = false)
+    @Column(name = "plan_id", nullable = false, unique = true)
     private Long planId;
 
     @Column(name = "overall_score")

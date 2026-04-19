@@ -74,19 +74,22 @@ public class ReportGeneratorService {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public ChipReport generateReport(Long planId) {
+        // #518: Idempotency — skip if report already exists for this plan
+        Optional<ChipReport> existing = reportRepository.findFirstByPlanId(planId);
+        if (existing.isPresent()) {
+            log.info("#518: Report already exists for plan {} (reportNo={}), skipping", planId, existing.get().getReportNo());
+            return existing.get();
+        }
+
         EvaluationPlan plan = planRepository.findById(planId)
                 .orElseThrow(() -> new RuntimeException("Plan not found: " + planId));
 
         // 1. 计算维度评分
         Map<String, Double> dimScores = resultService.calculateDimensionScores(planId);
 
-        // #444: 如果被测芯片就是 L40S baseline，强制所有有数据维度评分为 100%
+        // #515: Removed baseline 100% forcing — keep raw computed scores for all chips
         Chip targetChip = chipRepository.findById(plan.getChipId()).orElse(null);
         boolean isBaselineChip = targetChip != null && "CHIP-BASELINE-L40S".equals(targetChip.getChipNo());
-        if (isBaselineChip) {
-            dimScores.replaceAll((k, v) -> v > 0 ? 100.0 : 0.0);
-            log.info("Plan {} targets baseline chip L40S, forcing dimension scores to 100%", planId);
-        }
 
         // #435: 计算扩展性和生态维度（基于芯片属性 vs L40S）
         try {
@@ -105,15 +108,7 @@ public class ReportGeneratorService {
         // 2. 生成算子排行 (with three-state: VALID/NO_DATA/FAILED)
         List<Map<String, Object>> operatorRanking = buildOperatorRanking(planId);
 
-        // #444: baseline chip -> 所有 VALID 算子评分强制 100%
-        if (isBaselineChip) {
-            for (Map<String, Object> op : operatorRanking) {
-                if ("VALID".equals(op.get("dataStatus"))) {
-                    op.put("score", 100.0);
-                    op.put("passed", true);
-                }
-            }
-        }
+        // #515: Removed baseline 100% forcing for operator ranking — keep raw scores
 
         // 2.1 Recalculate overallScore based on VALID entries only
         double overallScore = operatorRanking.stream()
@@ -159,11 +154,12 @@ public class ReportGeneratorService {
 
         // 创建报告
         ChipReport report = new ChipReport();
-        report.setReportNo(generateReportNo());
+        report.setReportNo(generateReportNo(planId));
         report.setChipId(plan.getChipId());
         report.setPlanId(planId);
         report.setOverallScore(Math.round(overallScore * 10.0) / 10.0);
-        report.setStatus(ChipReport.ReportStatus.PUBLISHED);
+        // #517: coverageRate < 30% → DRAFT (requires manual review before publishing)
+        report.setStatus(coverageRate >= 30.0 ? ChipReport.ReportStatus.PUBLISHED : ChipReport.ReportStatus.DRAFT);
         report.setCreatedBy(plan.getCreatedBy());
 
         // Fill execution environment info from tasks
@@ -693,6 +689,15 @@ public class ReportGeneratorService {
                 entry.put("score", dataStatus.equals("NO_DATA") ? null : Math.round(score * 10.0) / 10.0);
                 entry.put("passed", dataStatus.equals("VALID") && score >= 80.0); // #434: 80% of L40S baseline
                 entry.put("dataStatus", dataStatus);
+
+                // #515: Add baseline latency and ratio for scoring explainability
+                if ("VALID".equals(dataStatus) && avgLatency > 0) {
+                    Double baselineLat = scoringService.getBaselineLatency(name);
+                    if (baselineLat != null && baselineLat > 0) {
+                        entry.put("baselineLatency", Math.round(baselineLat * 100.0) / 100.0);
+                        entry.put("ratio", Math.round((baselineLat / avgLatency) * 1000.0) / 1000.0);
+                    }
+                }
                 ranking.add(entry);
             } catch (Exception e) {
                 log.warn("Failed to parse metrics for result {}", r.getId());
@@ -840,17 +845,14 @@ public class ReportGeneratorService {
     }
 
         /**
-     * #518: Generate unique report number using DB count instead of Math.random()
-     * Format: RPT-{yyyyMMdd}-{sequence padded to 3 digits}
+     * #518: Generate report number using planId for natural uniqueness.
+     * Format: RPT-{yyyyMMdd}-{planId}
      */
-    private String generateReportNo() {
+    private String generateReportNo(Long planId) {
         String date = DateTimeFormatter.ofPattern("yyyyMMdd")
                 .withZone(ZoneId.of("Asia/Shanghai"))
                 .format(Instant.now());
-        String prefix = "RPT-" + date + "-";
-        long count = reportRepository.countByReportNoStartingWith(prefix);
-        String seq = String.format("%03d", count + 1);
-        return prefix + seq;
+        return "RPT-" + date + "-" + planId;
     }
 
     private double toDouble(Object val) {

@@ -112,15 +112,15 @@ public class MetricsNormalizer {
 
             // Extract latency (priority order)
             double latency = extractFirst(flat, LATENCY_KEYS);
-            result.put("latencyMsMean", latency);
+            result.put("latencyMsMean", Math.round(latency * 100.0) / 100.0);
 
             // Extract throughput (priority order)
             double throughput = extractFirst(flat, THROUGHPUT_KEYS);
-            result.put("throughputOps", throughput);
+            result.put("throughputOps", Math.round(throughput * 100.0) / 100.0);
 
             // Extract memory
             double memory = extractFirst(flat, MEMORY_KEYS);
-            result.put("memoryMb", memory);
+            result.put("memoryMb", Math.round(memory * 100.0) / 100.0);
 
             // Determine dataStatus
             String dataStatus;
@@ -142,13 +142,21 @@ public class MetricsNormalizer {
 
     /**
      * Extract the first available positive numeric value from the map using the given keys.
+     * Logs INFO when a non-preferred (fallback) key is used.
+     * All values rounded to 2 decimal places.
      */
     private double extractFirst(Map<String, Object> map, String[] keys) {
-        for (String key : keys) {
-            Object val = map.get(key);
+        for (int i = 0; i < keys.length; i++) {
+            Object val = map.get(keys[i]);
             if (val instanceof Number) {
                 double d = ((Number) val).doubleValue();
-                if (d > 0) return d;
+                if (d > 0) {
+                    double rounded = Math.round(d * 100.0) / 100.0;
+                    if (i > 0) {
+                        log.info("#514: Using fallback key '{}' (preferred '{}' not available), value={}", keys[i], keys[0], rounded);
+                    }
+                    return rounded;
+                }
             }
         }
         return 0.0;

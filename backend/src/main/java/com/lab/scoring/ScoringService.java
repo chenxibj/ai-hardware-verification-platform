@@ -164,6 +164,24 @@ public class ScoringService {
     }
 
     /**
+     * #515: Get baseline latency for a specific test item (for scoring explainability).
+     * Returns null if no baseline data exists for this test item.
+     */
+    public Double getBaselineLatency(String testItem) {
+        if (testItem == null) return null;
+        Map<String, Double> baseline = getBaselineLatencyMap();
+        Double lat = baseline.get(testItem);
+        if (lat != null) return lat;
+        // Try prefix match
+        for (Map.Entry<String, Double> entry : baseline.entrySet()) {
+            if (testItem.startsWith(entry.getKey()) && entry.getValue() > 0) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    /**
      * 基于延迟计算单个任务评分（旧算法 0-100，用作 fallback）
      */
     public double scoreLatency(double latencyMs) {
