@@ -281,4 +281,81 @@ class ScoringServiceTest {
         t.setTestItem(testItem);
         return t;
     }
+    // ===== #525: Baseline compatibility with old data =====
+
+    @Test
+    @DisplayName("#525: baseline should include old data with passed=false but valid latency")
+    void getBaselineLatencyMap_shouldIncludeOldDataWithPassedFalse() {
+        // Simulate old L40S data: passed=false, data_status=null, but has valid latency
+        Chip l40s = new Chip();
+        l40s.setId(952L);
+        l40s.setName("NVIDIA L40S");
+        l40s.setChipNo("CHIP-BASELINE-L40S");
+        lenient().when(chipRepository.findByNameContainingIgnoreCase("L40S"))
+                .thenReturn(Collections.singletonList(l40s));
+
+        EvaluationPlan baselinePlan = new EvaluationPlan();
+        baselinePlan.setId(679L);
+        baselinePlan.setChipId(952L);
+        lenient().when(planRepository.findByChipId(952L))
+                .thenReturn(Collections.singletonList(baselinePlan));
+
+        EvaluationTask task = new EvaluationTask();
+        task.setId(100L);
+        task.setTestItem("GELU");
+        task.setPlanId(679L);
+        lenient().when(taskRepository.findByPlanId(679L))
+                .thenReturn(Collections.singletonList(task));
+
+        // Old result: passed=false, data_status=null, but has valid latency_ms_mean
+        EvaluationResult result = new EvaluationResult();
+        result.setTaskId(100L);
+        result.setPassed(false);  // Old data often has passed=false
+        result.setDataStatus(null);  // Old data has no data_status
+        result.setMetricsSummary("{\"latency_ms_mean\": 0.013}");
+        lenient().when(resultRepository.findByPlanId(679L))
+                .thenReturn(Collections.singletonList(result));
+
+        // Should still find baseline data (0.013)
+        Double baseline = scoringService.getBaselineLatency("GELU");
+        assertNotNull(baseline, "Old data with valid latency should be included as baseline");
+        assertEquals(0.013, baseline, 0.001, "Baseline latency should be 0.013");
+    }
+
+    @Test
+    @DisplayName("#525: baseline should skip results with FAILED data_status")
+    void getBaselineLatencyMap_shouldSkipFailedResults() {
+        Chip l40s = new Chip();
+        l40s.setId(952L);
+        l40s.setName("NVIDIA L40S");
+        l40s.setChipNo("CHIP-BASELINE-L40S");
+        lenient().when(chipRepository.findByNameContainingIgnoreCase("L40S"))
+                .thenReturn(Collections.singletonList(l40s));
+
+        EvaluationPlan baselinePlan = new EvaluationPlan();
+        baselinePlan.setId(679L);
+        baselinePlan.setChipId(952L);
+        lenient().when(planRepository.findByChipId(952L))
+                .thenReturn(Collections.singletonList(baselinePlan));
+
+        EvaluationTask task = new EvaluationTask();
+        task.setId(100L);
+        task.setTestItem("FailedOp");
+        task.setPlanId(679L);
+        lenient().when(taskRepository.findByPlanId(679L))
+                .thenReturn(Collections.singletonList(task));
+
+        // FAILED result should be excluded
+        EvaluationResult result = new EvaluationResult();
+        result.setTaskId(100L);
+        result.setPassed(false);
+        result.setDataStatus("FAILED");
+        result.setMetricsSummary("{\"latency_ms_mean\": 0.050}");
+        lenient().when(resultRepository.findByPlanId(679L))
+                .thenReturn(Collections.singletonList(result));
+
+        Double baseline = scoringService.getBaselineLatency("FailedOp");
+        assertNull(baseline, "FAILED results should not be used as baseline");
+    }
+
 }

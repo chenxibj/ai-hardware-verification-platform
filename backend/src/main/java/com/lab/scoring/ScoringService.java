@@ -132,7 +132,10 @@ public class ScoringService {
                         .collect(Collectors.toMap(EvaluationTask::getId, EvaluationTask::getTestItem));
 
                 for (EvaluationResult r : results) {
-                    if (r.getPassed() == null || !r.getPassed()) continue;
+                    // #525: Accept results with valid metrics regardless of passed/data_status
+                    // Old data may have passed=false or data_status=NULL but still contain
+                    // valid latency measurements. Only skip explicit FAILED status.
+                    if ("FAILED".equals(r.getDataStatus())) continue;
                     String testItem = taskItemMap.get(r.getTaskId());
                     if (testItem == null || r.getMetricsSummary() == null) continue;
 
