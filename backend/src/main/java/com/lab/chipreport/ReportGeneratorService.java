@@ -11,6 +11,7 @@ import com.lab.result.EvaluationResultRepository;
 import com.lab.result.EvaluationResultService;
 import com.lab.scoring.ScoringService;
 import com.lab.task.EvaluationTask;
+import com.lab.task.FailureType;
 import com.lab.task.EvaluationTaskRepository;
 import com.lab.node.ComputeNode;
 import com.lab.node.ComputeNodeRepository;
@@ -128,6 +129,24 @@ public class ReportGeneratorService {
         coverage.put("validItems", validCount);
         coverage.put("noDataItems", noDataCount);
         coverage.put("failedItems", failedCount);
+        // #524: Split failed items by failure type
+        List<EvaluationTask> failedTasks = taskRepository.findByPlanId(planId);
+        long notStartedItems = failedTasks.stream()
+                .filter(t -> t.getFailureType() == FailureType.TIMEOUT_NOT_STARTED)
+                .count();
+        long agentErrorItems = failedTasks.stream()
+                .filter(t -> t.getFailureType() == FailureType.AGENT_ERROR)
+                .count();
+        long evalFailedItems = failedTasks.stream()
+                .filter(t -> t.getFailureType() == FailureType.EVAL_FAILED)
+                .count();
+        long timeoutInProgressItems = failedTasks.stream()
+                .filter(t -> t.getFailureType() == FailureType.TIMEOUT_IN_PROGRESS)
+                .count();
+        coverage.put("notStartedItems", notStartedItems);
+        coverage.put("agentErrorItems", agentErrorItems);
+        coverage.put("evalFailedItems", evalFailedItems);
+        coverage.put("timeoutInProgressItems", timeoutInProgressItems);
         coverage.put("coverageRate", Math.round(coverageRate * 10.0) / 10.0);
         coverage.put("isComplete", coverageRate >= 80.0);
         coverage.put("note", coverageRate < 80.0
@@ -689,6 +708,10 @@ public class ReportGeneratorService {
                 entry.put("score", dataStatus.equals("NO_DATA") ? null : Math.round(score * 10.0) / 10.0);
                 entry.put("passed", dataStatus.equals("VALID") && score >= 80.0); // #434: 80% of L40S baseline
                 entry.put("dataStatus", dataStatus);
+                // #524: Include failureType from task for report display (grey vs red distinction)
+                if (task != null && task.getFailureType() != null) {
+                    entry.put("failureType", task.getFailureType().name());
+                }
 
                 // #515: Add baseline latency and ratio for scoring explainability
                 if ("VALID".equals(dataStatus) && avgLatency > 0) {
@@ -702,6 +725,32 @@ public class ReportGeneratorService {
             } catch (Exception e) {
                 log.warn("Failed to parse metrics for result {}", r.getId());
             }
+        }
+
+        // #524: Include tasks that have no result at all (truly never executed)
+        java.util.Set<Long> taskIdsWithResults = results.stream()
+                .map(EvaluationResult::getTaskId)
+                .collect(Collectors.toSet());
+        for (EvaluationTask task : tasks) {
+            if (taskIdsWithResults.contains(task.getId())) continue;
+            if (!com.lab.task.EvaluationTask.TaskStatus.FAILED.equals(task.getStatus())
+                    && !com.lab.task.EvaluationTask.TaskStatus.CANCELLED.equals(task.getStatus())
+                    && !com.lab.task.EvaluationTask.TaskStatus.SKIPPED.equals(task.getStatus())) continue;
+            String name = task.getTestItem() != null ? task.getTestItem() : task.getName();
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("testItem", name != null ? name : "unknown");
+            entry.put("dimension", categorizeToDimension(task));
+            entry.put("latencyMean", 0.0);
+            entry.put("latencyP95", 0.0);
+            entry.put("latencyP99", 0.0);
+            entry.put("throughput", 0.0);
+            entry.put("score", null);
+            entry.put("passed", false);
+            entry.put("dataStatus", "NO_DATA");
+            if (task.getFailureType() != null) {
+                entry.put("failureType", task.getFailureType().name());
+            }
+            ranking.add(entry);
         }
 
         // Sort by score descending

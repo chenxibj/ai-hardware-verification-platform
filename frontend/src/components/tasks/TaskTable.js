@@ -40,6 +40,15 @@ const PRIORITY_MAP = {
   CRITICAL: { text: "紧急", color: "red" },
 };
 
+
+/** #524: Failure type labels */
+const FAILURE_TYPE_MAP = {
+  TIMEOUT_NOT_STARTED: { text: "未启动超时", color: "#d48806" },
+  TIMEOUT_IN_PROGRESS: { text: "执行中超时", color: "#cf1322" },
+  AGENT_ERROR: { text: "Agent 错误", color: "#f5222d" },
+  EVAL_FAILED: { text: "评测失败", color: "#722ed1" },
+};
+
 /** #303: 截取失败原因摘要 */
 function ErrorSummary({ errorMessage }) {
   if (!errorMessage) return null;
@@ -112,6 +121,12 @@ export default function TaskTable({
             {/* #303: 失败任务显示错误原因摘要 */}
             {(v === "FAILED" || v === "TIMEOUT") && r.errorMessage && (
               <ErrorSummary errorMessage={r.errorMessage} />
+            )}
+            {/* #524: Failure type label */}
+            {(v === "FAILED" || v === "TIMEOUT") && r.failureType && FAILURE_TYPE_MAP[r.failureType] && (
+              <Tag color={FAILURE_TYPE_MAP[r.failureType].color} style={{ fontSize: 11, marginTop: 2 }}>
+                {FAILURE_TYPE_MAP[r.failureType].text}
+              </Tag>
             )}
             {/* #520: 排队中任务显示排队位置徽章 + 排队原因 */}
             {v === "QUEUED" && (

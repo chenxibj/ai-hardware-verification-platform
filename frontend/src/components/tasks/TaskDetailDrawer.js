@@ -19,6 +19,15 @@ import dayjs from "dayjs";
 
 const { Text } = Typography;
 
+
+/** #524: Failure type labels */
+const FAILURE_TYPE_MAP = {
+  TIMEOUT_NOT_STARTED: { text: "未启动超时", color: "#d48806", desc: "任务分发后从未开始执行" },
+  TIMEOUT_IN_PROGRESS: { text: "执行中超时", color: "#cf1322", desc: "任务执行到一半后超时" },
+  AGENT_ERROR: { text: "Agent 错误", color: "#f5222d", desc: "Agent 主动报告执行失败" },
+  EVAL_FAILED: { text: "评测失败", color: "#722ed1", desc: "评测脚本执行出错" },
+};
+
 export default function TaskDetailDrawer({
   visible, selected, executions, taskReport, reportLoading, onClose,
   onRetry, onCancel,
@@ -125,6 +134,17 @@ export default function TaskDetailDrawer({
         {selected.errorMessage && (
           <Descriptions.Item label="错误信息" span={2}>
             <Text type="danger">{selected.errorMessage}</Text>
+          </Descriptions.Item>
+        )}
+        {/* #524: Show failure type */}
+        {selected.failureType && FAILURE_TYPE_MAP[selected.failureType] && (
+          <Descriptions.Item label="失败类型" span={2}>
+            <Tag color={FAILURE_TYPE_MAP[selected.failureType].color}>
+              {FAILURE_TYPE_MAP[selected.failureType].text}
+            </Tag>
+            <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+              {FAILURE_TYPE_MAP[selected.failureType].desc}
+            </Text>
           </Descriptions.Item>
         )}
         {selected.status === "QUEUED" && selected.queueReason && (

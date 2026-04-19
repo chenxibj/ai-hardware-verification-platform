@@ -93,3 +93,9 @@ app:
   version: ${APP_VERSION:unknown}
   git-commit: ${GIT_COMMIT:unknown}
   build-time: ${BUILD_TIME:unknown}
+
+# #523: Deprecated endpoint feature flags
+ahvp:
+  deprecated:
+    complete-endpoint:
+      return-gone: false  # Set to true to return 410 Gone for POST /tasks/{id}/complete

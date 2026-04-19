@@ -4,12 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lab.plan.EvaluationPlanRepository;
 import com.lab.scoring.ScoringService;
 import com.lab.task.*;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
 
@@ -20,19 +17,30 @@ import static org.mockito.Mockito.*;
 /**
  * #524: submitFailure should set failureType = AGENT_ERROR
  */
-@ExtendWith(MockitoExtension.class)
 class SubmitFailureTypeTest {
 
-    @Mock private EvaluationResultRepository resultRepository;
-    @Mock private EvaluationTaskRepository taskRepository;
-    @Mock private EvaluationPlanRepository planRepository;
-    @Mock private ObjectMapper objectMapper;
-    @Mock private ScoringService scoringService;
-    @Mock private TaskLifecycleService lifecycle;
-    @Mock private MetricsNormalizer metricsNormalizer;
-
-    @InjectMocks
+    private EvaluationResultRepository resultRepository;
+    private EvaluationTaskRepository taskRepository;
+    private EvaluationPlanRepository planRepository;
+    private ObjectMapper objectMapper;
+    private ScoringService scoringService;
+    private TaskLifecycleService lifecycle;
+    private MetricsNormalizer metricsNormalizer;
     private EvaluationResultService service;
+
+    @BeforeEach
+    void setUp() {
+        resultRepository = mock(EvaluationResultRepository.class);
+        taskRepository = mock(EvaluationTaskRepository.class);
+        planRepository = mock(EvaluationPlanRepository.class);
+        objectMapper = mock(ObjectMapper.class);
+        scoringService = mock(ScoringService.class);
+        lifecycle = mock(TaskLifecycleService.class);
+        metricsNormalizer = mock(MetricsNormalizer.class);
+        service = new EvaluationResultService(
+                resultRepository, taskRepository, planRepository,
+                objectMapper, scoringService, lifecycle, metricsNormalizer);
+    }
 
     @Test
     @DisplayName("#524: submitFailure sets failureType = AGENT_ERROR")

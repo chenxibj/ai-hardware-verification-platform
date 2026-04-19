@@ -238,8 +238,24 @@ export default function ChipReport() {
     {
       title: "状态", key: "status", width: 120, align: "center",
       render: (_, record) => {
-        if (record.dataStatus === "NO_DATA") {
+        /* #524: Distinguish failure types with different colors */
+        if (record.failureType === "TIMEOUT_NOT_STARTED") {
+          return <Tooltip title="任务超时未启动（未执行）"><Tag color="default">未执行</Tag></Tooltip>;
+        }
+        if (record.dataStatus === "NO_DATA" && !record.failureType) {
           return <Tooltip title="任务已执行完成，但未采集到有效性能指标数据"><Tag icon={<WarningOutlined />} color="warning">无有效数据</Tag></Tooltip>;
+        }
+        if (record.dataStatus === "NO_DATA" && record.failureType) {
+          return <Tooltip title={"失败类型: " + record.failureType}><Tag color="default">未执行</Tag></Tooltip>;
+        }
+        if (record.failureType === "TIMEOUT_IN_PROGRESS") {
+          return <Tooltip title="任务执行中超时"><Tag icon={<ClockCircleOutlined />} color="orange">执行超时</Tag></Tooltip>;
+        }
+        if (record.failureType === "AGENT_ERROR") {
+          return <Tag icon={<CloseCircleOutlined />} color="error">Agent 错误</Tag>;
+        }
+        if (record.failureType === "EVAL_FAILED") {
+          return <Tag icon={<CloseCircleOutlined />} color="purple">评测失败</Tag>;
         }
         if (record.dataStatus === "FAILED") {
           return <Tag icon={<CloseCircleOutlined />} color="error">评测失败</Tag>;
@@ -264,7 +280,10 @@ export default function ChipReport() {
       render: v => <span style={{ color: scoreColor(v || 0), fontWeight: "bold" }}>{(v || 0).toFixed(1)}%</span> },
     { title: "状态", key: "status", width: 80, align: "center",
       render: (_, record) => {
+        if (record.failureType === "TIMEOUT_NOT_STARTED") return <Tag color="default">未执行</Tag>;
         if (record.dataStatus === "NO_DATA") return <Tag color="warning">无数据</Tag>;
+        if (record.failureType === "TIMEOUT_IN_PROGRESS") return <Tag color="orange">执行超时</Tag>;
+        if (record.failureType === "AGENT_ERROR") return <Tag color="error">Agent 错误</Tag>;
         return record.passed ? <Tag color="success">PASS</Tag> : <Tag color="error">FAIL</Tag>;
       }
     },
@@ -319,8 +338,8 @@ export default function ChipReport() {
       (op.latencyMean ?? op.avgLatency ?? 0).toFixed(2),
       (op.throughput ?? 0).toFixed(1),
       op.dataStatus === "NO_DATA" ? "—" : (op.score ?? 0).toFixed(1),
-      op.dataStatus === "VALID" ? "有效" : op.dataStatus === "NO_DATA" ? "无数据" : "失败",
-      op.passed ? "通过" : op.dataStatus === "NO_DATA" ? "—" : "未达标",
+      op.failureType === "TIMEOUT_NOT_STARTED" ? "未执行" : op.dataStatus === "VALID" ? "有效" : op.dataStatus === "NO_DATA" ? "无数据" : "失败",
+      op.failureType === "TIMEOUT_NOT_STARTED" ? "未执行" : op.passed ? "通过" : op.dataStatus === "NO_DATA" ? "—" : "未达标",
     ]);
     const bom = "\uFEFF";
     const csv = bom + [headers, ...rows].map(r => r.join(",")).join("\n");
@@ -663,7 +682,12 @@ export default function ChipReport() {
                   render: (v, r) => r.dataStatus === "NO_DATA" ? <Text type="secondary">—</Text>
                     : <span style={{ color: scoreColor(v || 0), fontWeight: "bold" }}>{(v || 0).toFixed(1)}%</span> },
                 { title: "状态", key: "status", width: 80, align: "center",
-                  render: (_, r) => r.passed ? <Tag color="success">PASS</Tag> : <Tag color="error">FAIL</Tag> },
+                  render: (_, r) => {
+                    if (r.failureType === "TIMEOUT_NOT_STARTED") return <Tag color="default">未执行</Tag>;
+                    if (r.failureType === "TIMEOUT_IN_PROGRESS") return <Tag color="orange">超时</Tag>;
+                    if (r.failureType === "AGENT_ERROR") return <Tag color="error">错误</Tag>;
+                    return r.passed ? <Tag color="success">PASS</Tag> : <Tag color="error">FAIL</Tag>;
+                  } },
               ]}
               rowKey={(_, idx) => `train-${idx}`}
               pagination={false}
@@ -754,7 +778,12 @@ export default function ChipReport() {
                   render: (v, r) => r.dataStatus === "NO_DATA" ? <Text type="secondary">—</Text>
                     : <span style={{ color: scoreColor(v || 0), fontWeight: "bold" }}>{(v || 0).toFixed(1)}%</span> },
                 { title: "状态", key: "status", width: 80, align: "center",
-                  render: (_, r) => r.passed ? <Tag color="success">PASS</Tag> : <Tag color="error">FAIL</Tag> },
+                  render: (_, r) => {
+                    if (r.failureType === "TIMEOUT_NOT_STARTED") return <Tag color="default">未执行</Tag>;
+                    if (r.failureType === "TIMEOUT_IN_PROGRESS") return <Tag color="orange">超时</Tag>;
+                    if (r.failureType === "AGENT_ERROR") return <Tag color="error">错误</Tag>;
+                    return r.passed ? <Tag color="success">PASS</Tag> : <Tag color="error">FAIL</Tag>;
+                  } },
               ]}
               rowKey={(_, idx) => `inf-${idx}`}
               pagination={false}
