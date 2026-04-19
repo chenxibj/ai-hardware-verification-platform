@@ -678,21 +678,11 @@ public class ReportGeneratorService {
                 double avgLatency = toDouble(flatMetrics.getOrDefault("latency_ms_mean", flatMetrics.getOrDefault("latency_mean", flatMetrics.getOrDefault("latencyMean", flatMetrics.getOrDefault("latency_ms_p50", 0)))));
                 double p95Latency = toDouble(flatMetrics.getOrDefault("latency_ms_p95", flatMetrics.getOrDefault("latency_p95", flatMetrics.getOrDefault("latencyP95", 0))));
                 double p99Latency = toDouble(flatMetrics.getOrDefault("latency_ms_p99", flatMetrics.getOrDefault("latency_p99", flatMetrics.getOrDefault("latencyP99", 0))));
-                double throughput = toDouble(flatMetrics.getOrDefault("throughput_qps", flatMetrics.getOrDefault("throughput_ops", flatMetrics.getOrDefault("throughput", flatMetrics.getOrDefault("avg_throughput_qps", 0)))));
-                // #526: Prefer stored dataStatus from MetricsNormalizer (handles multi-result correctly)
+                double throughput = toDouble(flatMetrics.getOrDefault("throughput_ops", flatMetrics.getOrDefault("throughput_qps", flatMetrics.getOrDefault("throughput", flatMetrics.getOrDefault("throughput_fps", 0)))));
+                // #526: Always re-compute dataStatus from flattened metrics (DB values may be stale)
                 double score;
                 String dataStatus;
-                String storedStatus = r.getDataStatus();
-                if (storedStatus != null && !storedStatus.isEmpty()) {
-                    dataStatus = storedStatus;
-                    if ("VALID".equals(dataStatus)) {
-                        score = scoringService.scoreFromMetrics(r.getMetricsSummary(), name);
-                    } else if ("FAILED".equals(dataStatus)) {
-                        score = 0;
-                    } else {
-                        score = -1; // NO_DATA or PARTIAL
-                    }
-                } else if (avgLatency > 0 && throughput > 0) {
+                if (avgLatency > 0 && throughput > 0) {
                     score = scoringService.scoreFromMetrics(r.getMetricsSummary(), name);
                     dataStatus = "VALID";
                 } else if (r.getPassed() != null && r.getPassed()) {

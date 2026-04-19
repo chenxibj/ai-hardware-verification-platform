@@ -1,0 +1,22 @@
+{
+  "cookies": [],
+  "origins": [
+    {
+      "origin": "http://39.97.251.94",
+      "localStorage": [
+        {
+          "name": "token",
+          "value": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIyIiwiZW1haWwiOiJ0ZXN0QGFodnAuY29tIiwicm9sZSI6IlVTRVIiLCJpYXQiOjE3NzUxNDE0NzAsImV4cCI6MTc3NTIyNzg3MH0.MlFs_8Qxw9mChFA5whXHeeHkHK7D4pXYbgODez6t8xw"
+        },
+        {
+          "name": "user",
+          "value": "{\"createdAt\":\"2026-03-31T07:56:33.082742Z\",\"role\":\"USER\",\"id\":2,\"avatar\":null,\"email\":\"test@ahvp.com\",\"username\":\"testuser\",\"status\":\"ACTIVE\"}"
+        },
+        {
+          "name": "refreshToken",
+          "value": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIyIiwiaWF0IjoxNzc1MTQxNDcwLCJleHAiOjE3NzU3NDYyNzB9.JoBtQvswrJIYeLgFcCT_MKO7yKKsthgLjxhFmEic7A8"
+        }
+      ]
+    }
+  ]
+}
