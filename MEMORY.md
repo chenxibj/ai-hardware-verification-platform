@@ -26,6 +26,10 @@
   5. 确认后再拆 issue、开发
   - **跳过设计直接写代码 = 违规** — 没有设计文档的需求不准开工
   - 设计文档是活文档，开发过程中发现问题随时更新
+- **🔴 巡检必须检查设计文档 comments（2026-04-19）** — 每次巡检时检查 GitHub repo `docs/` 目录下的设计文档是否有新 comments（麦克雷或其他人的 review）：
+  - `gh api repos/chenxibj/ai-hardware-verification-platform/pulls/comments` 或 commit comments
+  - 发现新 comment → **及时回复反馈** + **更新设计文档** + **开 issue 更新功能**
+  - 设计文档的 review 反馈优先级等同于 code review，不能拖
 - **联网搜索优先使用 searxng skill** —— 只要涉及联网搜索任务，优先调用 searxng 技能而非直接使用 web_search 工具。
 - **凭据不存 workspace** —— AK/SK 等敏感信息存 ~/.aliyun/config.json，不写入记忆文件。
 - **🔴🔴 TDD 是开发铁律（2026-04-11 重大升级，04-16 chenxi 再次确认必须落实）** ——
