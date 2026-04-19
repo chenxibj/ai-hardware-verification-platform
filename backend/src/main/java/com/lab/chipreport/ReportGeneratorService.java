@@ -674,18 +674,28 @@ public class ReportGeneratorService {
                 // Navigate nested structure: metrics may be at top-level or nested in result.eval_result
                 Map<String, Object> flatMetrics = flattenMetrics(metrics);
 
-                double avgLatency = toDouble(flatMetrics.getOrDefault("latency_ms_mean", flatMetrics.getOrDefault("latency_mean", flatMetrics.getOrDefault("latencyMean", flatMetrics.getOrDefault("avg_latency_ms", 0)))));
+                // #526: Removed avg_latency_ms — aggregate summary field, not task-level metric
+                double avgLatency = toDouble(flatMetrics.getOrDefault("latency_ms_mean", flatMetrics.getOrDefault("latency_mean", flatMetrics.getOrDefault("latencyMean", flatMetrics.getOrDefault("latency_ms_p50", 0)))));
                 double p95Latency = toDouble(flatMetrics.getOrDefault("latency_ms_p95", flatMetrics.getOrDefault("latency_p95", flatMetrics.getOrDefault("latencyP95", 0))));
                 double p99Latency = toDouble(flatMetrics.getOrDefault("latency_ms_p99", flatMetrics.getOrDefault("latency_p99", flatMetrics.getOrDefault("latencyP99", 0))));
                 double throughput = toDouble(flatMetrics.getOrDefault("throughput_qps", flatMetrics.getOrDefault("throughput_ops", flatMetrics.getOrDefault("throughput", flatMetrics.getOrDefault("avg_throughput_qps", 0)))));
-                // Three-state scoring: VALID / NO_DATA / FAILED (#434: vs L40S percentage)
+                // #526: Prefer stored dataStatus from MetricsNormalizer (handles multi-result correctly)
                 double score;
                 String dataStatus;
-                if (avgLatency > 0 && throughput > 0) {
+                String storedStatus = r.getDataStatus();
+                if (storedStatus != null && !storedStatus.isEmpty()) {
+                    dataStatus = storedStatus;
+                    if ("VALID".equals(dataStatus)) {
+                        score = scoringService.scoreFromMetrics(r.getMetricsSummary(), name);
+                    } else if ("FAILED".equals(dataStatus)) {
+                        score = 0;
+                    } else {
+                        score = -1; // NO_DATA or PARTIAL
+                    }
+                } else if (avgLatency > 0 && throughput > 0) {
                     score = scoringService.scoreFromMetrics(r.getMetricsSummary(), name);
                     dataStatus = "VALID";
                 } else if (r.getPassed() != null && r.getPassed()) {
-                    // Agent reported passed but no perf data — valid execution, no metrics
                     score = -1;
                     dataStatus = "NO_DATA";
                 } else if (r.getErrorMessage() != null && !r.getErrorMessage().isEmpty()) {
@@ -693,7 +703,7 @@ public class ReportGeneratorService {
                     dataStatus = "FAILED";
                 } else {
                     score = -1;
-                    dataStatus = "NO_DATA"; // No error, no data = system didn't collect metrics
+                    dataStatus = "NO_DATA";
                 }
 
                 String dimension = categorizeToDimension(task);
@@ -785,13 +795,14 @@ public class ReportGeneratorService {
                     if (summary instanceof Map) {
                         flat.putAll((Map<String, Object>) summary);
                     }
-                    // Merge first result entry (per-operator metrics)
+                    // #526: Only merge results[0] when exactly 1 result (single operator).
+                    // Multi-result tasks (model inference with multiple batch sizes) must NOT
+                    // have sub-item metrics merged — causes false VALID status.
                     Object results = eval.get("results");
                     if (results instanceof java.util.List) {
                         java.util.List<Object> resultList = (java.util.List<Object>) results;
-                        if (!resultList.isEmpty() && resultList.get(0) instanceof Map) {
+                        if (resultList.size() == 1 && resultList.get(0) instanceof Map) {
                             Map<String, Object> firstResult = (Map<String, Object>) resultList.get(0);
-                            // Only add fields not already present from summary
                             firstResult.forEach(flat::putIfAbsent);
                         }
                     }

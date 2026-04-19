@@ -18,8 +18,9 @@ import java.util.Map;
  * 2. 字段名 snake_case/camelCase 混用 → 统一
  * 3. 有延迟没吞吐 → 标记 PARTIAL
  * 4. 完全没有数据 → 标记 NO_DATA
+ * 5. #526: 多结果(model inference)不误判为 VALID
  *
- * Issue: #514
+ * Issue: #514, #526
  */
 @Slf4j
 @Component
@@ -28,9 +29,14 @@ public class MetricsNormalizer {
 
     private final ObjectMapper objectMapper;
 
-    /** Latency field names in priority order */
+    /**
+     * Latency field names in priority order.
+     * #526: Removed 'avg_latency_ms' — it's an aggregate summary field that averages
+     * across multiple sub-items (e.g. batch sizes). It should NOT be used to determine
+     * per-task DataStatus. Per-task latency must come from results[0] (single-result only).
+     */
     private static final String[] LATENCY_KEYS = {
-        "latency_ms_mean", "latency_mean", "latencyMean", "avg_latency_ms", "latency_ms_p50"
+        "latency_ms_mean", "latency_mean", "latencyMean", "latency_ms_p50"
     };
 
     /** Throughput field names in priority order */
@@ -40,7 +46,7 @@ public class MetricsNormalizer {
 
     /** Memory field names in priority order */
     private static final String[] MEMORY_KEYS = {
-        "memory_mb", "memory_usage_mb", "memoryMb"
+        "memory_mb", "memory_usage_mb", "memoryMb", "memory_peak_mb"
     };
 
     /**
@@ -91,18 +97,24 @@ public class MetricsNormalizer {
                         }
                     }
 
-                    // Path 3: result.eval_result.results[0] (higher priority for specific fields)
+                    // Path 3: result.eval_result.results[0] — ONLY when there's exactly 1 result.
+                    // #526: When results has multiple entries (e.g. model inference with multiple
+                    // batch sizes), each entry is a sub-item metric, NOT the task-level metric.
+                    // Merging results[0] in this case would incorrectly attribute a sub-item's
+                    // latency/throughput to the whole task, causing false VALID status.
                     Object results = eval.get("results");
                     if (results instanceof List) {
                         List<Object> resultList = (List<Object>) results;
-                        if (!resultList.isEmpty() && resultList.get(0) instanceof Map) {
+                        if (resultList.size() == 1 && resultList.get(0) instanceof Map) {
+                            // Single result — this IS the task-level metric, safe to merge
                             Map<String, Object> first = (Map<String, Object>) resultList.get(0);
-                            // results[0] fields override summary for latency/throughput
                             for (Map.Entry<String, Object> e : first.entrySet()) {
                                 if (e.getValue() instanceof Number) {
                                     flat.put(e.getKey(), e.getValue());
                                 }
                             }
+                        } else if (resultList.size() > 1) {
+                            log.info("#526: results has {} entries (multi-result task), skipping results[0] merge to avoid false VALID", resultList.size());
                         }
                     }
                 }

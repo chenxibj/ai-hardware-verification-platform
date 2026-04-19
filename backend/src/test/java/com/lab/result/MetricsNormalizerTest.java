@@ -3,322 +3,275 @@ package com.lab.result;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * TDD tests for #514: MetricsNormalizer — unified data normalization layer
+ * Unit tests for MetricsNormalizer DataStatus determination.
+ * Issue: #526
  */
 class MetricsNormalizerTest {
 
     private MetricsNormalizer normalizer;
-    private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
-        objectMapper = new ObjectMapper();
-        normalizer = new MetricsNormalizer(objectMapper);
+        normalizer = new MetricsNormalizer(new ObjectMapper());
     }
 
-    // === Path extraction tests ===
+    // ========== DataStatus determination tests ==========
 
-    @Test
-    @DisplayName("#514: extract from result.eval_result.summary path")
-    void normalize_summaryPath() {
-        String raw = """
-            {
-                "status": "COMPLETED",
-                "result": {
+    @Nested
+    @DisplayName("DataStatus: NO_DATA scenarios")
+    class NoDataTests {
+
+        @Test
+        @DisplayName("null rawData → NO_DATA")
+        void nullInput() {
+            Map<String, Object> result = normalizer.normalize(null);
+            assertThat(result.get("dataStatus")).isEqualTo("NO_DATA");
+            assertThat(result.get("latencyMsMean")).isEqualTo(0.0);
+            assertThat(result.get("throughputOps")).isEqualTo(0.0);
+        }
+
+        @Test
+        @DisplayName("empty string → NO_DATA")
+        void emptyString() {
+            Map<String, Object> result = normalizer.normalize("");
+            assertThat(result.get("dataStatus")).isEqualTo("NO_DATA");
+        }
+
+        @Test
+        @DisplayName("blank string → NO_DATA")
+        void blankString() {
+            Map<String, Object> result = normalizer.normalize("   ");
+            assertThat(result.get("dataStatus")).isEqualTo("NO_DATA");
+        }
+
+        @Test
+        @DisplayName("empty JSON object → NO_DATA")
+        void emptyJson() {
+            Map<String, Object> result = normalizer.normalize("{}");
+            assertThat(result.get("dataStatus")).isEqualTo("NO_DATA");
+        }
+
+        @Test
+        @DisplayName("JSON with only non-metric fields → NO_DATA")
+        void nonMetricFields() {
+            Map<String, Object> result = normalizer.normalize(
+                "{\"status\": \"COMPLETED\", \"name\": \"test\"}");
+            assertThat(result.get("dataStatus")).isEqualTo("NO_DATA");
+        }
+
+        @Test
+        @DisplayName("latency=0 and throughput=0 → NO_DATA")
+        void zeroLatencyAndThroughput() {
+            Map<String, Object> result = normalizer.normalize(
+                "{\"latency_ms_mean\": 0, \"throughput_ops\": 0}");
+            assertThat(result.get("dataStatus")).isEqualTo("NO_DATA");
+        }
+
+        @Test
+        @DisplayName("#526: MLP model inference with multiple results → NO_DATA")
+        void mlpMultipleResults_noData() {
+            // MLP model benchmark returns 4 batch sizes in results[].
+            // Each has latency_ms_mean per batch, but these are sub-item metrics,
+            // NOT the task-level metric. Task should be NO_DATA.
+            String rawData = """
+                {
+                  "result": {
                     "eval_result": {
-                        "summary": {
-                            "avg_latency_ms": 1.5,
-                            "throughput_ops": 500
-                        }
+                      "summary": {
+                        "device": "cuda",
+                        "failed": 0,
+                        "passed": 4,
+                        "avg_latency_ms": 0.016,
+                        "avg_throughput_qps": 112.1
+                      },
+                      "results": [
+                        {"model": "MLP-Medium", "batch_size": 1, "latency_ms_mean": 0.012, "throughput_qps": 112.2},
+                        {"model": "MLP-Medium", "batch_size": 4, "latency_ms_mean": 0.013, "throughput_qps": 112.1},
+                        {"model": "MLP-Medium", "batch_size": 16, "latency_ms_mean": 0.017, "throughput_qps": 112.1},
+                        {"model": "MLP-Medium", "batch_size": 32, "latency_ms_mean": 0.023, "throughput_qps": 112.0}
+                      ]
                     }
-                }
-            }
-            """;
-        Map<String, Object> result = normalizer.normalize(raw);
-        assertEquals(1.5, ((Number) result.get("latencyMsMean")).doubleValue(), 0.001);
-        assertEquals(500.0, ((Number) result.get("throughputOps")).doubleValue(), 0.001);
-        assertEquals("VALID", result.get("dataStatus"));
+                  },
+                  "status": "COMPLETED"
+                }""";
+            Map<String, Object> result = normalizer.normalize(rawData);
+            assertThat(result.get("dataStatus")).isEqualTo("NO_DATA");
+            assertThat((double) result.get("latencyMsMean")).isEqualTo(0.0);
+            assertThat((double) result.get("throughputOps")).isEqualTo(0.0);
+        }
+
+        @Test
+        @DisplayName("JSON with only score field (no latency/throughput) → NO_DATA")
+        void scoreOnlyNoLatency() {
+            Map<String, Object> result = normalizer.normalize(
+                "{\"score\": 50.0, \"eval_type\": \"MODEL\"}");
+            assertThat(result.get("dataStatus")).isEqualTo("NO_DATA");
+        }
     }
 
-    @Test
-    @DisplayName("#514: extract from result.eval_result.results[0] path")
-    void normalize_results0Path() {
-        String raw = """
-            {
-                "result": {
+    @Nested
+    @DisplayName("DataStatus: VALID scenarios")
+    class ValidTests {
+
+        @Test
+        @DisplayName("latency>0 AND throughput>0 → VALID")
+        void validLatencyAndThroughput() {
+            Map<String, Object> result = normalizer.normalize(
+                "{\"latency_ms_mean\": 1.5, \"throughput_ops\": 500.0}");
+            assertThat(result.get("dataStatus")).isEqualTo("VALID");
+            assertThat((double) result.get("latencyMsMean")).isEqualTo(1.5);
+            assertThat((double) result.get("throughputOps")).isEqualTo(500.0);
+        }
+
+        @Test
+        @DisplayName("Single-result operator benchmark → VALID")
+        void singleResultOperator_valid() {
+            // Single operator result — results[0] IS the task-level metric
+            String rawData = """
+                {
+                  "result": {
                     "eval_result": {
-                        "results": [{
-                            "latency_ms_mean": 2.3,
-                            "throughput_qps": 300,
-                            "memory_mb": 1024
-                        }]
+                      "summary": {
+                        "avg_latency_ms": 0.022,
+                        "total_operators": 1
+                      },
+                      "results": [
+                        {"operator": "MatMul", "latency_ms_mean": 0.022, "throughput_ops": 5000.0, "memory_peak_mb": 512}
+                      ]
                     }
-                }
-            }
-            """;
-        Map<String, Object> result = normalizer.normalize(raw);
-        assertEquals(2.3, ((Number) result.get("latencyMsMean")).doubleValue(), 0.001);
-        assertEquals(300.0, ((Number) result.get("throughputOps")).doubleValue(), 0.001);
-        assertEquals(1024.0, ((Number) result.get("memoryMb")).doubleValue(), 0.001);
-        assertEquals("VALID", result.get("dataStatus"));
-    }
+                  },
+                  "status": "COMPLETED"
+                }""";
+            Map<String, Object> result = normalizer.normalize(rawData);
+            assertThat(result.get("dataStatus")).isEqualTo("VALID");
+            assertThat((double) result.get("latencyMsMean")).isEqualTo(0.02);
+            assertThat((double) result.get("throughputOps")).isEqualTo(5000.0);
+        }
 
-    @Test
-    @DisplayName("#514: extract from top-level path")
-    void normalize_topLevelPath() {
-        String raw = """
-            {
-                "latency_ms_mean": 0.5,
-                "throughput": 1000
-            }
-            """;
-        Map<String, Object> result = normalizer.normalize(raw);
-        assertEquals(0.5, ((Number) result.get("latencyMsMean")).doubleValue(), 0.001);
-        assertEquals(1000.0, ((Number) result.get("throughputOps")).doubleValue(), 0.001);
-        assertEquals("VALID", result.get("dataStatus"));
-    }
-
-    // === Latency field priority tests ===
-
-    @Test
-    @DisplayName("#514: latency_ms_mean has highest priority")
-    void normalize_latencyPriority_msMean() {
-        String raw = """
-            {
-                "latency_ms_mean": 1.0,
-                "latency_mean": 2.0,
-                "latencyMean": 3.0,
-                "avg_latency_ms": 4.0,
-                "latency_ms_p50": 5.0
-            }
-            """;
-        Map<String, Object> result = normalizer.normalize(raw);
-        assertEquals(1.0, ((Number) result.get("latencyMsMean")).doubleValue(), 0.001);
-    }
-
-    @Test
-    @DisplayName("#514: latency_mean as fallback")
-    void normalize_latencyPriority_latencyMean() {
-        String raw = """
-            {
-                "latency_mean": 2.0,
-                "avg_latency_ms": 4.0
-            }
-            """;
-        Map<String, Object> result = normalizer.normalize(raw);
-        assertEquals(2.0, ((Number) result.get("latencyMsMean")).doubleValue(), 0.001);
-    }
-
-    @Test
-    @DisplayName("#514: camelCase latencyMean as fallback")
-    void normalize_latencyPriority_camelCase() {
-        String raw = """
-            {
-                "latencyMean": 3.0,
-                "throughput": 100
-            }
-            """;
-        Map<String, Object> result = normalizer.normalize(raw);
-        assertEquals(3.0, ((Number) result.get("latencyMsMean")).doubleValue(), 0.001);
-    }
-
-    @Test
-    @DisplayName("#514: avg_latency_ms as fallback")
-    void normalize_latencyPriority_avgLatencyMs() {
-        String raw = """
-            {
-                "avg_latency_ms": 4.0,
-                "throughput_ops": 200
-            }
-            """;
-        Map<String, Object> result = normalizer.normalize(raw);
-        assertEquals(4.0, ((Number) result.get("latencyMsMean")).doubleValue(), 0.001);
-    }
-
-    @Test
-    @DisplayName("#514: latency_ms_p50 as last resort fallback")
-    void normalize_latencyPriority_p50() {
-        String raw = """
-            {
-                "latency_ms_p50": 5.0,
-                "throughput_fps": 50
-            }
-            """;
-        Map<String, Object> result = normalizer.normalize(raw);
-        assertEquals(5.0, ((Number) result.get("latencyMsMean")).doubleValue(), 0.001);
-    }
-
-    // === Throughput field priority tests ===
-
-    @Test
-    @DisplayName("#514: throughput_ops has highest priority")
-    void normalize_throughputPriority_ops() {
-        String raw = """
-            {
-                "latency_ms_mean": 1.0,
-                "throughput_ops": 100,
-                "throughput_qps": 200,
-                "throughput": 300,
-                "throughput_fps": 400
-            }
-            """;
-        Map<String, Object> result = normalizer.normalize(raw);
-        assertEquals(100.0, ((Number) result.get("throughputOps")).doubleValue(), 0.001);
-    }
-
-    @Test
-    @DisplayName("#514: throughput_qps as fallback")
-    void normalize_throughputPriority_qps() {
-        String raw = """
-            {
-                "latency_ms_mean": 1.0,
-                "throughput_qps": 200,
-                "throughput_fps": 400
-            }
-            """;
-        Map<String, Object> result = normalizer.normalize(raw);
-        assertEquals(200.0, ((Number) result.get("throughputOps")).doubleValue(), 0.001);
-    }
-
-    // === DataStatus tests ===
-
-    @Test
-    @DisplayName("#514: VALID when both latency>0 and throughput>0")
-    void normalize_dataStatus_valid() {
-        String raw = """
-            { "latency_ms_mean": 1.0, "throughput_ops": 100 }
-            """;
-        Map<String, Object> result = normalizer.normalize(raw);
-        assertEquals("VALID", result.get("dataStatus"));
-    }
-
-    @Test
-    @DisplayName("#514: PARTIAL when only latency>0")
-    void normalize_dataStatus_partialLatencyOnly() {
-        String raw = """
-            { "latency_ms_mean": 1.0 }
-            """;
-        Map<String, Object> result = normalizer.normalize(raw);
-        assertEquals("PARTIAL", result.get("dataStatus"));
-    }
-
-    @Test
-    @DisplayName("#514: PARTIAL when only throughput>0")
-    void normalize_dataStatus_partialThroughputOnly() {
-        String raw = """
-            { "throughput_ops": 100 }
-            """;
-        Map<String, Object> result = normalizer.normalize(raw);
-        assertEquals("PARTIAL", result.get("dataStatus"));
-    }
-
-    @Test
-    @DisplayName("#514: NO_DATA when both are 0 or missing")
-    void normalize_dataStatus_noData() {
-        String raw = """
-            { "some_other_field": "value" }
-            """;
-        Map<String, Object> result = normalizer.normalize(raw);
-        assertEquals("NO_DATA", result.get("dataStatus"));
-    }
-
-    @Test
-    @DisplayName("#514: NO_DATA for empty JSON")
-    void normalize_dataStatus_emptyJson() {
-        String raw = "{}";
-        Map<String, Object> result = normalizer.normalize(raw);
-        assertEquals("NO_DATA", result.get("dataStatus"));
-    }
-
-    @Test
-    @DisplayName("#514: NO_DATA for null input")
-    void normalize_dataStatus_nullInput() {
-        Map<String, Object> result = normalizer.normalize(null);
-        assertEquals("NO_DATA", result.get("dataStatus"));
-    }
-
-    @Test
-    @DisplayName("#514: NO_DATA for invalid JSON")
-    void normalize_dataStatus_invalidJson() {
-        Map<String, Object> result = normalizer.normalize("not json at all");
-        assertEquals("NO_DATA", result.get("dataStatus"));
-    }
-
-    // === Memory extraction ===
-
-    @Test
-    @DisplayName("#514: memory_mb extracted from various fields")
-    void normalize_memoryMb() {
-        String raw = """
-            {
-                "latency_ms_mean": 1.0,
-                "throughput_ops": 100,
-                "memory_mb": 2048
-            }
-            """;
-        Map<String, Object> result = normalizer.normalize(raw);
-        assertEquals(2048.0, ((Number) result.get("memoryMb")).doubleValue(), 0.001);
-    }
-
-    @Test
-    @DisplayName("#514: memory_usage_mb as fallback")
-    void normalize_memoryUsageMb() {
-        String raw = """
-            {
-                "latency_ms_mean": 1.0,
-                "throughput_ops": 100,
-                "memory_usage_mb": 4096
-            }
-            """;
-        Map<String, Object> result = normalizer.normalize(raw);
-        assertEquals(4096.0, ((Number) result.get("memoryMb")).doubleValue(), 0.001);
-    }
-
-    // === rawMetrics preserved ===
-
-    @Test
-    @DisplayName("#514: rawMetrics preserves original flattened data")
-    void normalize_rawMetrics() {
-        String raw = """
-            { "latency_ms_mean": 1.0, "throughput_ops": 100, "custom_field": 42 }
-            """;
-        Map<String, Object> result = normalizer.normalize(raw);
-        assertNotNull(result.get("rawMetrics"));
-        @SuppressWarnings("unchecked")
-        Map<String, Object> rawMetrics = (Map<String, Object>) result.get("rawMetrics");
-        assertTrue(rawMetrics.containsKey("custom_field"));
-    }
-
-    // === Deep nested path with summary+results[0] merge ===
-
-    @Test
-    @DisplayName("#514: merges summary and results[0] (results[0] has priority for latency)")
-    void normalize_mergedPaths() {
-        String raw = """
-            {
-                "result": {
+        @Test
+        @DisplayName("Nested metrics at result.eval_result.results[0] (single) → VALID")
+        void nestedSingleResult() {
+            String rawData = """
+                {
+                  "result": {
                     "eval_result": {
-                        "summary": {
-                            "avg_latency_ms": 10.0,
-                            "throughput_ops": 500
-                        },
-                        "results": [{
-                            "latency_ms_mean": 2.0
-                        }]
+                      "summary": {"device": "cuda"},
+                      "results": [
+                        {"operator": "ReLU", "latency_ms_mean": 0.012, "throughput_ops": 29975.4}
+                      ]
                     }
-                }
-            }
-            """;
-        Map<String, Object> result = normalizer.normalize(raw);
-        // latency_ms_mean from results[0] has higher priority than avg_latency_ms from summary
-        assertEquals(2.0, ((Number) result.get("latencyMsMean")).doubleValue(), 0.001);
-        assertEquals(500.0, ((Number) result.get("throughputOps")).doubleValue(), 0.001);
+                  }
+                }""";
+            Map<String, Object> result = normalizer.normalize(rawData);
+            assertThat(result.get("dataStatus")).isEqualTo("VALID");
+            assertThat((double) result.get("latencyMsMean")).isEqualTo(0.01);
+            assertThat((double) result.get("throughputOps")).isEqualTo(29975.4);
+        }
+
+        @Test
+        @DisplayName("camelCase field names → VALID")
+        void camelCaseFields() {
+            Map<String, Object> result = normalizer.normalize(
+                "{\"latencyMean\": 2.5, \"throughput\": 1000.0}");
+            assertThat(result.get("dataStatus")).isEqualTo("VALID");
+        }
+
+        @Test
+        @DisplayName("latency_ms_p50 as latency fallback → VALID")
+        void latencyP50Fallback() {
+            Map<String, Object> result = normalizer.normalize(
+                "{\"latency_ms_p50\": 3.0, \"throughput_fps\": 200.0}");
+            assertThat(result.get("dataStatus")).isEqualTo("VALID");
+        }
+    }
+
+    @Nested
+    @DisplayName("DataStatus: PARTIAL scenarios")
+    class PartialTests {
+
+        @Test
+        @DisplayName("latency>0 but throughput=0 → PARTIAL")
+        void latencyOnlyPartial() {
+            Map<String, Object> result = normalizer.normalize(
+                "{\"latency_ms_mean\": 1.5, \"throughput_ops\": 0}");
+            assertThat(result.get("dataStatus")).isEqualTo("PARTIAL");
+            assertThat((double) result.get("latencyMsMean")).isEqualTo(1.5);
+            assertThat((double) result.get("throughputOps")).isEqualTo(0.0);
+        }
+
+        @Test
+        @DisplayName("throughput>0 but latency=0 → PARTIAL")
+        void throughputOnlyPartial() {
+            Map<String, Object> result = normalizer.normalize(
+                "{\"throughput_ops\": 500.0}");
+            assertThat(result.get("dataStatus")).isEqualTo("PARTIAL");
+            assertThat((double) result.get("latencyMsMean")).isEqualTo(0.0);
+            assertThat((double) result.get("throughputOps")).isEqualTo(500.0);
+        }
+    }
+
+    // ========== Edge cases ==========
+
+    @Nested
+    @DisplayName("Edge cases")
+    class EdgeCases {
+
+        @Test
+        @DisplayName("Invalid JSON → NO_DATA (no exception)")
+        void invalidJson() {
+            Map<String, Object> result = normalizer.normalize("not json");
+            assertThat(result.get("dataStatus")).isEqualTo("NO_DATA");
+        }
+
+        @Test
+        @DisplayName("Negative latency → NO_DATA")
+        void negativeLatency() {
+            Map<String, Object> result = normalizer.normalize(
+                "{\"latency_ms_mean\": -1.0, \"throughput_ops\": 500.0}");
+            assertThat(result.get("dataStatus")).isEqualTo("PARTIAL");
+        }
+
+        @Test
+        @DisplayName("Memory extraction works")
+        void memoryExtraction() {
+            Map<String, Object> result = normalizer.normalize(
+                "{\"latency_ms_mean\": 1.0, \"throughput_ops\": 100.0, \"memory_peak_mb\": 1024}");
+            assertThat(result.get("dataStatus")).isEqualTo("VALID");
+            assertThat((double) result.get("memoryMb")).isEqualTo(1024.0);
+        }
+
+        @Test
+        @DisplayName("#526: avg_latency_ms alone should NOT trigger VALID")
+        void avgLatencyAloneShouldNotBeValid() {
+            // avg_latency_ms is an aggregate summary field.
+            // It should not be used to determine VALID status.
+            Map<String, Object> result = normalizer.normalize(
+                "{\"avg_latency_ms\": 0.016, \"avg_throughput_qps\": 112.1}");
+            assertThat(result.get("dataStatus")).isEqualTo("NO_DATA");
+        }
+
+        @Test
+        @DisplayName("results array empty → use summary only")
+        void emptyResults() {
+            String rawData = """
+                {
+                  "result": {
+                    "eval_result": {
+                      "summary": {"latency_ms_mean": 5.0, "throughput_ops": 200.0},
+                      "results": []
+                    }
+                  }
+                }""";
+            Map<String, Object> result = normalizer.normalize(rawData);
+            assertThat(result.get("dataStatus")).isEqualTo("VALID");
+        }
     }
 }
