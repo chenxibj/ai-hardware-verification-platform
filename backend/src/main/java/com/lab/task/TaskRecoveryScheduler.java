@@ -64,7 +64,7 @@ public class TaskRecoveryScheduler {
 
     @PostConstruct
     public void init() {
-        log.info("TaskRecoveryScheduler initialized - scanning every 60s (fixedDelay, lastHeartbeatAt-based, DISPATCHED timeout: 2min, progress=0 timeout: 5min, general timeout: 15min)");
+        log.info("TaskRecoveryScheduler initialized - scanning every 60s (fixedDelay, lastHeartbeatAt-based, DISPATCHED timeout: 2min, progress=0 timeout: 10min, general timeout: 15min)");
     }
 
     /**
@@ -169,7 +169,7 @@ public class TaskRecoveryScheduler {
     @Transactional
     public void recoverStaleRunningTasks() {
         Instant threshold15 = Instant.now().minus(15, ChronoUnit.MINUTES);
-        Instant threshold5 = Instant.now().minus(5, ChronoUnit.MINUTES);
+        Instant threshold5 = Instant.now().minus(10, ChronoUnit.MINUTES);
 
         // Use lastHeartbeatAt for stale detection (more accurate than updatedAt)
         List<EvaluationTask> staleTasks = new ArrayList<>(
@@ -182,7 +182,7 @@ public class TaskRecoveryScheduler {
             processedIds.add(t.getId());
         }
 
-        // #382: Also catch RUNNING tasks with progress=0 after 5 minutes (using lastHeartbeatAt)
+        // #382/#509: Also catch RUNNING tasks with progress=0 after 10 minutes (using lastHeartbeatAt)
         List<EvaluationTask> stuckTasks = taskRepository.findByStatusAndLastHeartbeatAtBefore(
                 EvaluationTask.TaskStatus.RUNNING, threshold5);
         for (EvaluationTask task : stuckTasks) {
@@ -193,12 +193,42 @@ public class TaskRecoveryScheduler {
         }
 
 
+        int failedCount = 0;
+        int requeuedCount = 0;
         for (EvaluationTask task : staleTasks) {
-            String reason = (task.getProgress() != null && task.getProgress() == 0)
-                    ? "RUNNING with progress=0 for >5min (never started)"
+            boolean neverStarted = task.getProgress() != null && task.getProgress() == 0;
+            String reason = neverStarted
+                    ? "RUNNING with progress=0 for >10min (never started)"
                     : "RUNNING for >15min without update";
-            log.warn("Task {} ({}) stale ({}), marking FAILED",
-                    task.getId(), task.getTaskNo(), reason);
+
+            // #509: progress=0 tasks get re-queued (up to 2 retries) instead of immediately failing.
+            // Root cause: poll-tasks transitions DISPATCHED->RUNNING on the server side, but if the
+            // agent loses the HTTP response (network blip, timeout, restart), the task is orphaned
+            // in RUNNING with progress=0 and no one executing it.
+            int retries = task.getRetryCount() == null ? 0 : task.getRetryCount();
+            if (neverStarted && retries < 2) {
+                log.warn("#509: Task {} ({}) stale ({}), re-queuing (retry {}/2)",
+                        task.getId(), task.getTaskNo(), reason, retries + 1);
+                task.setStatus(EvaluationTask.TaskStatus.QUEUED);
+                task.setRetryCount(retries + 1);
+                task.setAssignedNodeId(null);
+                task.setStartedAt(null);
+                task.setLastHeartbeatAt(null);
+                task.setAllocatedGpuIndices(null);
+                task.setQueueReason(String.format("#509: progress=0 超时回退重试 (%d/2)", retries + 1));
+                taskRepository.save(task);
+                // Release GPU slots
+                try {
+                    gpuSlotService.releaseGpuSlots(task.getId());
+                } catch (Exception e) {
+                    log.warn("#509: Failed to release GPU slots for re-queued task {}: {}", task.getId(), e.getMessage());
+                }
+                requeuedCount++;
+                continue;
+            }
+
+            log.warn("Task {} ({}) stale ({}), marking FAILED (retries exhausted: {})",
+                    task.getId(), task.getTaskNo(), reason, retries);
             task.setStatus(EvaluationTask.TaskStatus.FAILED);
             task.setErrorMessage("任务超时: " + reason);
             task.setCompletedAt(Instant.now());
@@ -213,12 +243,19 @@ public class TaskRecoveryScheduler {
 
             // #361: Create EvaluationResult for the timed-out task
             createTimeoutResult(task, reason);
-
-
+            failedCount++;
         }
 
-        if (!staleTasks.isEmpty()) {
-            log.info("Recovered {} stale RUNNING tasks -> FAILED", staleTasks.size());
+        if (requeuedCount > 0) {
+            log.info("#509: Re-queued {} stale RUNNING tasks with progress=0 for retry", requeuedCount);
+            try {
+                taskDispatcher.tryDispatchNext();
+            } catch (Exception e) {
+                log.debug("Post-requeue dispatch failed: {}", e.getMessage());
+            }
+        }
+        if (failedCount > 0) {
+            log.info("Recovered {} stale RUNNING tasks -> FAILED", failedCount);
             // #490: Plan 进度已由 lifecycle.onTaskTerminated 内部的 PlanProgressService 统一处理
         }
     }
@@ -253,7 +290,7 @@ public class TaskRecoveryScheduler {
 
             result.setPassed(false);
             // #406: 用户可读的中文超时信息
-            long timeoutMinutes = reason.contains("progress=0") ? 5 : 15;
+            long timeoutMinutes = reason.contains("progress=0") ? 10 : 15;
             result.setErrorMessage(String.format("任务超时：%d分钟内无进度更新，由系统自动终止（%s）", timeoutMinutes, reason));
             resultRepository.save(result);
             log.info("Created timeout EvaluationResult for task {} (planId={})", task.getId(), planId);

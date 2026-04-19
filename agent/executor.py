@@ -408,6 +408,17 @@ class TaskExecutor:
             logger.info("#402: 任务 %s 已提交线程池 (%d/%d workers busy)",
                         task_id, len(self._active_tasks), self.max_workers)
 
+        # #509: Report progress=1% immediately after task is accepted into pool.
+        # This prevents TaskRecoveryScheduler from timing out tasks that are
+        # queued in the thread pool waiting for a free worker.
+        try:
+            progress_url = "{}/tasks/{}/progress".format(self.platform_url, task_id)
+            requests.post(progress_url, params={"progress": 1},
+                          headers={"X-Agent-Token": self.token}, timeout=5)
+            logger.info("#509: Early progress=1%% reported for task %s (pool accepted)", task_id)
+        except Exception as e:
+            logger.warning("#509: Failed to report early progress for task %s: %s", task_id, e)
+
     @staticmethod
     def _classify_log_line(line):
         """
