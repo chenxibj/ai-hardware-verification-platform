@@ -683,7 +683,8 @@ public class ReportGeneratorService {
                 double score;
                 String dataStatus;
                 if (avgLatency > 0 && throughput > 0) {
-                    score = scoringService.scoreFromMetrics(r.getMetricsSummary(), name);
+                    Double rawScore = scoringService.scoreFromMetrics(r.getMetricsSummary(), name);
+                    score = rawScore != null ? rawScore : -1; // #529: null = no baseline
                     dataStatus = "VALID";
                 } else if (r.getPassed() != null && r.getPassed()) {
                     score = -1;

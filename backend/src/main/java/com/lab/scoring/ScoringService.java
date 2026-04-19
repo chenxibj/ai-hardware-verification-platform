@@ -8,6 +8,8 @@ import com.lab.plan.EvaluationPlan;
 import com.lab.plan.EvaluationPlanRepository;
 import com.lab.result.EvaluationResult;
 import com.lab.result.EvaluationResultRepository;
+import com.lab.runspec.RunSpec;
+import com.lab.runspec.RunSpecRepository;
 import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +24,8 @@ import com.lab.dimension.DimensionRegistry;
 /**
  * 评分计算服务
  * Issue: #135, #139 (六维度增强), #434 (vs L40S 百分比)
+ * #529: Removed log10 fallback — no baseline = null score
+ * #530: Added inferRunSpecFromEvalConfig for legacy plans
  */
 @Slf4j
 @Service
@@ -33,6 +37,7 @@ public class ScoringService {
     private final EvaluationResultRepository resultRepository;
     private final EvaluationTaskRepository taskRepository;
     private final EvaluationPlanRepository planRepository;
+    private final RunSpecRepository runSpecRepository;
 
     /** #525: Maximum allowed score percentage to prevent extreme outliers */
     private static final double MAX_SCORE_PERCENT = 200.0;
@@ -133,8 +138,6 @@ public class ScoringService {
 
                 for (EvaluationResult r : results) {
                     // #525: Accept results with valid metrics regardless of passed/data_status
-                    // Old data may have passed=false or data_status=NULL but still contain
-                    // valid latency measurements. Only skip explicit FAILED status.
                     if ("FAILED".equals(r.getDataStatus())) continue;
                     String testItem = taskItemMap.get(r.getTaskId());
                     if (testItem == null || r.getMetricsSummary() == null) continue;
@@ -193,20 +196,17 @@ public class ScoringService {
     }
 
     /**
-     * 基于延迟计算单个任务评分（旧算法 0-100，用作 fallback）
+     * #529: scoreLatency REMOVED — log10 fallback is gone.
+     * Was: public double scoreLatency(double latencyMs) { return 100 - 20 * Math.log10(latencyMs); }
+     * Now: no baseline = null score. Period.
      */
-    public double scoreLatency(double latencyMs) {
-        if (latencyMs <= 0) return 0;
-        double score = 100 - 20 * Math.log10(latencyMs);
-        return Math.max(0, Math.min(100, score));
-    }
 
     /**
      * #434: 从 metricsSummary JSON 中提取延迟并计算 vs L40S 百分比
-     * 新签名：带 testItem 参数
+     * #529: Returns null when no baseline exists (instead of log10 fallback)
      */
-    public double scoreFromMetrics(String metricsSummary, String testItem) {
-        if (metricsSummary == null || metricsSummary.isEmpty()) return 0;
+    public Double scoreFromMetrics(String metricsSummary, String testItem) {
+        if (metricsSummary == null || metricsSummary.isEmpty()) return null;
         try {
             JsonNode root = objectMapper.readTree(metricsSummary);
             JsonNode node = findMetricsNode(root);
@@ -217,7 +217,7 @@ public class ScoringService {
                 if (root.has("score") && !root.get("score").isNull()) {
                     return roundTo2(Math.min(root.get("score").asDouble(), MAX_SCORE_PERCENT));
                 }
-                return 0;
+                return null;
             }
 
             // #434: Try percentage vs L40S baseline
@@ -225,8 +225,6 @@ public class ScoringService {
                 Map<String, Double> baseline = getBaselineLatencyMap();
                 Double baselineLatency = baseline.get(testItem);
                 if (baselineLatency != null && baselineLatency > 0) {
-                    // percentage = (baseline / chip) * 100
-                    // If chip is faster (lower latency), percentage > 100%
                     return roundTo2(Math.min((baselineLatency / chipLatency) * 100.0, MAX_SCORE_PERCENT));
                 }
                 // Try prefix match for test items like "MLP-Medium/batch=4"
@@ -237,50 +235,68 @@ public class ScoringService {
                 }
             }
 
-            // Fallback to old scoring if no baseline found
-            return roundTo2(scoreLatency(chipLatency));
+            // #529: NO log10 fallback. No baseline = null score.
+            log.debug("#529: No baseline found for testItem={}, returning null score", testItem);
+            return null;
         } catch (Exception e) {
             log.warn("Failed to parse metricsSummary: {}", e.getMessage());
-            return 0;
+            return null;
         }
     }
 
     /**
      * 兼容旧调用（无 testItem 参数）
+     * #529: Also returns null when no baseline
      */
-    public double scoreFromMetrics(String metricsSummary) {
+    public Double scoreFromMetrics(String metricsSummary) {
         return scoreFromMetrics(metricsSummary, null);
     }
 
     /**
      * #434: 计算综合评分（需要 tasks 来获取 testItem 做 vs L40S 比较）
+     * #529: Skips operators with null score (no baseline) in the average
      */
     public double calculateOverallScore(List<EvaluationResult> results, List<EvaluationTask> tasks) {
         Map<Long, EvaluationTask> taskMap = tasks.stream()
                 .collect(Collectors.toMap(EvaluationTask::getId, t -> t));
 
-        return roundTo2(results.stream()
-                .filter(r -> r.getPassed() != null && r.getPassed())
-                .mapToDouble(r -> {
-                    EvaluationTask task = taskMap.get(r.getTaskId());
-                    String testItem = task != null ? task.getTestItem() : null;
-                    return scoreFromMetrics(r.getMetricsSummary(), testItem);
-                })
+        List<Double> validScores = new ArrayList<>();
+        for (EvaluationResult r : results) {
+            if (r.getPassed() == null || !r.getPassed()) continue;
+            EvaluationTask task = taskMap.get(r.getTaskId());
+            String testItem = task != null ? task.getTestItem() : null;
+            Double score = scoreFromMetrics(r.getMetricsSummary(), testItem);
+            if (score != null) {
+                validScores.add(score);
+            }
+        }
+
+        return roundTo2(validScores.stream()
+                .mapToDouble(Double::doubleValue)
                 .average().orElse(0));
     }
 
     /**
      * 兼容旧调用
+     * #529: Returns 0 when no results have baseline scores
      */
     public double calculateOverallScore(List<EvaluationResult> results) {
-        return roundTo2(results.stream()
-                .filter(r -> r.getPassed() != null && r.getPassed())
-                .mapToDouble(r -> scoreFromMetrics(r.getMetricsSummary()))
+        List<Double> validScores = new ArrayList<>();
+        for (EvaluationResult r : results) {
+            if (r.getPassed() == null || !r.getPassed()) continue;
+            Double score = scoreFromMetrics(r.getMetricsSummary());
+            if (score != null) {
+                validScores.add(score);
+            }
+        }
+        return roundTo2(validScores.stream()
+                .mapToDouble(Double::doubleValue)
                 .average().orElse(0));
     }
 
     /**
      * 按维度分组计算评分（#434: 返回 vs L40S 百分比）
+     * #529: Skips null-scored operators
      */
     public Map<String, Double> calculateDimensionScores(
             List<EvaluationResult> results, List<EvaluationTask> tasks) {
@@ -296,8 +312,11 @@ public class ScoringService {
             if (task == null || task.getTestItem() == null) continue;
 
             String dimension = DimensionRegistry.getKeyByOperator(task.getTestItem());
-            double score = scoreFromMetrics(result.getMetricsSummary(), task.getTestItem());
-            dimScores.computeIfAbsent(dimension, k -> new ArrayList<>()).add(score);
+            Double score = scoreFromMetrics(result.getMetricsSummary(), task.getTestItem());
+            // #529: Only include scored operators (skip null = no baseline)
+            if (score != null) {
+                dimScores.computeIfAbsent(dimension, k -> new ArrayList<>()).add(score);
+            }
         }
 
         Map<String, Double> averaged = new LinkedHashMap<>();
@@ -317,7 +336,45 @@ public class ScoringService {
     }
 
     /**
+     * #530: 从 evalConfig JSON 推断 runSpecId
+     * 处理旧 Plan run_spec_id=NULL 的情况
+     * 
+     * @param plan 评测方案
+     * @return 匹配到的 runSpec ID，或 null
+     */
+    public Long inferRunSpecFromEvalConfig(EvaluationPlan plan) {
+        if (plan == null || plan.getEvalConfig() == null) {
+            return null;
+        }
+        try {
+            JsonNode config = objectMapper.readTree(plan.getEvalConfig());
+            
+            int gpuCount;
+            String parallelMode;
+            
+            // Handle nested format: {"hardware": {"gpuCount": 8, "parallelMode": "TP"}}
+            JsonNode hardwareNode = config.path("hardware");
+            if (!hardwareNode.isMissingNode() && hardwareNode.isObject()) {
+                gpuCount = hardwareNode.path("gpuCount").asInt(0);
+                parallelMode = hardwareNode.path("parallelMode").asText("");
+            } else {
+                // Flat format: {"gpuCount": 4, "parallelMode": "DDP"}
+                gpuCount = config.path("gpuCount").asInt(0);
+                parallelMode = config.path("parallelMode").asText("");
+            }
+            
+            return runSpecRepository.findByGpuPerNodeAndParallelMode(gpuCount, parallelMode)
+                    .map(RunSpec::getId)
+                    .orElse(null);
+        } catch (Exception e) {
+            log.warn("#530: Failed to infer runSpec from evalConfig: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * 生成算子排行（按评分降序）— #434: 评分改为百分比
+     * #529: Operators without baseline have null score
      */
     public String generateOperatorRanking(
             List<EvaluationResult> results, List<EvaluationTask> tasks) {
@@ -333,6 +390,7 @@ public class ScoringService {
             item.put("testItem", testItem != null ? testItem : "Unknown");
             item.put("dimension", testItem != null ? getDimension(testItem) : "compute");
             item.put("passed", result.getPassed() != null && result.getPassed());
+            // #529: score is null when no baseline (not log10 fallback)
             item.put("score", scoreFromMetrics(result.getMetricsSummary(), testItem));
 
             // Determine dataStatus for frontend compatibility (#405)
@@ -372,9 +430,15 @@ public class ScoringService {
             ranking.add(item);
         }
 
-        ranking.sort((a, b) -> Double.compare(
-                ((Number) b.getOrDefault("score", 0.0)).doubleValue(),
-                ((Number) a.getOrDefault("score", 0.0)).doubleValue()));
+        // Sort: non-null scores first (descending), then null scores
+        ranking.sort((a, b) -> {
+            Object scoreA = a.get("score");
+            Object scoreB = b.get("score");
+            if (scoreA == null && scoreB == null) return 0;
+            if (scoreA == null) return 1;
+            if (scoreB == null) return -1;
+            return Double.compare(((Number) scoreB).doubleValue(), ((Number) scoreA).doubleValue());
+        });
 
         try {
             return objectMapper.writeValueAsString(ranking);

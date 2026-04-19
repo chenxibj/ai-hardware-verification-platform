@@ -65,7 +65,8 @@ public class EvaluationResultService {
         } catch (Exception e) {
             metricsSummaryJson = "{}";
         }
-        double score = scoringService.scoreFromMetrics(metricsSummaryJson, testItem);
+        Double score = scoringService.scoreFromMetrics(metricsSummaryJson, testItem);
+        if (score == null) score = 0.0; // #529: null means no baseline, treat as 0 for result storage
 
         // #353: chipId 防御 — 如果 task 没有 chipId，从 Plan 获取
         Long chipId = task.getChipId();
@@ -542,7 +543,9 @@ public class EvaluationResultService {
                 EvaluationTask task = taskMap.get(r.getTaskId());
                 // #434: use ScoringService for vs L40S percentage scoring
                 String testItem = task != null ? task.getTestItem() : null;
-                double score = scoringService.scoreFromMetrics(r.getMetricsSummary(), testItem);
+                Double score = scoringService.scoreFromMetrics(r.getMetricsSummary(), testItem);
+                // #529: skip operators with no baseline (null score)
+                if (score == null) continue;
                 String dimension = categorizeToDimension(task);
                 if (dimScores.containsKey(dimension)) {
                     dimScores.get(dimension).add(score);
