@@ -1,5 +1,7 @@
 package com.lab.task;
 
+import com.lab.chipreport.ChipReportRepository;
+import com.lab.chipreport.ReportGeneratorService;
 import com.lab.node.ComputeNode;
 import com.lab.node.ComputeNodeRepository;
 import com.lab.plan.EvaluationPlan;
@@ -50,6 +52,8 @@ public class TaskRecoveryScheduler {
     private final com.lab.scoring.ReportGenerator reportGenerator;
     private final com.lab.gpu.GpuSlotService gpuSlotService;
     private final TaskLifecycleService lifecycle;
+    private final ChipReportRepository chipReportRepository;
+    private final ReportGeneratorService reportGeneratorService;
 
     private static final Set<EvaluationTask.TaskStatus> TERMINAL_STATUSES = Set.of(
             EvaluationTask.TaskStatus.COMPLETED,
@@ -82,6 +86,7 @@ public class TaskRecoveryScheduler {
             recoverOfflineNodeTasks();
             cleanupStalePendingTasks();
             completeFinishedPlans();
+            generateMissingReports();  // #508: double insurance
             cancelTerminatedPlanTasks();
             retryQueuedIfPossible();
         } catch (Exception e) {
@@ -372,6 +377,44 @@ public class TaskRecoveryScheduler {
                                 plan.getPlanNo(), e.getMessage());
                     }
                 }
+            }
+        }
+    }
+
+
+    /**
+     * #508: Double insurance - find COMPLETED plans that have no report and generate one.
+     * This catches cases where the event-driven path (PlanCompletedEvent -> ReportGeneratorService)
+     * failed silently (e.g., due to transaction context issues before the @Transactional fix).
+     */
+    @Transactional
+    public void generateMissingReports() {
+        List<EvaluationPlan> completedPlans = planRepository.findByStatus(
+                EvaluationPlan.PlanStatus.COMPLETED,
+                org.springframework.data.domain.PageRequest.of(0, 50)).getContent();
+
+        for (EvaluationPlan plan : completedPlans) {
+            // Check if a report already exists for this plan
+            if (!chipReportRepository.findByPlanId(plan.getId()).isEmpty()) {
+                continue;
+            }
+
+            // Check that at least one task completed successfully
+            long completedTaskCount = taskRepository.findByPlanId(plan.getId()).stream()
+                    .filter(t -> t.getStatus() == EvaluationTask.TaskStatus.COMPLETED)
+                    .count();
+            if (completedTaskCount == 0) {
+                continue;
+            }
+
+            log.warn("#508: Plan {} is COMPLETED but has no report - generating now (safety net)",
+                    plan.getPlanNo());
+            try {
+                reportGeneratorService.generateReport(plan.getId());
+                log.info("#508: Safety-net report generated for plan {}", plan.getPlanNo());
+            } catch (Exception e) {
+                log.error("#508: Safety-net report generation failed for plan {}: {}",
+                        plan.getPlanNo(), e.getMessage());
             }
         }
     }

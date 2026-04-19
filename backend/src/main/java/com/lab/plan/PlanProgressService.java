@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
@@ -41,6 +42,7 @@ public class PlanProgressService {
      *
      * @param planId 评测计划 ID，null 时直接返回
      */
+    @Transactional
     public void updateProgress(Long planId) {
         if (planId == null) return;
 
