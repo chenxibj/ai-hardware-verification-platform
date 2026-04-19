@@ -72,7 +72,7 @@ function generateTrend(currentUsedMB) {
   for (let i = 6; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
-    const variance = (Math.random() - 0.3) * 15 * 1024;
+    const variance = (i % 2 === 0 ? 1 : -1) * 5 * 1024; // deterministic variance pattern
     days.push({
       date: `${d.getMonth() + 1}/${d.getDate()}`,
       usedMB: Math.max(50 * 1024, currentUsedMB - i * 3 * 1024 + variance),

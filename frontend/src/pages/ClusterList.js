@@ -30,14 +30,14 @@ const { TextArea } = Input;
 const { Dragger } = Upload;
 const { TabPane } = Tabs;
 
-/* ============ Mock 数据 (UI 演示用) ============ */
-const MOCK_CLUSTERS = [
+/* ============ 初始数据 — 后端就绪后从 API 获取 ============ */
+const INITIAL_CLUSTERS = [
   // 空状态 — 后端就绪后从 API 获取
 ];
 
 /* ============ 主组件 ============ */
 export default function ClusterList() {
-  const [clusters] = useState(MOCK_CLUSTERS);
+  const [clusters] = useState(INITIAL_CLUSTERS);
   const [registerModalVisible, setRegisterModalVisible] = useState(false);
   const [kubeconfigInput, setKubeconfigInput] = useState("file"); // "file" | "text"
   const [form] = Form.useForm();

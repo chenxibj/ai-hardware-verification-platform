@@ -105,7 +105,7 @@ export default function BatchUpload({ onDone }) {
           setStep(2);
           return 100;
         }
-        return prev + Math.random() * 20 + 5;
+        return prev + 15; // deterministic progress increment
       });
     }, 300);
   };

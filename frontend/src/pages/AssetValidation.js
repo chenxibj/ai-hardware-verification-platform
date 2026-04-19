@@ -23,21 +23,14 @@ const VALIDATION_TYPES = [
   { value: "dataset-sample", label: "数据集抽样", desc: "抽样展示数据集前 10 条记录" },
 ];
 
-/** Simulate SHA256 hash */
-function mockSHA256() {
-  const chars = "0123456789abcdef";
-  return Array.from({ length: 64 }, () => chars[Math.floor(Math.random() * 16)]).join("");
+/** Placeholder — real hash would come from backend/WebCrypto */
+function placeholderHash() {
+  return "尚未实现真实哈希计算（需后端 API 支持）";
 }
 
-/** Simulate dataset samples */
-function mockSamples() {
-  const labels = ["cat", "dog", "car", "tree", "person", "bird", "fish", "plane", "house", "flower"];
-  return labels.map((l, i) => ({
-    index: i + 1,
-    filename: `sample_${String(i + 1).padStart(4, "0")}.jpg`,
-    label: l,
-    size: `${(Math.random() * 500 + 50).toFixed(1)} KB`,
-  }));
+/** Placeholder — real sampling would come from backend API */
+function placeholderSamples() {
+  return []; // No sample data without backend API
 }
 
 function loadHistory() {
@@ -61,18 +54,18 @@ export default function AssetValidation() {
     const type = validationType;
     let p = 0;
     const timer = setInterval(() => {
-      p += Math.floor(Math.random() * 20 + 10);
+      p += 15; // deterministic progress increment
       if (p >= 100) {
         p = 100;
         clearInterval(timer);
-        const passed = Math.random() > 0.2;
+        const passed = true; // placeholder — real validation needs backend
         let detail = {};
         if (type === "integrity") {
-          detail = { hash: mockSHA256(), algorithm: "SHA-256" };
+          detail = { hash: placeholderHash(), algorithm: "SHA-256" };
         } else if (type === "onnx") {
           detail = { opsetVersion: 13, inputShape: "[1, 3, 224, 224]", status: passed ? "可加载" : "格式异常" };
         } else {
-          detail = { samples: mockSamples(), totalRecords: 10000 };
+          detail = { samples: placeholderSamples(), totalRecords: 0 };
         }
         const rec = {
           id: Date.now(),

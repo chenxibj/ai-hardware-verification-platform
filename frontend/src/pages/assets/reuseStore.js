@@ -104,7 +104,7 @@ export const initDemoReuseData = (assets) => {
     for (let t = 0; t < taskCount; t++) {
       const taskIdx = (idx + t) % demoTasks.length;
       const userIdx = (idx + t) % demoUsers.length;
-      const daysAgo = Math.floor(Math.random() * 30) + 1;
+      const daysAgo = (idx * 3 + t + 1) % 30 + 1; // deterministic spread across 30 days
       const usedAt = new Date(Date.now() - daysAgo * 86400000).toISOString();
       records.push({
         assetId: asset.id,

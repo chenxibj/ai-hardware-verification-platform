@@ -30,23 +30,9 @@ function cleanExpired(items) {
   return items.filter((i) => now - i.deletedAt < RETENTION_DAYS * DAY_MS);
 }
 
-/** Seed demo data if empty */
-function seedDemo() {
-  const existing = loadBin();
-  if (existing.length > 0) return existing;
-  const types = ["MODEL", "DATASET", "SCRIPT", "CONFIG"];
-  const names = ["ResNet50-v2.onnx", "ImageNet-val-2025.tar.gz", "train_eval.py", "hyperparams.yaml",
-    "BERT-base.onnx", "COCO-mini.zip"];
-  const demo = names.map((name, i) => ({
-    id: 9000 + i,
-    name,
-    assetType: types[i % types.length],
-    size: Math.floor(Math.random() * 500 + 10) * 1024 * 1024,
-    deletedAt: Date.now() - Math.floor(Math.random() * 25 + 1) * DAY_MS,
-    deletedBy: "test@ahvp.com",
-  }));
-  saveBin(demo);
-  return demo;
+/** Load bin data — no seed/demo data */
+function loadBinOrEmpty() {
+  return loadBin();
 }
 
 function formatSize(bytes) {
@@ -60,7 +46,7 @@ export default function AssetRecycleBin() {
   const [items, setItems] = useState([]);
 
   const refresh = useCallback(() => {
-    const cleaned = cleanExpired(seedDemo());
+    const cleaned = cleanExpired(loadBinOrEmpty());
     saveBin(cleaned);
     setItems(cleaned);
   }, []);

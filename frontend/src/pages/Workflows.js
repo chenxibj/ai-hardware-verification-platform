@@ -103,7 +103,7 @@ export default function Workflows() {
     const info = NODE_TYPE_MAP[nodeType];
     if(!info) return;
     const id = String(++idRef.current);
-    const newNode = { id, type:"custom", position:{x:100+Math.random()*400, y:100+Math.random()*400}, data:{label:info.label, nodeType, params:{}} };
+    const newNode = { id, type:"custom", position:{x:100+(idRef.current%5)*90, y:100+(idRef.current%4)*90}, data:{label:info.label, nodeType, params:{}} };
     setNodes(nds=>[...nds, newNode]);
     setPaletteVisible(false);
     message.success(`已添加: ${info.label}`);

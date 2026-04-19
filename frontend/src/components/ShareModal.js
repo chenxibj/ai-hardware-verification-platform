@@ -21,14 +21,9 @@ const { Text, Paragraph } = Typography;
 
 const SHARE_LS_KEY = "ahvp_share_settings";
 
-/** 模拟用户列表 */
-const MOCK_USERS = [
-  { id: "u1", name: "张三", email: "zhangsan@ahvp.com", avatar: null },
-  { id: "u2", name: "李四", email: "lisi@ahvp.com", avatar: null },
-  { id: "u3", name: "王五", email: "wangwu@ahvp.com", avatar: null },
-  { id: "u4", name: "赵六", email: "zhaoliu@ahvp.com", avatar: null },
-  { id: "u5", name: "测试用户", email: "test@ahvp.com", avatar: null },
-  { id: "u6", name: "管理员", email: "admin@ahvp.com", avatar: null },
+/** 用户列表 — 后端 API 就绪后从 /api/users 获取 */
+const USERS_PLACEHOLDER = [
+  // 空状态 — 后端用户管理 API 就绪后替换为真实数据
 ];
 
 const VISIBILITY = [
@@ -117,7 +112,7 @@ export default function ShareModal({ visible, onClose, assetId, assetName }) {
     );
   };
 
-  const userOptions = MOCK_USERS
+  const userOptions = USERS_PLACEHOLDER
     .filter((u) => !shares.find((s) => s.userId === u.id))
     .map((u) => ({ value: u.id, label: `${u.name} (${u.email})` }));
 
@@ -125,7 +120,7 @@ export default function ShareModal({ visible, onClose, assetId, assetName }) {
     {
       title: "用户", dataIndex: "userId", key: "user", width: 180,
       render: (uid) => {
-        const u = MOCK_USERS.find((x) => x.id === uid);
+        const u = USERS_PLACEHOLDER.find((x) => x.id === uid);
         return (
           <Space>
             <Avatar size="small" icon={<UserOutlined />} style={{ background: "#1890ff" }} />

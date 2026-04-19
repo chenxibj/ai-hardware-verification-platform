@@ -70,7 +70,7 @@ export default function AssetBackup() {
     setBackupProgress(0);
     let p = 0;
     const timer = setInterval(() => {
-      p += Math.floor(Math.random() * 15 + 5);
+      p += 10; // deterministic progress increment
       if (p >= 100) {
         p = 100;
         clearInterval(timer);
@@ -78,8 +78,8 @@ export default function AssetBackup() {
           id: Date.now(),
           name: `backup_${dayjs().format("YYYYMMDD_HHmmss")}`,
           type: "manual",
-          size: Math.floor(Math.random() * 500 + 100) * 1048576,
-          assetCount: Math.floor(Math.random() * 50 + 10),
+          size: 0, // actual size unknown without backend API
+          assetCount: 0, // actual count unknown without backend API
           createdAt: Date.now(),
           status: "completed",
         };

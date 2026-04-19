@@ -39,7 +39,7 @@ export default function ClusterRegisterSteps({ onDone, onCancel, onNavigateToNod
     let progress = 10;
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(() => {
-      progress += Math.floor(Math.random() * 15) + 5;
+      progress += 10; // deterministic progress increment
       if (progress >= 100) {
         clearInterval(pollRef.current);
         setDeployProgress(100); setDeployStatus("success");
