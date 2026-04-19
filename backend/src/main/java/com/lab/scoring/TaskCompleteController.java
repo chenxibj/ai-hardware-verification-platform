@@ -11,8 +11,10 @@ import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
 import com.lab.node.ComputeNode;
 import com.lab.node.ComputeNodeRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -21,15 +23,22 @@ import java.time.Instant;
 import java.util.*;
 
 /**
- * 任务完成回调控制器
+ * 任务完成回调控制器（已废弃）
  * POST /api/tasks/{taskId}/complete — Agent 回报任务结果
  * Issue: #135
+ *
+ * @deprecated #523: This controller has a bug that stores metricsSummary as rawData.
+ *             Use POST /api/tasks/{id}/result (EvaluationResultController) instead.
+ *             Set ahvp.deprecated.complete-endpoint.return-gone=true to return 410 Gone.
  */
+@Deprecated
 @Slf4j
 @RestController
 @RequestMapping("/tasks")
-@RequiredArgsConstructor
 public class TaskCompleteController {
+
+    private static final String DEPRECATION_WARNING =
+            "299 - \"Deprecated: use POST /api/tasks/{id}/result instead\"";
 
     private final EvaluationTaskRepository taskRepository;
     private final EvaluationResultRepository resultRepository;
@@ -40,19 +49,58 @@ public class TaskCompleteController {
     private final ComputeNodeRepository nodeRepository;
     private final com.lab.gpu.GpuSlotService gpuSlotService;
 
+    /**
+     * #523: Feature flag — when true, this endpoint returns 410 Gone immediately.
+     * Default: false (still processes requests but with deprecation warning).
+     */
+    private final boolean returnGone;
+
+    public TaskCompleteController(
+            EvaluationTaskRepository taskRepository,
+            EvaluationResultRepository resultRepository,
+            EvaluationPlanRepository planRepository,
+            com.lab.chipreport.ReportGeneratorService reportGeneratorService,
+            TaskLogRepository taskLogRepository,
+            ObjectMapper objectMapper,
+            ComputeNodeRepository nodeRepository,
+            com.lab.gpu.GpuSlotService gpuSlotService,
+            @Value("${ahvp.deprecated.complete-endpoint.return-gone:false}") boolean returnGone) {
+        this.taskRepository = taskRepository;
+        this.resultRepository = resultRepository;
+        this.planRepository = planRepository;
+        this.reportGeneratorService = reportGeneratorService;
+        this.taskLogRepository = taskLogRepository;
+        this.objectMapper = objectMapper;
+        this.nodeRepository = nodeRepository;
+        this.gpuSlotService = gpuSlotService;
+        this.returnGone = returnGone;
+    }
+
     @PostMapping("/{taskId}/complete")
     @Transactional
+    @Deprecated
     public ResponseEntity<Map<String, Object>> completeTask(
             @PathVariable Long taskId,
             @RequestBody TaskCompleteRequest request) {
 
-        log.info("Task complete callback: taskId={}, passed={}", taskId, request.getPassed());
+        log.warn("#523: Deprecated endpoint called: POST /tasks/{}/complete. Use POST /tasks/{}/result instead.", taskId, taskId);
 
-        // 1. 查找任务
+        // #523: Feature flag — return 410 Gone when enabled
+        if (returnGone) {
+            log.info("#523: Returning 410 Gone for deprecated endpoint (feature flag enabled)");
+            Map<String, Object> gone = new HashMap<>();
+            gone.put("code", 410);
+            gone.put("message", "Gone: this endpoint is deprecated. Use POST /api/tasks/{id}/result instead.");
+            HttpHeaders headers = new HttpHeaders();
+            headers.add("Warning", DEPRECATION_WARNING);
+            return ResponseEntity.status(HttpStatus.GONE).headers(headers).body(gone);
+        }
+
+        // 1. Find task
         EvaluationTask task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new RuntimeException("Task not found: " + taskId));
 
-        // 2. 构建 metricsSummary JSON
+        // 2. Build metricsSummary JSON
         Map<String, Object> metrics = new LinkedHashMap<>();
         if (request.getLatencyMean() != null) metrics.put("latencyMean", request.getLatencyMean());
         if (request.getLatencyP50() != null) metrics.put("latencyP50", request.getLatencyP50());
@@ -69,8 +117,7 @@ public class TaskCompleteController {
             metricsSummary = "{}";
         }
 
-        // 3. 创建 EvaluationResult
-        // #361: Defensive planId/chipId resolution
+        // 3. Create EvaluationResult
         Long planId = task.getPlanId();
         Long chipId = task.getChipId();
         if (chipId == null && planId != null) {
@@ -91,15 +138,13 @@ public class TaskCompleteController {
         result.setErrorMessage(request.getErrorMessage());
         resultRepository.save(result);
 
-        // 4. 更新 Task 状态
+        // 4. Update Task status
         boolean passed = request.getPassed() != null && request.getPassed();
         task.setStatus(passed ? EvaluationTask.TaskStatus.COMPLETED : EvaluationTask.TaskStatus.FAILED);
         task.setCompletedAt(Instant.now());
         task.setProgress(100);
-        // #222: 释放节点，让 recovery scheduler 可以分发新任务
         if (task.getAssignedNodeId() != null) {
             nodeRepository.findById(task.getAssignedNodeId()).ifPresent(node -> {
-                // 并发模式：不再强制重置 BUSY->ONLINE（节点始终保持 ONLINE）
                 if (node.getStatus() == ComputeNode.Status.BUSY) {
                     node.setStatus(ComputeNode.Status.ONLINE);
                     nodeRepository.save(node);
@@ -109,7 +154,6 @@ public class TaskCompleteController {
         }
         taskRepository.save(task);
 
-        // #403: Release GPU slots immediately on task completion
         try {
             gpuSlotService.releaseGpuSlots(taskId);
             log.info("#403: Released GPU slots for completed task {}", taskId);
@@ -117,7 +161,7 @@ public class TaskCompleteController {
             log.warn("#403: Failed to release GPU slots for task {}: {}", taskId, e.getMessage());
         }
 
-        // 4.5 写入执行日志
+        // Write execution log
         try {
             String logMsg = String.format("任务执行完成 - %s | passed=%s | latencyMean=%s | throughput=%s",
                     task.getName(),
@@ -129,7 +173,7 @@ public class TaskCompleteController {
             log.warn("Failed to write task log for task {}: {}", taskId, e.getMessage());
         }
 
-        // 5. 更新 Plan 进度
+        // 5. Update Plan progress
         Map<String, Object> responseData = new LinkedHashMap<>();
         responseData.put("taskId", taskId);
         responseData.put("status", task.getStatus().name());
@@ -138,7 +182,6 @@ public class TaskCompleteController {
             EvaluationPlan plan = planRepository.findById(task.getPlanId()).orElse(null);
             if (plan != null) {
                 List<EvaluationTask> planTasks = taskRepository.findByPlanId(plan.getId());
-                // #404: Count all terminal states for accurate progress
                 long completedCount = planTasks.stream()
                         .filter(t -> t.getStatus() == EvaluationTask.TaskStatus.COMPLETED
                                 || t.getStatus() == EvaluationTask.TaskStatus.FAILED
@@ -155,7 +198,6 @@ public class TaskCompleteController {
                 responseData.put("completedTasks", plan.getCompletedTasks());
                 responseData.put("totalTasks", total);
 
-                // 6. 检查是否所有任务都完成
                 boolean allDone = completedCount >= total;
                 if (allDone) {
                     plan.setStatus(EvaluationPlan.PlanStatus.COMPLETED);
@@ -165,7 +207,6 @@ public class TaskCompleteController {
 
                     log.info("Evaluation task {} all sub-tasks done, generating report...", plan.getPlanNo());
 
-                    // 自动生成报告
                     try {
                         var report = reportGeneratorService.generateReport(plan.getId());
                         responseData.put("reportGenerated", true);
@@ -188,6 +229,10 @@ public class TaskCompleteController {
         resp.put("code", 0);
         resp.put("message", "success");
         resp.put("data", responseData);
-        return ResponseEntity.ok(resp);
+
+        // #523: Add deprecation warning header
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("Warning", DEPRECATION_WARNING);
+        return ResponseEntity.ok().headers(headers).body(resp);
     }
 }
