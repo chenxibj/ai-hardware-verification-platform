@@ -91,6 +91,8 @@ public class EvaluationTaskController {
         Map<String, Object> response = new HashMap<>();
         response.put("code", 0);
         response.put("message", "success");
+        // #519: Enrich RUNNING tasks with stall warnings
+        for (EvaluationTask t : tasks.getContent()) { enrichWithWarning(t); }
         response.put("data", tasks.getContent());
         response.put("total", tasks.getTotalElements());
         response.put("page", page);
@@ -103,6 +105,7 @@ public class EvaluationTaskController {
     public ResponseEntity<Map<String, Object>> getTaskDetail(@PathVariable Long taskId) {
         return taskService.getTaskDetail(taskId)
                 .map(task -> {
+                    enrichWithWarning(task);
                     Map<String, Object> response = new HashMap<>();
                     response.put("code", 0);
                     response.put("message", "success");
@@ -186,6 +189,7 @@ public class EvaluationTaskController {
             EvaluationTask task = taskService.getTaskDetail(taskId)
                     .orElseThrow(() -> new RuntimeException("Task not found"));
             task.setProgress(progress);
+            task.setLastProgressUpdateAt(java.time.Instant.now());
             Map<String, Object> response = new HashMap<>();
             response.put("code", 0);
             response.put("message", "success");
@@ -285,6 +289,10 @@ public class EvaluationTaskController {
         stats.put("completed", taskRepository.countByStatus(EvaluationTask.TaskStatus.COMPLETED));
         stats.put("failed", taskRepository.countByStatus(EvaluationTask.TaskStatus.FAILED));
         stats.put("cancelled", taskRepository.countByStatus(EvaluationTask.TaskStatus.CANCELLED));
+        stats.put("queued", taskRepository.countByStatus(EvaluationTask.TaskStatus.QUEUED));
+        // #519: stalled count
+        stats.put("stalled", taskRepository.countStalledRunningTasks(
+                java.time.Instant.now().minus(5, java.time.temporal.ChronoUnit.MINUTES)));
         Map<String, Object> response = new HashMap<>();
         response.put("code", 0);
         response.put("message", "success");
@@ -800,6 +808,129 @@ public class EvaluationTaskController {
             return runSpecRepository.findByCode(task.getRunSpecCode()).orElse(null);
         }
         return null;
+    }
+
+
+    /**
+     * #520: GET /tasks/queue-status — queue summary with user's tasks
+     */
+    @GetMapping("/queue-status")
+    @RequireRole(Role.VIEWER)
+    public ResponseEntity<Map<String, Object>> getQueueStatus() {
+        Long userId = getCurrentUserId();
+        List<EvaluationTask> queuedTasks = taskRepository.findQueuedTasksOrderByPriorityAndCreatedAt();
+
+        Map<String, Double> avgMinutesByType = new java.util.HashMap<>();
+        try {
+            List<Object[]> rawAvgs = taskRepository.findAverageDurationByEvalTypeRaw();
+            for (Object[] row : rawAvgs) {
+                String evalType = (String) row[0];
+                double avgSec = ((Number) row[1]).doubleValue();
+                avgMinutesByType.put(evalType, avgSec / 60.0);
+            }
+        } catch (Exception e) { log.debug("avg calc failed: {}", e.getMessage()); }
+
+        List<Map<String, Object>> myTasks = new java.util.ArrayList<>();
+        List<Map<String, Object>> allTasks = new java.util.ArrayList<>();
+        for (int i = 0; i < queuedTasks.size(); i++) {
+            EvaluationTask task = queuedTasks.get(i);
+            int position = i + 1;
+            String evalType = task.getEvalType() != null ? task.getEvalType().name() : null;
+            double avgMin = (evalType != null) ? avgMinutesByType.getOrDefault(evalType, 10.0) : 10.0;
+            int estimatedWait = (int) Math.ceil(position * avgMin);
+
+            Map<String, Object> item = new java.util.LinkedHashMap<>();
+            item.put("taskId", task.getId());
+            item.put("taskNo", task.getTaskNo());
+            item.put("name", task.getName());
+            item.put("queuePosition", position);
+            item.put("estimatedWaitMinutes", estimatedWait);
+            item.put("priority", task.getPriority() != null ? task.getPriority().name() : null);
+            item.put("createdBy", task.getCreatedBy());
+            item.put("createdAt", task.getCreatedAt());
+            allTasks.add(item);
+
+            if (task.getCreatedBy() != null && task.getCreatedBy().equals(userId)) {
+                myTasks.add(item);
+            }
+        }
+
+        Map<String, Object> data = new java.util.LinkedHashMap<>();
+        data.put("totalQueued", queuedTasks.size());
+        data.put("myQueuedCount", myTasks.size());
+        data.put("myQueuedTasks", myTasks);
+        data.put("allQueuedTasks", allTasks);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("code", 0);
+        response.put("message", "success");
+        response.put("data", data);
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * #520: PATCH /tasks/{taskId}/cancel — cancel QUEUED/PENDING task only
+     */
+    @PatchMapping("/{taskId}/cancel")
+    @RequireRole(Role.ENGINEER)
+    public ResponseEntity<Map<String, Object>> patchCancelTask(@PathVariable Long taskId) {
+        Long userId = getCurrentUserId();
+        try {
+            EvaluationTask task = taskRepository.findById(taskId)
+                    .orElseThrow(() -> new RuntimeException("Task not found: " + taskId));
+            if (task.getStatus() != EvaluationTask.TaskStatus.QUEUED
+                    && task.getStatus() != EvaluationTask.TaskStatus.PENDING) {
+                throw new RuntimeException("Only QUEUED or PENDING tasks can be cancelled via PATCH, current: " + task.getStatus());
+            }
+            EvaluationTask cancelled = taskService.cancelTask(taskId, userId);
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 0);
+            response.put("message", "success");
+            response.put("data", cancelled);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 1001);
+            response.put("message", e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
+    /**
+     * #519: GET /tasks/stalled — list stalled (warning) tasks
+     */
+    @GetMapping("/stalled")
+    @RequireRole(Role.VIEWER)
+    public ResponseEntity<Map<String, Object>> getStalledTasks() {
+        java.time.Instant threshold = java.time.Instant.now().minus(5, java.time.temporal.ChronoUnit.MINUTES);
+        List<EvaluationTask> stalledTasks = taskRepository.findStalledRunningTasks(threshold);
+
+        for (EvaluationTask task : stalledTasks) {
+            enrichWithWarning(task);
+        }
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("code", 0);
+        response.put("message", "success");
+        response.put("data", stalledTasks);
+        response.put("total", stalledTasks.size());
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * #519: Enrich a task with stall warning info (called for RUNNING tasks)
+     */
+    private void enrichWithWarning(EvaluationTask task) {
+        if (task.getStatus() != EvaluationTask.TaskStatus.RUNNING) return;
+        java.time.Instant threshold = java.time.Instant.now().minus(5, java.time.temporal.ChronoUnit.MINUTES);
+        java.time.Instant lastUpdate = task.getLastProgressUpdateAt() != null
+                ? task.getLastProgressUpdateAt()
+                : task.getStartedAt();
+        if (lastUpdate != null && lastUpdate.isBefore(threshold)) {
+            long stallMinutes = java.time.Duration.between(lastUpdate, java.time.Instant.now()).toMinutes();
+            task.setWarningMessage(String.format("任务已卡顿 %d 分钟，进度无更新", stallMinutes));
+            task.setIsStalled(true);
+        }
     }
 
 }

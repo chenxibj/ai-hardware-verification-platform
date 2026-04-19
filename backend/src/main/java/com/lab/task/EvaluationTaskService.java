@@ -125,6 +125,7 @@ public class EvaluationTaskService {
         // 状态转换时的处理
         if (status == EvaluationTask.TaskStatus.RUNNING && oldStatus != EvaluationTask.TaskStatus.RUNNING) {
             task.setStartedAt(Instant.now());
+            task.setLastProgressUpdateAt(Instant.now());
             // #365: When task goes RUNNING, auto-update parent plan from DRAFT to RUNNING
             if (task.getPlanId() != null) {
                 planRepository.findById(task.getPlanId()).ifPresent(plan -> {
