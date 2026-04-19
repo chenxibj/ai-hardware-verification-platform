@@ -5,8 +5,8 @@ import com.lab.node.ComputeNode;
 import com.lab.node.ComputeNodeRepository;
 import com.lab.plan.EvaluationPlanRepository;
 import com.lab.result.EvaluationResultRepository;
-import com.lab.scoring.ReportGenerator;
-import org.junit.jupiter.api.BeforeEach;
+import com.lab.chipreport.ChipReportRepository;
+import com.lab.chipreport.ReportGeneratorService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,9 +35,10 @@ class OfflineNodeRecoveryTest {
     @Mock private ComputeNodeRepository nodeRepository;
     @Mock private EvaluationResultRepository resultRepository;
     @Mock private TaskDispatcher taskDispatcher;
-    @Mock private ReportGenerator reportGenerator;
     @Mock private GpuSlotService gpuSlotService;
     @Mock private TaskLifecycleService lifecycle;
+    @Mock private ChipReportRepository chipReportRepository;
+    @Mock private ReportGeneratorService reportGeneratorService;
 
     @InjectMocks
     private TaskRecoveryScheduler scheduler;
@@ -78,17 +79,13 @@ class OfflineNodeRecoveryTest {
 
         scheduler.recoverOfflineNodeTasks();
 
-        // Both tasks should be QUEUED
         assertEquals(EvaluationTask.TaskStatus.QUEUED, runningTask.getStatus());
         assertEquals(EvaluationTask.TaskStatus.QUEUED, dispatchedTask.getStatus());
         assertNull(runningTask.getAssignedNodeId());
         assertNull(dispatchedTask.getAssignedNodeId());
 
-        // GPU slots MUST be released for both tasks
         verify(gpuSlotService).releaseGpuSlots(100L);
         verify(gpuSlotService).releaseGpuSlots(101L);
-
-        // Dispatch should be triggered
         verify(taskDispatcher).tryDispatchNext();
     }
 
@@ -113,21 +110,19 @@ class OfflineNodeRecoveryTest {
     @Test
     @DisplayName("#497: RUNNING task over 30 min with no progress update -> FAILED")
     void runningTask_30minNoProgress_markedFailed() {
-        // This tests the extended running task timeout (30 min)
         Instant staleTime = Instant.now().minus(31, ChronoUnit.MINUTES);
         EvaluationTask staleTask = new EvaluationTask();
         staleTask.setId(300L);
         staleTask.setTaskNo("TASK-TEST-300");
         staleTask.setStatus(EvaluationTask.TaskStatus.RUNNING);
         staleTask.setLastHeartbeatAt(staleTime);
-        staleTask.setProgress(50);  // Has progress but still stale after 30 min
+        staleTask.setProgress(50);
         staleTask.setAssignedNodeId(1L);
 
-        // 15min threshold will catch this since 31min > 15min
         when(taskRepository.findByStatusAndLastHeartbeatAtBefore(
                 eq(EvaluationTask.TaskStatus.RUNNING), any(Instant.class)))
-                .thenReturn(List.of(staleTask))  // 15min call
-                .thenReturn(List.of(staleTask));  // 5min call
+                .thenReturn(List.of(staleTask))
+                .thenReturn(List.of(staleTask));
         when(taskRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         scheduler.recoverStaleRunningTasks();

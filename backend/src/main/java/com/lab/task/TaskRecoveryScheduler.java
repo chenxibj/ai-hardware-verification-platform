@@ -49,7 +49,6 @@ public class TaskRecoveryScheduler {
     private final ComputeNodeRepository nodeRepository;
     private final EvaluationResultRepository resultRepository;
     private final TaskDispatcher taskDispatcher;
-    private final com.lab.scoring.ReportGenerator reportGenerator;
     private final com.lab.gpu.GpuSlotService gpuSlotService;
     private final TaskLifecycleService lifecycle;
     private final ChipReportRepository chipReportRepository;
@@ -407,7 +406,7 @@ public class TaskRecoveryScheduler {
                 // #383: Auto-generate report when plan completes
                 if (plan.getStatus() == EvaluationPlan.PlanStatus.COMPLETED && completedCount > 0) {
                     try {
-                        reportGenerator.generateReport(plan.getId());
+                        reportGeneratorService.generateReport(plan.getId());
                         log.info("Auto-generated report for plan {}", plan.getPlanNo());
                     } catch (Exception e) {
                         log.warn("Failed to auto-generate report for plan {}: {}",

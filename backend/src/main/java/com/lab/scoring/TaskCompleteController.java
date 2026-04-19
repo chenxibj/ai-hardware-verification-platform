@@ -34,7 +34,7 @@ public class TaskCompleteController {
     private final EvaluationTaskRepository taskRepository;
     private final EvaluationResultRepository resultRepository;
     private final EvaluationPlanRepository planRepository;
-    private final ReportGenerator reportGenerator;
+    private final com.lab.chipreport.ReportGeneratorService reportGeneratorService;
     private final TaskLogRepository taskLogRepository;
     private final ObjectMapper objectMapper;
     private final ComputeNodeRepository nodeRepository;
@@ -167,7 +167,7 @@ public class TaskCompleteController {
 
                     // 自动生成报告
                     try {
-                        var report = reportGenerator.generateReport(plan.getId());
+                        var report = reportGeneratorService.generateReport(plan.getId());
                         responseData.put("reportGenerated", true);
                         responseData.put("reportId", report.getId());
                         responseData.put("reportNo", report.getReportNo());

@@ -6,7 +6,6 @@ import com.lab.node.ComputeNodeRepository;
 import com.lab.plan.EvaluationPlan;
 import com.lab.plan.EvaluationPlanRepository;
 import com.lab.result.EvaluationResultRepository;
-import com.lab.scoring.ReportGenerator;
 import com.lab.chipreport.ChipReportRepository;
 import com.lab.chipreport.ReportGeneratorService;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,7 +38,6 @@ class TaskRecoverySchedulerTest {
     @Mock private ComputeNodeRepository nodeRepository;
     @Mock private EvaluationResultRepository resultRepository;
     @Mock private TaskDispatcher taskDispatcher;
-    @Mock private ReportGenerator reportGenerator;
     @Mock private GpuSlotService gpuSlotService;
     @Mock private TaskLifecycleService lifecycle;
     @Mock private ChipReportRepository chipReportRepository;

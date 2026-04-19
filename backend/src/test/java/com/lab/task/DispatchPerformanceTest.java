@@ -9,7 +9,8 @@ import com.lab.plan.EvaluationPlanRepository;
 import com.lab.chip.ChipRepository;
 import com.lab.runspec.RunSpecRepository;
 import com.lab.result.EvaluationResultRepository;
-import com.lab.scoring.ReportGenerator;
+import com.lab.chipreport.ReportGeneratorService;
+import com.lab.chipreport.ChipReportRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -50,7 +51,8 @@ class DispatchPerformanceTest {
     @Mock private GpuSlotService gpuSlotService;
     @Mock private GpuSlotRepository gpuSlotRepository;
     @Mock private EvaluationResultRepository resultRepository;
-    @Mock private ReportGenerator reportGenerator;
+    @Mock private ReportGeneratorService reportGeneratorService;
+    @Mock private ChipReportRepository chipReportRepository;
     @Mock private TaskLifecycleService lifecycle;
 
     private TaskDispatcher dispatcher;
@@ -69,8 +71,8 @@ class DispatchPerformanceTest {
 
         scheduler = new TaskRecoveryScheduler(
                 taskRepository, planRepository, nodeRepository,
-                resultRepository, dispatcher, reportGenerator,
-                gpuSlotService, lifecycle, null, null);
+                resultRepository, dispatcher,
+                gpuSlotService, lifecycle, chipReportRepository, reportGeneratorService);
     }
 
     // ==================== Test 1: Plan Cache eliminates N+1 ====================
