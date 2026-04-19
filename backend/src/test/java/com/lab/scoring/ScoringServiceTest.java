@@ -181,6 +181,100 @@ class ScoringServiceTest {
         return r;
     }
 
+    // ===== #525: Score cap at 200% =====
+
+    @Test
+    @DisplayName("#525: score should be capped at 200% to prevent extreme values")
+    void scoreFromMetrics_shouldCapAt200Percent() {
+        // Baseline: Add latency = 0.013ms
+        // R5 chip: Add latency = 0.004ms → raw ratio = 325%
+        // Expected: capped at 200%
+        setupL40SBaseline("Add", 0.013);
+
+        String chipMetrics = "{\"latency_ms_mean\": 0.004}";
+        double score = scoringService.scoreFromMetrics(chipMetrics, "Add");
+        assertEquals(200.0, score, 0.01, "Score exceeding 200% should be capped at 200%");
+    }
+
+    @Test
+    @DisplayName("#525: score at exactly 200% should not be capped")
+    void scoreFromMetrics_exactlyAt200_shouldNotBeCapped() {
+        setupL40SBaseline("Conv2D", 0.020);
+
+        // 2x faster → exactly 200%
+        String chipMetrics = "{\"latency_ms_mean\": 0.010}";
+        double score = scoringService.scoreFromMetrics(chipMetrics, "Conv2D");
+        assertEquals(200.0, score, 0.01, "Exactly 200% should remain 200%");
+    }
+
+    @Test
+    @DisplayName("#525: score below 200% should not be affected by cap")
+    void scoreFromMetrics_below200_shouldNotBeCapped() {
+        setupL40SBaseline("Softmax", 0.010);
+
+        // 1.5x faster → 150%
+        String chipMetrics = "{\"latency_ms_mean\": 0.006666}";
+        double score = scoringService.scoreFromMetrics(chipMetrics, "Softmax");
+        assertTrue(score < 200.0, "Score below 200% should not be affected");
+        assertTrue(score > 140.0, "Score should be around 150%");
+    }
+
+    // ===== #527: Score precision - round to 2 decimal places =====
+
+    @Test
+    @DisplayName("#527: score should be rounded to 2 decimal places, no .9999999 tails")
+    void scoreFromMetrics_shouldBeRoundedTo2Decimals() {
+        // Setup: baseline=0.013, chip=0.013 → ratio=100.0000...001
+        setupL40SBaseline("GELU", 0.013);
+
+        String chipMetrics = "{\"latency_ms_mean\": 0.013}";
+        double score = scoringService.scoreFromMetrics(chipMetrics, "GELU");
+        // Should be exactly 100.0, not 100.00000000000001
+        assertEquals(100.0, score, 0.0, "Score should be precisely rounded, no floating point tails");
+
+        // String representation should not have excessive decimals
+        String scoreStr = String.valueOf(score);
+        // After the decimal point, should have at most 2 digits
+        if (scoreStr.contains(".")) {
+            String decimals = scoreStr.substring(scoreStr.indexOf('.') + 1);
+            // Remove trailing zeros for comparison
+            String trimmed = decimals.replaceAll("0+$", "");
+            assertTrue(trimmed.length() <= 2,
+                "Score " + scoreStr + " should have at most 2 decimal places");
+        }
+    }
+
+    @Test
+    @DisplayName("#527: score with repeating decimal should be rounded")
+    void scoreFromMetrics_repeatingDecimal_shouldBeRounded() {
+        // Setup: baseline=0.010, chip=0.003 → raw ratio=333.333...
+        // After 200% cap → 200.0
+        setupL40SBaseline("Mul", 0.010);
+
+        String chipMetrics = "{\"latency_ms_mean\": 0.003}";
+        double score = scoringService.scoreFromMetrics(chipMetrics, "Mul");
+        // Capped at 200.0
+        assertEquals(200.0, score, 0.01);
+    }
+
+    @Test
+    @DisplayName("#527: fallback score should also be rounded")
+    void scoreFromMetrics_fallbackScore_shouldBeRounded() {
+        setupL40SBaseline("MatMul", 0.022);
+
+        // Unknown operator → fallback to old scoring
+        // scoreLatency(1.5) = 100 - 20 * log10(1.5) = 100 - 20*0.17609... = 96.478...
+        String chipMetrics = "{\"latency_ms_mean\": 1.5}";
+        double score = scoringService.scoreFromMetrics(chipMetrics, "UnknownOp");
+
+        String scoreStr = String.valueOf(score);
+        if (scoreStr.contains(".")) {
+            String decimals = scoreStr.substring(scoreStr.indexOf('.') + 1);
+            String trimmed = decimals.replaceAll("0+$", "");
+            assertTrue(trimmed.length() <= 2,
+                "Fallback score " + scoreStr + " should have at most 2 decimal places");
+        }
+    }
     private EvaluationTask makeTask(Long id, String testItem) {
         EvaluationTask t = new EvaluationTask();
         t.setId(id);

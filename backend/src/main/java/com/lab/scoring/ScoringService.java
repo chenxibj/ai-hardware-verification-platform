@@ -34,6 +34,14 @@ public class ScoringService {
     private final EvaluationTaskRepository taskRepository;
     private final EvaluationPlanRepository planRepository;
 
+    /** #525: Maximum allowed score percentage to prevent extreme outliers */
+    private static final double MAX_SCORE_PERCENT = 200.0;
+
+    /** #527: Round to 2 decimal places to avoid floating point precision tails */
+    private static double roundTo2(double value) {
+        return Math.round(value * 100.0) / 100.0;
+    }
+
     /** Cached baseline latency map: testItem -> latency_ms_mean */
     private volatile Map<String, Double> baselineLatencyCache = null;
 
@@ -204,7 +212,7 @@ public class ScoringService {
             if (chipLatency <= 0) {
                 // Try score field as fallback
                 if (root.has("score") && !root.get("score").isNull()) {
-                    return root.get("score").asDouble();
+                    return roundTo2(Math.min(root.get("score").asDouble(), MAX_SCORE_PERCENT));
                 }
                 return 0;
             }
@@ -216,18 +224,18 @@ public class ScoringService {
                 if (baselineLatency != null && baselineLatency > 0) {
                     // percentage = (baseline / chip) * 100
                     // If chip is faster (lower latency), percentage > 100%
-                    return (baselineLatency / chipLatency) * 100.0;
+                    return roundTo2(Math.min((baselineLatency / chipLatency) * 100.0, MAX_SCORE_PERCENT));
                 }
                 // Try prefix match for test items like "MLP-Medium/batch=4"
                 for (Map.Entry<String, Double> entry : baseline.entrySet()) {
                     if (testItem.startsWith(entry.getKey()) && entry.getValue() > 0) {
-                        return (entry.getValue() / chipLatency) * 100.0;
+                        return roundTo2(Math.min((entry.getValue() / chipLatency) * 100.0, MAX_SCORE_PERCENT));
                     }
                 }
             }
 
             // Fallback to old scoring if no baseline found
-            return scoreLatency(chipLatency);
+            return roundTo2(scoreLatency(chipLatency));
         } catch (Exception e) {
             log.warn("Failed to parse metricsSummary: {}", e.getMessage());
             return 0;
