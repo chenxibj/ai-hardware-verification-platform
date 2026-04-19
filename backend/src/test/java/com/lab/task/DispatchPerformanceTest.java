@@ -70,7 +70,7 @@ class DispatchPerformanceTest {
         scheduler = new TaskRecoveryScheduler(
                 taskRepository, planRepository, nodeRepository,
                 resultRepository, dispatcher, reportGenerator,
-                gpuSlotService, lifecycle);
+                gpuSlotService, lifecycle, null, null);
     }
 
     // ==================== Test 1: Plan Cache eliminates N+1 ====================
@@ -231,6 +231,7 @@ class DispatchPerformanceTest {
 
         // Task should be processed exactly once (saved once, not twice)
         verify(taskRepository, times(1)).save(task);
-        assertEquals(EvaluationTask.TaskStatus.FAILED, task.getStatus());
+        // #509: progress=0 tasks are re-queued (not failed) on first retry
+        assertEquals(EvaluationTask.TaskStatus.QUEUED, task.getStatus());
     }
 }

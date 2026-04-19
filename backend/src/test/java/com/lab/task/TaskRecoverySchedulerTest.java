@@ -7,6 +7,8 @@ import com.lab.plan.EvaluationPlan;
 import com.lab.plan.EvaluationPlanRepository;
 import com.lab.result.EvaluationResultRepository;
 import com.lab.scoring.ReportGenerator;
+import com.lab.chipreport.ChipReportRepository;
+import com.lab.chipreport.ReportGeneratorService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -40,6 +42,8 @@ class TaskRecoverySchedulerTest {
     @Mock private ReportGenerator reportGenerator;
     @Mock private GpuSlotService gpuSlotService;
     @Mock private TaskLifecycleService lifecycle;
+    @Mock private ChipReportRepository chipReportRepository;
+    @Mock private ReportGeneratorService reportGeneratorService;
 
     @InjectMocks
     private TaskRecoveryScheduler scheduler;
@@ -91,11 +95,12 @@ class TaskRecoverySchedulerTest {
     }
 
     @Test
-    @DisplayName("#451: RUNNING + progress=0 超过 5 分钟应标记 FAILED")
-    void recoverStaleRunningTasks_progress0_shouldFail() {
+    @DisplayName("#509: RUNNING + progress=0 超过 5 分钟 + retryCount=0 -> 应回退为 QUEUED 重试")
+    void recoverStaleRunningTasks_progress0_shouldRequeue() {
         Instant staleTime = Instant.now().minus(6, ChronoUnit.MINUTES);
         EvaluationTask stuckTask = makeTask(2L, EvaluationTask.TaskStatus.RUNNING, staleTime);
         stuckTask.setProgress(0);
+        stuckTask.setRetryCount(0);
 
         // 15min threshold returns empty, 5min threshold returns our task
         when(taskRepository.findByStatusAndLastHeartbeatAtBefore(
@@ -106,9 +111,10 @@ class TaskRecoverySchedulerTest {
 
         scheduler.recoverStaleRunningTasks();
 
-        assertEquals(EvaluationTask.TaskStatus.FAILED, stuckTask.getStatus());
-        assertNotNull(stuckTask.getErrorMessage());
-        assertTrue(stuckTask.getErrorMessage().contains("progress=0"));
+        // #509: progress=0 tasks should be re-queued, not immediately failed
+        assertEquals(EvaluationTask.TaskStatus.QUEUED, stuckTask.getStatus());
+        assertEquals(1, stuckTask.getRetryCount());
+        assertNull(stuckTask.getAssignedNodeId());
     }
 
     @Test

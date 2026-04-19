@@ -132,6 +132,9 @@ public class EvaluationTask {
     @Column(name = "error_message", columnDefinition = "TEXT")
     private String errorMessage;
 
+    @Column(name = "retry_count", nullable = false)
+    private Integer retryCount = 0;
+
     @Column(name = "run_spec_id")
     private Long runSpecId;
 
