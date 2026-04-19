@@ -191,6 +191,7 @@ export default function ChipReport() {
   const passedOps = operators.filter(o => o.passed).length;
   const accuracyData = extractAccuracyData(operators, report);
   const modelData = extractModelData(operators);
+  const coverageData = safeParse(report.coverage);
 
   // 算子排行表列
   const columns = [
@@ -496,6 +497,48 @@ export default function ChipReport() {
           </Col>
         </Row>
       </Card>
+
+      {/* ── #517: 评测覆盖率进度条 ── */}
+      {coverageData && (
+        <Card style={{ marginBottom: 24 }}>
+          <Row gutter={16} align="middle">
+            <Col span={16}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                <Text strong style={{ fontSize: 16 }}>评测覆盖率</Text>
+                <Tag color={coverageData.coverageRate >= 80 ? "success" : coverageData.coverageRate >= 50 ? "warning" : "error"}>
+                  {coverageData.coverageRate >= 80 ? "覆盖充分" : coverageData.coverageRate >= 50 ? "基本覆盖" : "覆盖不足"}
+                </Tag>
+              </div>
+              <Progress
+                percent={Math.round(coverageData.coverageRate || 0)}
+                strokeColor={
+                  coverageData.coverageRate >= 80 ? "#52c41a"
+                    : coverageData.coverageRate >= 50 ? "#faad14" : "#ff4d4f"
+                }
+                format={(pct) => `${pct}%`}
+                style={{ marginBottom: 8 }}
+              />
+              <Text type="secondary" style={{ fontSize: 12 }}>{coverageData.note}</Text>
+            </Col>
+            <Col span={8}>
+              <Row gutter={8}>
+                <Col span={8} style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 20, fontWeight: "bold", color: "#52c41a" }}>{coverageData.validItems || 0}</div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>有效</Text>
+                </Col>
+                <Col span={8} style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 20, fontWeight: "bold", color: "#faad14" }}>{coverageData.noDataItems || 0}</div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>无数据</Text>
+                </Col>
+                <Col span={8} style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 20, fontWeight: "bold", color: "#ff4d4f" }}>{coverageData.failedItems || 0}</div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>失败</Text>
+                </Col>
+              </Row>
+            </Col>
+          </Row>
+        </Card>
+      )}
 
       {/* ── Section 2: 算子精度 ── */}
       {accuracyData.length > 0 && operators.length > 0 && (

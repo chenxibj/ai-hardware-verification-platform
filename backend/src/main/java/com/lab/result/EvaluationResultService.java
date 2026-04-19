@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lab.plan.EvaluationPlan;
 import com.lab.plan.EvaluationPlanRepository;
 import com.lab.task.EvaluationTask;
+import com.lab.task.FailureType;
 import com.lab.task.EvaluationTaskRepository;
 import com.lab.scoring.ScoringService;
 import com.lab.dimension.DimensionRegistry;
@@ -142,6 +143,8 @@ public class EvaluationResultService {
         }
 
         task.setStatus(EvaluationTask.TaskStatus.FAILED);
+        // #524: Agent reported failure
+        task.setFailureType(FailureType.AGENT_ERROR);
         task.setErrorMessage(errorMessage != null && errorMessage.length() > 500 ? errorMessage.substring(0, 500) : errorMessage);
         task.setCompletedAt(Instant.now());
         taskRepository.save(task);

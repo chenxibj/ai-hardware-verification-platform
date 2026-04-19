@@ -148,6 +148,10 @@ public class EvaluationTask {
 
     @Column(name = "run_spec_code", length = 64)
     private String runSpecCode;
+    // #524: failure type for distinguishing different failure reasons
+    @Enumerated(EnumType.STRING)
+    @Column(name = "failure_type", length = 32)
+    private FailureType failureType;
 
     public enum TaskType {
         TEMPLATE, CUSTOM, EVALUATION

@@ -229,6 +229,8 @@ public class TaskRecoveryScheduler {
             log.warn("Task {} ({}) stale ({}), marking FAILED (retries exhausted: {})",
                     task.getId(), task.getTaskNo(), reason, retries);
             task.setStatus(EvaluationTask.TaskStatus.FAILED);
+            // #524: Set failure type based on progress
+            task.setFailureType(neverStarted ? FailureType.TIMEOUT_NOT_STARTED : FailureType.TIMEOUT_IN_PROGRESS);
             task.setErrorMessage("任务超时: " + reason);
             task.setCompletedAt(Instant.now());
             taskRepository.save(task);
