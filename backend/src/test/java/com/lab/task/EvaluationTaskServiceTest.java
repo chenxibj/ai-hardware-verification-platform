@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -61,7 +62,7 @@ class EvaluationTaskServiceTest {
     // --- createTask ---
 
     @Test
-    @DisplayName("创建任务 - 默认状态为 PENDING，progress=0")
+    @DisplayName("创建任务 - 默认状态为 QUEUED，progress=0")
     void createTask_shouldSetDefaultValues() {
         when(taskRepository.save(any(EvaluationTask.class))).thenAnswer(inv -> {
             EvaluationTask t = inv.getArgument(0);
@@ -72,7 +73,7 @@ class EvaluationTaskServiceTest {
         EvaluationTask result = taskService.createTask(sampleRequest, 100L);
 
         assertNotNull(result);
-        assertEquals(EvaluationTask.TaskStatus.PENDING, result.getStatus());
+        assertEquals(EvaluationTask.TaskStatus.QUEUED, result.getStatus());
         assertEquals(0, result.getProgress());
         assertEquals(100L, result.getCreatedBy());
         assertNotNull(result.getTaskNo());
@@ -102,7 +103,7 @@ class EvaluationTaskServiceTest {
         assertEquals(EvaluationTask.EvalType.OPERATOR, result.getEvalType());
         assertEquals(EvaluationTask.Priority.MEDIUM, result.getPriority());
         assertEquals("{\"type\":\"operator\"}", result.getEvalConfig());
-        assertEquals(Arrays.asList(1L, 2L), result.getDatasetIds());
+        assertArrayEquals(new Long[]{1L, 2L}, result.getDatasetIds());
         assertEquals("{\"cpu\":4}", result.getResourceSpec());
     }
 
@@ -225,7 +226,7 @@ class EvaluationTaskServiceTest {
 
         EvaluationTask result = taskService.retryTask(1L, 100L);
 
-        assertEquals(EvaluationTask.TaskStatus.PENDING, result.getStatus());
+        assertEquals(EvaluationTask.TaskStatus.QUEUED, result.getStatus());
         assertEquals(0, result.getProgress());
         assertNull(result.getStartedAt());
         assertNull(result.getCompletedAt());
@@ -240,7 +241,7 @@ class EvaluationTaskServiceTest {
 
         EvaluationTask result = taskService.retryTask(1L, 100L);
 
-        assertEquals(EvaluationTask.TaskStatus.PENDING, result.getStatus());
+        assertEquals(EvaluationTask.TaskStatus.QUEUED, result.getStatus());
     }
 
     @Test
@@ -325,7 +326,7 @@ class EvaluationTaskServiceTest {
 
         EvaluationTask result = taskService.resumeTask(1L, 100L);
 
-        assertEquals(EvaluationTask.TaskStatus.PENDING, result.getStatus());
+        assertEquals(EvaluationTask.TaskStatus.QUEUED, result.getStatus());
     }
 
     @Test

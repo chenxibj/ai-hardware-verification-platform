@@ -1,8 +1,7 @@
 package com.lab.task;
 
 import com.lab.gpu.GpuSlotService;
-import com.lab.node.ComputeNode;
-import com.lab.node.ComputeNodeRepository;
+import com.lab.node.ComputeNodeService;
 import com.lab.plan.PlanProgressService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,12 +18,13 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * #489: TaskLifecycleService 统一资源释放测试
  * Updated for #490: includes PlanProgressService (step 3)
+ * Updated for #493: uses ComputeNodeService.releaseIfBusy instead of ComputeNodeRepository
  */
 @ExtendWith(MockitoExtension.class)
 class TaskLifecycleServiceTest {
 
     @Mock private GpuSlotService gpuSlotService;
-    @Mock private ComputeNodeRepository nodeRepository;
+    @Mock private ComputeNodeService computeNodeService;
     @Mock private EvaluationTaskRepository taskRepository;
     @Mock private TaskDispatcher taskDispatcher;
     @Mock private PlanProgressService planProgressService;
@@ -33,7 +33,6 @@ class TaskLifecycleServiceTest {
     private TaskLifecycleService lifecycle;
 
     private EvaluationTask sampleTask;
-    private ComputeNode sampleNode;
 
     @BeforeEach
     void setUp() {
@@ -42,41 +41,33 @@ class TaskLifecycleServiceTest {
         sampleTask.setAssignedNodeId(10L);
         sampleTask.setPlanId(5L);
         sampleTask.setStatus(EvaluationTask.TaskStatus.COMPLETED);
-
-        sampleNode = new ComputeNode();
-        sampleNode.setId(10L);
-        sampleNode.setName("node-test");
-        sampleNode.setStatus(ComputeNode.Status.BUSY);
     }
 
     // 1. onTaskTerminated 调用后，GPU Slot 被释放
     @Test
     void onTaskTerminated_releasesGpuSlots() {
         when(taskRepository.findById(100L)).thenReturn(Optional.of(sampleTask));
-        when(nodeRepository.findById(10L)).thenReturn(Optional.of(sampleNode));
 
         lifecycle.onTaskTerminated(100L);
 
         verify(gpuSlotService).releaseGpuSlots(100L);
     }
 
-    // 2. onTaskTerminated 调用后，节点从 BUSY 变 ONLINE
+    // 2. onTaskTerminated 调用后，节点通过 ComputeNodeService.releaseIfBusy 释放
     @Test
-    void onTaskTerminated_releasesNodeFromBusyToOnline() {
+    void onTaskTerminated_releasesNodeViaBusyToOnline() {
         when(taskRepository.findById(100L)).thenReturn(Optional.of(sampleTask));
-        when(nodeRepository.findById(10L)).thenReturn(Optional.of(sampleNode));
+        when(computeNodeService.releaseIfBusy(10L)).thenReturn(true);
 
         lifecycle.onTaskTerminated(100L);
 
-        assertEquals(ComputeNode.Status.ONLINE, sampleNode.getStatus());
-        verify(nodeRepository).save(sampleNode);
+        verify(computeNodeService).releaseIfBusy(10L);
     }
 
     // 3. onTaskTerminated 调用后，Plan 进度被更新
     @Test
     void onTaskTerminated_updatesPlanProgress() {
         when(taskRepository.findById(100L)).thenReturn(Optional.of(sampleTask));
-        when(nodeRepository.findById(10L)).thenReturn(Optional.of(sampleNode));
 
         lifecycle.onTaskTerminated(100L);
 
@@ -87,24 +78,21 @@ class TaskLifecycleServiceTest {
     @Test
     void onTaskTerminated_triggersDispatch() {
         when(taskRepository.findById(100L)).thenReturn(Optional.of(sampleTask));
-        when(nodeRepository.findById(10L)).thenReturn(Optional.of(sampleNode));
 
         lifecycle.onTaskTerminated(100L);
 
         verify(taskDispatcher).tryDispatchNext();
     }
 
-    // 5. 节点不是 BUSY 状态时不改变状态
+    // 5. 节点不是 BUSY 状态时 releaseIfBusy 返回 false
     @Test
     void onTaskTerminated_doesNotChangeNonBusyNode() {
-        sampleNode.setStatus(ComputeNode.Status.ONLINE);
         when(taskRepository.findById(100L)).thenReturn(Optional.of(sampleTask));
-        when(nodeRepository.findById(10L)).thenReturn(Optional.of(sampleNode));
+        when(computeNodeService.releaseIfBusy(10L)).thenReturn(false);
 
         lifecycle.onTaskTerminated(100L);
 
-        assertEquals(ComputeNode.Status.ONLINE, sampleNode.getStatus());
-        verify(nodeRepository, never()).save(sampleNode);
+        verify(computeNodeService).releaseIfBusy(10L);
     }
 
     // 6. GPU 释放失败不影响后续步骤（异常隔离）
@@ -112,12 +100,10 @@ class TaskLifecycleServiceTest {
     void onTaskTerminated_gpuFailureDoesNotBlockNodeRelease() {
         doThrow(new RuntimeException("GPU error")).when(gpuSlotService).releaseGpuSlots(100L);
         when(taskRepository.findById(100L)).thenReturn(Optional.of(sampleTask));
-        when(nodeRepository.findById(10L)).thenReturn(Optional.of(sampleNode));
 
         lifecycle.onTaskTerminated(100L);
 
-        assertEquals(ComputeNode.Status.ONLINE, sampleNode.getStatus());
-        verify(nodeRepository).save(sampleNode);
+        verify(computeNodeService).releaseIfBusy(10L);
         verify(planProgressService).updateProgress(5L);
         verify(taskDispatcher).tryDispatchNext();
     }
@@ -144,7 +130,7 @@ class TaskLifecycleServiceTest {
         lifecycle.onTaskTerminated(100L);
 
         verify(gpuSlotService).releaseGpuSlots(100L);
-        verify(nodeRepository, never()).findById(anyLong());
+        verify(computeNodeService, never()).releaseIfBusy(anyLong());
         verify(planProgressService).updateProgress(5L);
         verify(taskDispatcher).tryDispatchNext();
     }
@@ -166,7 +152,6 @@ class TaskLifecycleServiceTest {
     @Test
     void onTaskTerminated_dispatchFailureDoesNotThrow() {
         when(taskRepository.findById(100L)).thenReturn(Optional.of(sampleTask));
-        when(nodeRepository.findById(10L)).thenReturn(Optional.of(sampleNode));
         doThrow(new RuntimeException("dispatch error")).when(taskDispatcher).tryDispatchNext();
 
         assertDoesNotThrow(() -> lifecycle.onTaskTerminated(100L));
@@ -177,7 +162,6 @@ class TaskLifecycleServiceTest {
     void onTaskTerminated_skipsPlanUpdateWhenPlanIdNull() {
         sampleTask.setPlanId(null);
         when(taskRepository.findById(100L)).thenReturn(Optional.of(sampleTask));
-        when(nodeRepository.findById(10L)).thenReturn(Optional.of(sampleNode));
 
         lifecycle.onTaskTerminated(100L);
 
@@ -190,7 +174,6 @@ class TaskLifecycleServiceTest {
     @Test
     void onTaskTerminated_planUpdateFailureDoesNotBlockDispatch() {
         when(taskRepository.findById(100L)).thenReturn(Optional.of(sampleTask));
-        when(nodeRepository.findById(10L)).thenReturn(Optional.of(sampleNode));
         doThrow(new RuntimeException("plan error")).when(planProgressService).updateProgress(5L);
 
         lifecycle.onTaskTerminated(100L);
@@ -203,13 +186,12 @@ class TaskLifecycleServiceTest {
     @Test
     void onTaskTerminated_fullSequenceInOrder() {
         when(taskRepository.findById(100L)).thenReturn(Optional.of(sampleTask));
-        when(nodeRepository.findById(10L)).thenReturn(Optional.of(sampleNode));
 
         lifecycle.onTaskTerminated(100L);
 
-        var inOrder = inOrder(gpuSlotService, nodeRepository, planProgressService, taskDispatcher);
+        var inOrder = inOrder(gpuSlotService, computeNodeService, planProgressService, taskDispatcher);
         inOrder.verify(gpuSlotService).releaseGpuSlots(100L);
-        inOrder.verify(nodeRepository).save(sampleNode);
+        inOrder.verify(computeNodeService).releaseIfBusy(10L);
         inOrder.verify(planProgressService).updateProgress(5L);
         inOrder.verify(taskDispatcher).tryDispatchNext();
     }

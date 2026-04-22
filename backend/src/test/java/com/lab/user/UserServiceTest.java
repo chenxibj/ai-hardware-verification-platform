@@ -45,12 +45,12 @@ class UserServiceTest {
             return u;
         });
 
-        User result = userService.register("new@test.com", "password123", "newuser");
+        User result = userService.register("new@test.com", "Password123", "newuser");
 
         assertNotNull(result);
         assertEquals("new@test.com", result.getEmail());
         assertEquals("newuser", result.getUsername());
-        assertEquals("USER", result.getRole());
+        assertEquals("engineer", result.getRole());
         assertEquals(User.Status.ACTIVE, result.getStatus());
         assertEquals("encoded-password", result.getPassword());
         assertFalse(result.getEmailVerified());
@@ -64,7 +64,7 @@ class UserServiceTest {
 
         RuntimeException ex = assertThrows(RuntimeException.class,
                 () -> userService.register("existing@test.com", "password", "user"));
-        assertTrue(ex.getMessage().contains("Email already registered"));
+        assertTrue(ex.getMessage().contains("该邮箱已注册"));
     }
 
     @Test
@@ -75,7 +75,7 @@ class UserServiceTest {
 
         RuntimeException ex = assertThrows(RuntimeException.class,
                 () -> userService.register("new@test.com", "password", "existinguser"));
-        assertTrue(ex.getMessage().contains("Username already taken"));
+        assertTrue(ex.getMessage().contains("用户名已被使用"));
     }
 
     @Test
