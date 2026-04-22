@@ -193,6 +193,10 @@ export default function ChipReport() {
   const modelData = extractModelData(operators);
   const coverageData = safeParse(report.coverage);
 
+  // #538: 全分100异常检测 — 当所有评分均为100时显示警告
+  const validScoreOps = operators.filter(o => o.dataStatus === "VALID" && o.score !== undefined && o.score !== null);
+  const allScores100 = validScoreOps.length > 0 && validScoreOps.every(o => o.score === 100);
+
   // 算子排行表列
   const columns = [
     {
@@ -462,6 +466,17 @@ export default function ChipReport() {
       </div>
 
       <div ref={reportRef}>
+
+      {/* #538: 评分异常提示 */}
+      {allScores100 && (
+        <Alert
+          type="warning"
+          showIcon
+          message="评分异常提示"
+          description="所有维度评分均为 100 分，建议检查评测数据是否完整、基线配置是否正确。"
+          style={{ marginBottom: 16 }}
+        />
+      )}
 
       {/* ── 报告头部信息 ── */}
       <Card style={{ marginBottom: 24 }}>
