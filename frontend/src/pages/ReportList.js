@@ -130,7 +130,7 @@ export default function ReportList() {
       return;
     }
     if (true) {
-      navigate(`/reports/compare?ids=${selectedRowKeys.join(",")}`);
+      navigate(`/chip-reports/compare?ids=${selectedRowKeys.join(",")}`);
     }
   };
 

@@ -966,7 +966,7 @@ export default function ChipProfile() {
                     type="primary"
                     size="small"
                     icon={<SwapOutlined />}
-                    onClick={() => navigate(`/reports/compare?ids=${reports.map(r => r.id).join(",")}`)}
+                    onClick={() => navigate(`/chip-reports/compare?ids=${reports.map(r => r.id).join(",")}`)}
                   >
                     📊 对比历史报告
                   </Button>

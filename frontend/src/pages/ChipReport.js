@@ -447,7 +447,7 @@ export default function ChipReport() {
             分享链接
           </Button>
           <Button icon={<SwapOutlined />}
-            onClick={() => navigate(`/reports/compare?ids=${report.id || reportId}`)}>
+            onClick={() => navigate(`/chip-reports/compare?ids=${report.id || reportId}`)}>
             与其他报告对比
           </Button>
           {report.isBaseline ? (

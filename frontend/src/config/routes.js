@@ -108,7 +108,7 @@ export const routeConfig = [
       },
       {
         key: "report-compare",
-        path: "/reports/compare",
+        path: "/chip-reports/compare",
         title: "报告对比",
         component: lazy(() => import("../pages/ReportCompare")),
         breadcrumb: [{ title: "评测中心" }, { title: "评测报告" }, { title: "报告对比" }],
