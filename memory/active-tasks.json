@@ -2,19 +2,37 @@
   {
     "id": "task-20260422-001",
     "createdAt": "2026-04-22T22:18:00+08:00",
-    "description": "全量 E2E 回归测试 — 连续4天空闲，主动跑回归验证系统稳定性",
+    "description": "全量 E2E 回归测试",
     "issues": [],
     "scope": "e2e-test",
     "files": [],
-    "status": "running",
+    "status": "done",
     "subAgentLabel": "e2e-regression-0422",
     "sessionKey": "agent:main:subagent:0bc62b61-d72e-4de1-943e-ad220e61d5ba",
     "spawnedAt": "2026-04-22T22:19:00+08:00",
-    "lastChecked": "2026-04-22T22:18:00+08:00",
+    "lastChecked": "2026-04-22T22:23:00+08:00",
+    "lastProgress": "全量测试完成",
+    "completedAt": "2026-04-22T22:23:00+08:00",
+    "result": "Backend 94.6%, Frontend 96.1%, E2E/BDD 全挂(密码过时). 创建 #535-#539",
+    "retryCount": 0,
+    "progressFile": "memory/task-progress-e2e-regression-0422.md"
+  },
+  {
+    "id": "task-20260422-002",
+    "createdAt": "2026-04-22T22:25:00+08:00",
+    "description": "修复回归测试发现的5个issue: #535(P1测试密码) #536(P2 NPE) #537(P2路径) #538(P3异常检测) #539(P3过时断言)",
+    "issues": ["#535", "#536", "#537", "#538", "#539"],
+    "scope": "full-stack",
+    "files": ["tests/", "src/", "e2e/"],
+    "status": "running",
+    "subAgentLabel": "fix-535-539",
+    "sessionKey": "agent:main:subagent:7fb2b8dc-f3ee-4ec8-958f-3f7496f3bad6",
+    "spawnedAt": "2026-04-22T22:26:00+08:00",
+    "lastChecked": "2026-04-22T22:25:00+08:00",
     "lastProgress": null,
     "completedAt": null,
     "result": null,
     "retryCount": 0,
-    "progressFile": "memory/task-progress-e2e-regression-0422.md"
+    "progressFile": "memory/task-progress-fix-535-539.md"
   }
 ]
