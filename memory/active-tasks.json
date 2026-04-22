@@ -1,1 +1,20 @@
-[]
+[
+  {
+    "id": "task-20260422-001",
+    "createdAt": "2026-04-22T22:18:00+08:00",
+    "description": "全量 E2E 回归测试 — 连续4天空闲，主动跑回归验证系统稳定性",
+    "issues": [],
+    "scope": "e2e-test",
+    "files": [],
+    "status": "running",
+    "subAgentLabel": "e2e-regression-0422",
+    "sessionKey": "agent:main:subagent:0bc62b61-d72e-4de1-943e-ad220e61d5ba",
+    "spawnedAt": "2026-04-22T22:19:00+08:00",
+    "lastChecked": "2026-04-22T22:18:00+08:00",
+    "lastProgress": null,
+    "completedAt": null,
+    "result": null,
+    "retryCount": 0,
+    "progressFile": "memory/task-progress-e2e-regression-0422.md"
+  }
+]

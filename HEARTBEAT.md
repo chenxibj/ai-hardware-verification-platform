@@ -37,6 +37,23 @@ gh issue list --repo chenxibj/ai-hardware-verification-platform --state open --j
 - **绝不能出现"有活等着干但没人在做"的情况超过一个心跳周期**
 - **不需要人工确认，自主决策自主恢复**
 
+### Step 2.5: 🔴 空闲日主动工作触发（不可跳过）
+
+**条件判断：** 如果 Step 1 + Step 2 结果为"0 open issue + 无活跃 agent + active-tasks 为空"：
+
+1. 检查最近 commit 日期，计算距今天数
+2. **如果距今 ≥ 2 天（连续空闲）→ 必须从以下清单中选择至少 1 项执行：**
+   - 🧪 全量 E2E 回归测试（每周至少跑 1 次）
+   - 📝 Code review 最近 5 个 commit
+   - 📊 测试覆盖率分析（识别未覆盖的模块）
+   - 📄 设计文档 review / 补写
+   - 🔍 PRD 对照检查（功能实现 vs PRD 描述差距）
+   - 🧹 代码质量扫描（ESLint、死代码、TODO 清理）
+3. **选择优先级：** E2E 回归 > Code review > 覆盖率分析 > 其余
+4. 执行时 spawn sub-agent，按正常流程写 active-tasks.json
+
+**🔴 这是为了解决"连续多天空闲但不主动找活"的问题（4/19-4/22 教训）。不是可选项。**
+
 ### Step 3: GitHub 变化检测
 - 对比上次检查，有新关闭的 issue → 需要验收
 - 有新创建的 issue → 记录
