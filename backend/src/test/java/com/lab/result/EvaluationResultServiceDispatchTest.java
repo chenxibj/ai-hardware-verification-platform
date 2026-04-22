@@ -30,6 +30,7 @@ class EvaluationResultServiceDispatchTest {
     @Spy  private ObjectMapper objectMapper = new ObjectMapper();
     @Mock private ScoringService scoringService;
     @Mock private TaskLifecycleService lifecycle;
+    @Mock private MetricsNormalizer metricsNormalizer;
 
     @InjectMocks
     private EvaluationResultService evaluationResultService;
@@ -46,6 +47,15 @@ class EvaluationResultServiceDispatchTest {
 
     @BeforeEach
     void setup() {
+        // Mock MetricsNormalizer to return a valid normalized map
+        java.util.Map<String, Object> normalizedMap = new java.util.LinkedHashMap<>();
+        normalizedMap.put("latencyMsMean", 0.0);
+        normalizedMap.put("throughputOps", 0.0);
+        normalizedMap.put("memoryMb", 0.0);
+        normalizedMap.put("dataStatus", "NO_DATA");
+        normalizedMap.put("rawMetrics", new java.util.LinkedHashMap<>());
+        lenient().when(metricsNormalizer.normalize(anyString())).thenReturn(normalizedMap);
+
         when(resultRepository.save(any(EvaluationResult.class)))
                 .thenAnswer(inv -> {
                     EvaluationResult r = inv.getArgument(0);
