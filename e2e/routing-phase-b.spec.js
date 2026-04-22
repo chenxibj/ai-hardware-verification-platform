@@ -3,7 +3,7 @@ const { test, expect } = require('@playwright/test');
 
 const BASE = 'http://localhost';
 const LOGIN_EMAIL = 'admin@ahvp.com';
-const LOGIN_PASSWORD = 'test123';
+const LOGIN_PASSWORD = process.env.TEST_PASSWORD || 'Admin123456';
 
 // All routes to test
 const ROUTES = [

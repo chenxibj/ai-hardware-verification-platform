@@ -41,7 +41,7 @@ check_backend() {
   local resp
   resp=$(curl -s --max-time 10 -X POST http://localhost:8080/api/auth/login \
     -H "Content-Type: application/json" \
-    -d '{"email":"test@ahvp.com","password":"test123"}' 2>/dev/null)
+    -d '{"email":"test@ahvp.com","password":"Test1234"}' 2>/dev/null)
   local code
   code=$(echo "$resp" | python3 -c "import json,sys; print(json.load(sys.stdin).get('code',''))" 2>/dev/null)
   if [ "$code" != "0" ]; then

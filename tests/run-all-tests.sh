@@ -15,7 +15,7 @@ log_fail() { GRAND_FAIL=$((GRAND_FAIL+1)); GRAND_TOTAL=$((GRAND_TOTAL+1)); echo 
 # Login
 TOKEN=$(curl -sf "$BASE_URL/auth/login" -X POST \
   -H "Content-Type: application/json" \
-  -d '{"email":"test@ahvp.com","password":"test123"}' \
+  -d '{"email":"test@ahvp.com","password":"Test1234"}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['token'])")
 if [ -z "$TOKEN" ]; then echo "FATAL: Login failed"; exit 1; fi
 echo "🔑 Logged in OK"

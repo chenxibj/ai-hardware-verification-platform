@@ -14,7 +14,7 @@ const puppeteer = require('puppeteer');
 
 const BASE_URL = process.env.RENDER_CHECK_URL || 'http://localhost';
 const TEST_EMAIL = process.env.TEST_EMAIL || 'test@ahvp.com';
-const TEST_PASSWORD = process.env.TEST_PASSWORD || 'test123';
+const TEST_PASSWORD = process.env.TEST_PASSWORD || 'Test1234';
 const QUICK_MODE = process.argv.includes('--quick');
 const TIMEOUT = parseInt(process.env.RENDER_CHECK_TIMEOUT || '30000', 10);
 
