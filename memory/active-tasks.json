@@ -20,19 +20,19 @@
   {
     "id": "task-20260422-002",
     "createdAt": "2026-04-22T22:25:00+08:00",
-    "description": "修复回归测试发现的5个issue: #535(P1测试密码) #536(P2 NPE) #537(P2路径) #538(P3异常检测) #539(P3过时断言)",
+    "description": "修复回归测试发现的5个issue: #535-#539",
     "issues": ["#535", "#536", "#537", "#538", "#539"],
     "scope": "full-stack",
     "files": ["tests/", "src/", "e2e/"],
-    "status": "running",
+    "status": "done",
     "subAgentLabel": "fix-535-539",
     "sessionKey": "agent:main:subagent:7fb2b8dc-f3ee-4ec8-958f-3f7496f3bad6",
     "spawnedAt": "2026-04-22T22:26:00+08:00",
-    "lastChecked": "2026-04-22T22:25:00+08:00",
-    "lastProgress": null,
-    "completedAt": null,
-    "result": null,
-    "retryCount": 0,
+    "lastChecked": "2026-04-22T22:46:00+08:00",
+    "lastProgress": "全部修复完成",
+    "completedAt": "2026-04-22T22:46:00+08:00",
+    "result": "#535-#539 全部修复关闭. Backend 371/371, Frontend 41/41, build OK",
+    "retryCount": 1,
     "progressFile": "memory/task-progress-fix-535-539.md"
   }
 ]
