@@ -324,7 +324,10 @@ public class BaselineService {
     }
 
     /**
-     * #533: Trigger regeneration of the latest report for a chip
+     * #533: Trigger regeneration of the latest report for a chip.
+     * #540: Create-before-delete pattern to prevent data loss.
+     *       Generate new report first, only delete old one on success.
+     *       Exceptions propagate to caller so the outer transaction can roll back.
      */
     Long triggerLatestReportRegeneration(Long chipId) {
         List<ChipReport> reports = reportRepository.findByChipIdOrderByCreatedAtAsc(chipId);
@@ -341,22 +344,22 @@ public class BaselineService {
             return null;
         }
 
-        try {
-            reportRepository.delete(latest);
-            reportRepository.flush();
+        // #540: Generate new report FIRST (create-before-delete pattern)
+        // If this fails, the old report is preserved — no data loss.
+        ChipReport newReport = reportGeneratorService.generateReport(planId);
 
-            ChipReport newReport = reportGeneratorService.generateReport(planId);
-            log.info("#533: Regenerated report {} for chip {} (planId={})",
-                    newReport.getReportNo(), chipId, planId);
-            return newReport.getId();
-        } catch (Exception e) {
-            log.error("#533: Failed to regenerate report for chip {}: {}", chipId, e.getMessage(), e);
-            return null;
-        }
+        // Only delete old report after new one is successfully created
+        reportRepository.delete(latest);
+        reportRepository.flush();
+
+        log.info("#533/#540: Regenerated report {} -> {} for chip {} (planId={})",
+                latest.getReportNo(), newReport.getReportNo(), chipId, planId);
+        return newReport.getId();
     }
 
     /**
-     * #533: Manual report regeneration by report ID
+     * #533: Manual report regeneration by report ID.
+     * #540: Create-before-delete pattern to prevent data loss.
      */
     @Transactional
     public ChipReport regenerateReport(Long reportId) {
@@ -368,11 +371,13 @@ public class BaselineService {
             throw new RuntimeException("Report has no associated plan, cannot regenerate");
         }
 
+        // #540: Generate new report FIRST, then delete old one
+        ChipReport newReport = reportGeneratorService.generateReport(planId);
+
         reportRepository.delete(existing);
         reportRepository.flush();
 
-        ChipReport newReport = reportGeneratorService.generateReport(planId);
-        log.info("#533: Manually regenerated report {} -> {} for plan {}",
+        log.info("#533/#540: Manually regenerated report {} -> {} for plan {}",
                 existing.getReportNo(), newReport.getReportNo(), planId);
 
         return newReport;

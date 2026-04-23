@@ -530,6 +530,39 @@ class BaselineServiceTest {
 
             assertThrows(RuntimeException.class, () -> baselineService.regenerateReport(999L));
         }
+
+        @Test
+        @DisplayName("#540: generateReport failure should not delete old report (data loss prevention)")
+        void test_setDefaultBaseline_reportRegenFailure_shouldNotDeleteOldReport() {
+            Chip chip = createChip(1L, "DataLoss Chip");
+            chip.setDefaultBaselinePlanId(50L); // Previous baseline (different from new)
+            when(chipRepository.findById(1L)).thenReturn(Optional.of(chip));
+            when(chipRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            EvaluationPlan plan = createPlan(100L, 1L, 13L, Instant.now());
+            when(planRepository.findById(100L)).thenReturn(Optional.of(plan));
+
+            // Existing report
+            ChipReport existingReport = new ChipReport();
+            existingReport.setId(500L);
+            existingReport.setPlanId(100L);
+            existingReport.setReportNo("RPT-001");
+            when(reportRepository.findByChipIdOrderByCreatedAtAsc(1L)).thenReturn(List.of(existingReport));
+
+            // generateReport throws an exception (simulating OOM, DB failure, etc.)
+            when(reportGeneratorService.generateReport(100L))
+                    .thenThrow(new RuntimeException("Simulated OOM during report generation"));
+
+            // The setDefaultBaseline should propagate the exception (not swallow it)
+            // so the outer transaction can roll back and the old report is preserved
+            assertThrows(RuntimeException.class,
+                    () -> baselineService.setDefaultBaseline(1L, 100L),
+                    "generateReport failure should propagate to caller");
+
+            // The old report should NOT have been deleted since the new one failed
+            verify(reportRepository, never()).delete(existingReport);
+            verify(reportRepository, never()).flush();
+        }
     }
 
     // ======= #534: Round count and stdDev =======
