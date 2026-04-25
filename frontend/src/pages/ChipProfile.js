@@ -21,6 +21,7 @@ import {
   RadarChartOutlined, HistoryOutlined, ProfileOutlined, InfoCircleOutlined,
   RiseOutlined, ExperimentOutlined, NumberOutlined, FireOutlined,
   DashboardOutlined, SwapOutlined, SafetyCertificateOutlined, WarningOutlined, StarOutlined,
+  SyncOutlined, CrownOutlined,
 } from "@ant-design/icons";
 import ReactECharts from "echarts-for-react";
 import RadarChart, { DIMENSIONS } from "../components/RadarChart";
@@ -97,6 +98,9 @@ export default function ChipProfile() {
   /* #531/#532: Baseline 数据 */
   const [baselines, setBaselines] = useState([]);
   const [baselinesLoading, setBaselinesLoading] = useState(false);
+  /* #547: Baseline 操作 loading 状态 */
+  const [settingDefaultPlanId, setSettingDefaultPlanId] = useState(null);
+  const [regeneratingPlanId, setRegeneratingPlanId] = useState(null);
 
   /* 编辑 Modal */
   const [techModalVisible, setTechModalVisible] = useState(false);
@@ -160,6 +164,73 @@ export default function ChipProfile() {
     finally { setBaselinesLoading(false); }
   }, [chipId]);
   useEffect(() => { fetchChip(); fetchPlans(); fetchReports(); fetchBaselines(); }, [fetchChip, fetchPlans, fetchReports, fetchBaselines]);
+
+  /* #547: Baseline default row highlight style */
+  useEffect(() => {
+    if (!document.getElementById("baseline-row-style")) {
+      const style = document.createElement("style");
+      style.id = "baseline-row-style";
+      style.textContent = ".baseline-default-row td { background-color: #f6ffed !important; }";
+      document.head.appendChild(style);
+    }
+    return () => {
+      const el = document.getElementById("baseline-row-style");
+      if (el) el.remove();
+    };
+  }, []);
+
+  /* ── #547: Baseline 操作 ── */
+  const handleSetDefaultBaseline = (planId, planNo) => {
+    Modal.confirm({
+      title: "设为默认基线",
+      content: `确认将 ${planNo} 设为此芯片的默认基线？这将影响评价报告的基准数据。`,
+      okText: "确认",
+      cancelText: "取消",
+      onOk: async () => {
+        setSettingDefaultPlanId(planId);
+        try {
+          const { data: resp } = await api.put(`/chips/${chipId}/baseline`, { planId });
+          if (resp.code === 0) {
+            message.success("已设为默认基线");
+            fetchBaselines();
+            fetchChip();
+          } else {
+            message.error(resp.message || "设置默认基线失败");
+          }
+        } catch (e) {
+          message.error(e.displayMessage || "设置默认基线失败");
+        } finally {
+          setSettingDefaultPlanId(null);
+        }
+      },
+    });
+  };
+
+  const handleRegenerateReport = (planId, planNo) => {
+    Modal.confirm({
+      title: "重新生成报告",
+      content: `确认为 ${planNo} 重新生成评价报告？此操作将基于最新数据重新计算评分。`,
+      okText: "确认",
+      cancelText: "取消",
+      onOk: async () => {
+        setRegeneratingPlanId(planId);
+        try {
+          const { data: resp } = await api.post(`/chip-reports/regenerate/${planId}`);
+          if (resp.code === 0) {
+            message.success("报告重新生成成功");
+            fetchBaselines();
+            fetchReports();
+          } else {
+            message.error(resp.message || "重新生成报告失败");
+          }
+        } catch (e) {
+          message.error(e.displayMessage || "重新生成报告失败");
+        } finally {
+          setRegeneratingPlanId(null);
+        }
+      },
+    });
+  };
 
   /* ── 编辑技术规格（增强版 #160） ── */
   const openTechModal = () => {
@@ -1152,8 +1223,14 @@ export default function ChipProfile() {
                     rowKey="planId"
                     size="small"
                     pagination={false}
+                    rowClassName={(row) => row.isDefault ? "baseline-default-row" : ""}
                     columns={[
-                      { title: "Plan", dataIndex: "planNo", width: 140 },
+                      { title: "Plan", dataIndex: "planNo", width: 140, render: (v, row) => (
+                        <Space size={4}>
+                          {row.isDefault && <CrownOutlined style={{ color: "#52c41a" }} />}
+                          <span>{v}</span>
+                        </Space>
+                      )},
                       { title: "覆盖率", dataIndex: "coverageRate", width: 100, render: v => (
                         <span style={{ color: v >= 80 ? "#52c41a" : v >= 50 ? "#faad14" : "#ff4d4f" }}>{v}%</span>
                       )},
@@ -1163,10 +1240,36 @@ export default function ChipProfile() {
                       { title: "完成时间", dataIndex: "completedAt", width: 180, render: v => v ? new Date(v).toLocaleString() : "-" },
                       { title: "标记", key: "flags", width: 160, render: (_, row) => (
                         <Space size={4}>
-                          {row.isDefault && <Tag color="green">默认</Tag>}
+                          {row.isDefault && <Tag color="green">默认基线</Tag>}
                           {row.recommended && <Tag icon={<StarOutlined />} color="gold">推荐</Tag>}
                           {row.planId === group.recommendedPlanId && !row.isDefault && (
                             <Tag color="blue">最优</Tag>
+                          )}
+                        </Space>
+                      )},
+                      { title: "操作", key: "actions", width: 220, render: (_, row) => (
+                        <Space size={4}>
+                          {!row.isDefault && row.status === "COMPLETED" && (
+                            <Button
+                              type="link"
+                              size="small"
+                              icon={<CrownOutlined />}
+                              loading={settingDefaultPlanId === row.planId}
+                              onClick={() => handleSetDefaultBaseline(row.planId, row.planNo)}
+                            >
+                              设为默认
+                            </Button>
+                          )}
+                          {row.status === "COMPLETED" && (
+                            <Button
+                              type="link"
+                              size="small"
+                              icon={<SyncOutlined />}
+                              loading={regeneratingPlanId === row.planId}
+                              onClick={() => handleRegenerateReport(row.planId, row.planNo)}
+                            >
+                              重新生成报告
+                            </Button>
                           )}
                         </Space>
                       )},
