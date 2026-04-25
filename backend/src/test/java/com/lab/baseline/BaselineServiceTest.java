@@ -38,6 +38,7 @@ import static org.mockito.Mockito.*;
  * #532: Auto-recommend plans by coverage
  * #533: Report regeneration on baseline switch
  * #534: Operator round count and stdDev
+ * #545: Batch queries (N+1 fix)
  */
 @ExtendWith(MockitoExtension.class)
 class BaselineServiceTest {
@@ -136,8 +137,9 @@ class BaselineServiceTest {
             EvaluationPlan plan2 = createPlan(101L, 1L, 15L, Instant.now());
 
             when(planRepository.findByChipId(1L)).thenReturn(List.of(plan1, plan2));
-            when(resultRepository.findByPlanId(anyLong())).thenReturn(List.of());
-            when(taskRepository.findByPlanId(anyLong())).thenReturn(List.of());
+            // #545: batch queries
+            when(resultRepository.findByPlanIdIn(anyList())).thenReturn(List.of());
+            when(taskRepository.findByPlanIdIn(anyList())).thenReturn(List.of());
 
             List<Map<String, Object>> baselines = baselineService.listBaselines(1L);
 
@@ -226,8 +228,9 @@ class BaselineServiceTest {
             // Completed 10 days ago
             EvaluationPlan plan = createPlan(100L, 1L, 13L, Instant.now().minus(10, ChronoUnit.DAYS));
             when(planRepository.findByChipId(1L)).thenReturn(List.of(plan));
-            when(resultRepository.findByPlanId(100L)).thenReturn(List.of());
-            when(taskRepository.findByPlanId(100L)).thenReturn(List.of());
+            // #545: batch queries
+            when(resultRepository.findByPlanIdIn(anyList())).thenReturn(List.of());
+            when(taskRepository.findByPlanIdIn(anyList())).thenReturn(List.of());
 
             List<Map<String, Object>> baselines = baselineService.listBaselines(1L);
 
@@ -248,8 +251,9 @@ class BaselineServiceTest {
             // Completed 100 days ago
             EvaluationPlan plan = createPlan(100L, 1L, 13L, Instant.now().minus(100, ChronoUnit.DAYS));
             when(planRepository.findByChipId(1L)).thenReturn(List.of(plan));
-            when(resultRepository.findByPlanId(100L)).thenReturn(List.of());
-            when(taskRepository.findByPlanId(100L)).thenReturn(List.of());
+            // #545: batch queries
+            when(resultRepository.findByPlanIdIn(anyList())).thenReturn(List.of());
+            when(taskRepository.findByPlanIdIn(anyList())).thenReturn(List.of());
 
             List<Map<String, Object>> baselines = baselineService.listBaselines(1L);
 
@@ -273,8 +277,9 @@ class BaselineServiceTest {
             // 50 days old — stale with 30-day threshold but not with 90
             EvaluationPlan plan = createPlan(100L, 1L, 13L, Instant.now().minus(50, ChronoUnit.DAYS));
             when(planRepository.findByChipId(1L)).thenReturn(List.of(plan));
-            when(resultRepository.findByPlanId(100L)).thenReturn(List.of());
-            when(taskRepository.findByPlanId(100L)).thenReturn(List.of());
+            // #545: batch queries
+            when(resultRepository.findByPlanIdIn(anyList())).thenReturn(List.of());
+            when(taskRepository.findByPlanIdIn(anyList())).thenReturn(List.of());
 
             List<Map<String, Object>> baselines = baselineService.listBaselines(1L);
             assertTrue((boolean) baselines.get(0).get("isStale"));
@@ -304,14 +309,16 @@ class BaselineServiceTest {
             for (int i = 1; i <= 10; i++) {
                 tasks.add(createTask((long) i, 100L, "Op" + i));
             }
-            when(taskRepository.findByPlanId(100L)).thenReturn(tasks);
 
             List<EvaluationResult> results = new ArrayList<>();
             for (int i = 1; i <= 9; i++) {
                 results.add(createResult((long) i, (long) i, 100L,
                         "{\"latency_ms_mean\": 1.5, \"avg_latency_ms\": 1.5}"));
             }
-            when(resultRepository.findByPlanId(100L)).thenReturn(results);
+
+            // #545: batch queries
+            when(resultRepository.findByPlanIdIn(anyList())).thenReturn(results);
+            when(taskRepository.findByPlanIdIn(anyList())).thenReturn(tasks);
 
             List<Map<String, Object>> baselines = baselineService.listBaselines(1L);
             assertEquals(1, baselines.size());
@@ -339,14 +346,16 @@ class BaselineServiceTest {
             for (int i = 1; i <= 10; i++) {
                 tasks.add(createTask((long) i, 100L, "Op" + i));
             }
-            when(taskRepository.findByPlanId(100L)).thenReturn(tasks);
 
             List<EvaluationResult> results = new ArrayList<>();
             for (int i = 1; i <= 5; i++) {
                 results.add(createResult((long) i, (long) i, 100L,
                         "{\"latency_ms_mean\": 1.5}"));
             }
-            when(resultRepository.findByPlanId(100L)).thenReturn(results);
+
+            // #545: batch queries
+            when(resultRepository.findByPlanIdIn(anyList())).thenReturn(results);
+            when(taskRepository.findByPlanIdIn(anyList())).thenReturn(tasks);
 
             List<Map<String, Object>> baselines = baselineService.listBaselines(1L);
 
@@ -368,7 +377,7 @@ class BaselineServiceTest {
             when(planRepository.findByChipIdAndRunSpecIdAndStatus(1L, 13L, EvaluationPlan.PlanStatus.COMPLETED))
                     .thenReturn(List.of(plan1, plan2));
 
-            // Plan 1: 10 tasks, 5 results
+            // Plan 1: 10 tasks, 5 results (still uses findByPlanId for computePlanCoverage)
             List<EvaluationTask> tasks1 = new ArrayList<>();
             for (int i = 1; i <= 10; i++) tasks1.add(createTask((long) i, 100L, "Op" + i));
             when(taskRepository.findByPlanId(100L)).thenReturn(tasks1);
@@ -591,15 +600,15 @@ class BaselineServiceTest {
 
             // Plan 1: MatMul task
             EvaluationTask task1 = createTask(1L, 100L, "MatMul");
-            when(taskRepository.findByPlanId(100L)).thenReturn(List.of(task1));
             EvaluationResult result1 = createResult(1L, 1L, 100L, "{\"latency_ms_mean\": 2.0}");
-            when(resultRepository.findByPlanId(100L)).thenReturn(List.of(result1));
 
             // Plan 2: MatMul task
             EvaluationTask task2 = createTask(2L, 101L, "MatMul");
-            when(taskRepository.findByPlanId(101L)).thenReturn(List.of(task2));
             EvaluationResult result2 = createResult(2L, 2L, 101L, "{\"latency_ms_mean\": 2.5}");
-            when(resultRepository.findByPlanId(101L)).thenReturn(List.of(result2));
+
+            // #545: batch queries
+            when(taskRepository.findByPlanIdIn(anyList())).thenReturn(List.of(task1, task2));
+            when(resultRepository.findByPlanIdIn(anyList())).thenReturn(List.of(result1, result2));
 
             Map<String, Object> coverage = baselineService.getBaselineCoverage(1L, 13L);
 
@@ -633,9 +642,11 @@ class BaselineServiceTest {
                     .thenReturn(List.of(plan));
 
             EvaluationTask task = createTask(1L, 100L, "Conv2D");
-            when(taskRepository.findByPlanId(100L)).thenReturn(List.of(task));
             EvaluationResult result = createResult(1L, 1L, 100L, "{\"latency_ms_mean\": 3.0}");
-            when(resultRepository.findByPlanId(100L)).thenReturn(List.of(result));
+
+            // #545: batch queries
+            when(taskRepository.findByPlanIdIn(anyList())).thenReturn(List.of(task));
+            when(resultRepository.findByPlanIdIn(anyList())).thenReturn(List.of(result));
 
             Map<String, Object> coverage = baselineService.getBaselineCoverage(1L, 13L);
 
@@ -668,14 +679,14 @@ class BaselineServiceTest {
 
             // Very different latencies: 1.0 and 5.0
             EvaluationTask task1 = createTask(1L, 100L, "MatMul");
-            when(taskRepository.findByPlanId(100L)).thenReturn(List.of(task1));
             EvaluationResult result1 = createResult(1L, 1L, 100L, "{\"latency_ms_mean\": 1.0}");
-            when(resultRepository.findByPlanId(100L)).thenReturn(List.of(result1));
 
             EvaluationTask task2 = createTask(2L, 101L, "MatMul");
-            when(taskRepository.findByPlanId(101L)).thenReturn(List.of(task2));
             EvaluationResult result2 = createResult(2L, 2L, 101L, "{\"latency_ms_mean\": 5.0}");
-            when(resultRepository.findByPlanId(101L)).thenReturn(List.of(result2));
+
+            // #545: batch queries
+            when(taskRepository.findByPlanIdIn(anyList())).thenReturn(List.of(task1, task2));
+            when(resultRepository.findByPlanIdIn(anyList())).thenReturn(List.of(result1, result2));
 
             Map<String, Object> coverage = baselineService.getBaselineCoverage(1L, 13L);
 
@@ -700,6 +711,98 @@ class BaselineServiceTest {
 
             Double l4 = baselineService.extractLatency("invalid json");
             assertNull(l4);
+        }
+    }
+
+    // ======= #545: Batch query verification =======
+
+    @Nested
+    @DisplayName("#545: Batch queries eliminate N+1")
+    class BatchQueryVerification {
+
+        @Test
+        @DisplayName("listBaselines uses batch queries instead of per-plan queries")
+        void listBaselines_usesBatchQueries() {
+            Chip chip = createChip(1L, "Batch Chip");
+            when(chipRepository.findById(1L)).thenReturn(Optional.of(chip));
+
+            RunSpec spec = createRunSpec(13L, "Single", "GPU-1", 1);
+            when(runSpecRepository.findById(13L)).thenReturn(Optional.of(spec));
+
+            // 3 plans under same runSpec — would cause 3*2=6 individual queries before fix
+            EvaluationPlan plan1 = createPlan(100L, 1L, 13L, Instant.now());
+            EvaluationPlan plan2 = createPlan(101L, 1L, 13L, Instant.now());
+            EvaluationPlan plan3 = createPlan(102L, 1L, 13L, Instant.now());
+            when(planRepository.findByChipId(1L)).thenReturn(List.of(plan1, plan2, plan3));
+
+            // Tasks and results for all plans
+            List<EvaluationTask> allTasks = List.of(
+                    createTask(1L, 100L, "Op1"),
+                    createTask(2L, 101L, "Op2"),
+                    createTask(3L, 102L, "Op3"));
+            List<EvaluationResult> allResults = List.of(
+                    createResult(1L, 1L, 100L, "{\"latency_ms_mean\": 1.0}"),
+                    createResult(2L, 2L, 101L, "{\"latency_ms_mean\": 2.0}"));
+
+            when(taskRepository.findByPlanIdIn(anyList())).thenReturn(allTasks);
+            when(resultRepository.findByPlanIdIn(anyList())).thenReturn(allResults);
+
+            List<Map<String, Object>> baselines = baselineService.listBaselines(1L);
+
+            // Verify batch methods were called exactly once each
+            verify(taskRepository, times(1)).findByPlanIdIn(anyList());
+            verify(resultRepository, times(1)).findByPlanIdIn(anyList());
+
+            // Verify per-plan methods were NOT called (N+1 eliminated)
+            verify(taskRepository, never()).findByPlanId(anyLong());
+            verify(resultRepository, never()).findByPlanId(anyLong());
+
+            assertEquals(1, baselines.size());
+            assertEquals(2, baselines.get(0).get("coveredItems")); // 2 results with metrics
+        }
+
+        @Test
+        @DisplayName("getBaselineCoverage uses batch queries for tasks and results")
+        void getBaselineCoverage_usesBatchQueries() {
+            Chip chip = createChip(1L, "BatchCov Chip");
+            when(chipRepository.findById(1L)).thenReturn(Optional.of(chip));
+
+            when(scoringService.getBaselineLatencyMap(13L)).thenReturn(Map.of("Op1", 1.0, "Op2", 2.0));
+            when(scoringService.getBaselineSource(13L)).thenReturn(Map.of());
+
+            RunSpec spec = createRunSpec(13L, "Single", "GPU-1", 1);
+            when(runSpecRepository.findById(13L)).thenReturn(Optional.of(spec));
+
+            EvaluationPlan plan1 = createPlan(100L, 1L, 13L, Instant.now());
+            EvaluationPlan plan2 = createPlan(101L, 1L, 13L, Instant.now());
+            when(planRepository.findByChipIdAndRunSpecIdAndStatus(1L, 13L, EvaluationPlan.PlanStatus.COMPLETED))
+                    .thenReturn(List.of(plan1, plan2));
+
+            List<EvaluationTask> allTasks = List.of(
+                    createTask(1L, 100L, "Op1"),
+                    createTask(2L, 101L, "Op2"));
+            List<EvaluationResult> allResults = List.of(
+                    createResult(1L, 1L, 100L, "{\"latency_ms_mean\": 1.5}"),
+                    createResult(2L, 2L, 101L, "{\"latency_ms_mean\": 2.5}"));
+
+            when(taskRepository.findByPlanIdIn(anyList())).thenReturn(allTasks);
+            when(resultRepository.findByPlanIdIn(anyList())).thenReturn(allResults);
+
+            Map<String, Object> coverage = baselineService.getBaselineCoverage(1L, 13L);
+
+            // Verify batch methods were called exactly once each
+            verify(taskRepository, times(1)).findByPlanIdIn(anyList());
+            verify(resultRepository, times(1)).findByPlanIdIn(anyList());
+
+            // Verify per-plan methods were NOT called
+            verify(taskRepository, never()).findByPlanId(anyLong());
+            verify(resultRepository, never()).findByPlanId(anyLong());
+
+            // Verify operators were built from the same batch data
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> operators = (List<Map<String, Object>>) coverage.get("operators");
+            assertNotNull(operators);
+            assertEquals(2, operators.size());
         }
     }
 }

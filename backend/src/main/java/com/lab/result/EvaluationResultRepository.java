@@ -10,4 +10,5 @@ public interface EvaluationResultRepository extends JpaRepository<EvaluationResu
     Optional<EvaluationResult> findByTaskId(Long taskId);
     List<EvaluationResult> findByPlanId(Long planId);
     List<EvaluationResult> findByChipId(Long chipId);
+    List<EvaluationResult> findByPlanIdIn(List<Long> planIds);
 }

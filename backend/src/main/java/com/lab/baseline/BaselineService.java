@@ -16,7 +16,6 @@ import com.lab.chipreport.ChipReportRepository;
 import com.lab.chipreport.ReportGeneratorService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -33,6 +32,7 @@ import java.util.stream.Collectors;
  * #532: Auto-recommend plans with coverage >= 80% (recommended)
  * #533: Trigger report regeneration on baseline switch
  * #534: Coverage detail with roundCount and stdDev
+ * #545: Batch queries to fix N+1 in listBaselines/getBaselineCoverage
  */
 @Slf4j
 @Service
@@ -94,6 +94,7 @@ public class BaselineService {
      * List baselines for a chip grouped by run_spec.
      * #531: adds isStale, staleDays per group
      * #532: adds recommended, recommendedPlanId per group
+     * #545: batch queries to fix N+1
      */
     public List<Map<String, Object>> listBaselines(Long chipId) {
         Chip chip = chipRepository.findById(chipId)
@@ -103,6 +104,18 @@ public class BaselineService {
                 .filter(p -> p.getStatus() == EvaluationPlan.PlanStatus.COMPLETED)
                 .filter(p -> p.getRunSpecId() != null)
                 .collect(Collectors.toList());
+
+        // #545: Batch-fetch all results and tasks for all plans in one query each
+        List<Long> allPlanIds = plans.stream().map(EvaluationPlan::getId).collect(Collectors.toList());
+
+        Map<Long, List<EvaluationResult>> resultsByPlan = Collections.emptyMap();
+        Map<Long, List<EvaluationTask>> tasksByPlan = Collections.emptyMap();
+        if (!allPlanIds.isEmpty()) {
+            resultsByPlan = resultRepository.findByPlanIdIn(allPlanIds).stream()
+                    .collect(Collectors.groupingBy(EvaluationResult::getPlanId));
+            tasksByPlan = taskRepository.findByPlanIdIn(allPlanIds).stream()
+                    .collect(Collectors.groupingBy(EvaluationTask::getPlanId));
+        }
 
         Map<Long, List<EvaluationPlan>> byRunSpec = plans.stream()
                 .collect(Collectors.groupingBy(EvaluationPlan::getRunSpecId));
@@ -121,12 +134,12 @@ public class BaselineService {
             group.put("gpuPerNode", runSpec != null ? runSpec.getGpuPerNode() : null);
             group.put("category", runSpec != null ? runSpec.getCategory() : null);
 
-            // Count covered test items
+            // Count covered test items using pre-fetched data
             Set<String> coveredItems = new HashSet<>();
             int totalTestItems = 0;
             for (EvaluationPlan plan : specPlans) {
-                List<EvaluationResult> results = resultRepository.findByPlanId(plan.getId());
-                List<EvaluationTask> tasks = taskRepository.findByPlanId(plan.getId());
+                List<EvaluationResult> results = resultsByPlan.getOrDefault(plan.getId(), Collections.emptyList());
+                List<EvaluationTask> tasks = tasksByPlan.getOrDefault(plan.getId(), Collections.emptyList());
                 Map<Long, String> taskItemMap = tasks.stream()
                         .filter(t -> t.getTestItem() != null)
                         .collect(Collectors.toMap(EvaluationTask::getId, EvaluationTask::getTestItem));
@@ -172,6 +185,7 @@ public class BaselineService {
             }
 
             // Plan list with per-plan coverage and recommended flag
+            // #545: Use pre-fetched data for computePlanCoverage
             List<Map<String, Object>> planList = new ArrayList<>();
             for (EvaluationPlan plan : specPlans) {
                 Map<String, Object> planInfo = new LinkedHashMap<>();
@@ -183,7 +197,9 @@ public class BaselineService {
                 planInfo.put("completedTasks", plan.getCompletedTasks());
                 planInfo.put("isDefault", plan.getId().equals(chip.getDefaultBaselinePlanId()));
 
-                double planCoverage = computePlanCoverage(plan);
+                double planCoverage = computePlanCoverageFromData(
+                        tasksByPlan.getOrDefault(plan.getId(), Collections.emptyList()),
+                        resultsByPlan.getOrDefault(plan.getId(), Collections.emptyList()));
                 planInfo.put("coverageRate", planCoverage);
                 // #532: recommended if coverage >= 80%
                 planInfo.put("recommended", planCoverage >= 80.0);
@@ -213,12 +229,19 @@ public class BaselineService {
     }
 
     /**
-     * #532: Compute coverage rate for a single plan
+     * #532: Compute coverage rate for a single plan.
+     * Delegates to single-query version for backward compatibility (used by findRecommendedPlan).
      */
     double computePlanCoverage(EvaluationPlan plan) {
         List<EvaluationTask> tasks = taskRepository.findByPlanId(plan.getId());
         List<EvaluationResult> results = resultRepository.findByPlanId(plan.getId());
+        return computePlanCoverageFromData(tasks, results);
+    }
 
+    /**
+     * #545: Compute coverage from pre-fetched tasks and results (no DB calls).
+     */
+    private double computePlanCoverageFromData(List<EvaluationTask> tasks, List<EvaluationResult> results) {
         Set<String> allItems = tasks.stream()
                 .filter(t -> t.getTestItem() != null)
                 .map(EvaluationTask::getTestItem)
@@ -386,6 +409,7 @@ public class BaselineService {
     /**
      * Get baseline coverage with operator details.
      * #534: Adds roundCount, stdDev, unstable per operator.
+     * #545: Batch queries to fix N+1 and eliminate duplicate queries.
      */
     public Map<String, Object> getBaselineCoverage(Long chipId, Long runSpecId) {
         Map<String, Object> coverage = new LinkedHashMap<>();
@@ -410,9 +434,20 @@ public class BaselineService {
                         .collect(Collectors.toList());
             }
 
+            // #545: Batch-fetch all tasks and results for chipPlans in one query each
+            List<Long> planIds = chipPlans.stream().map(EvaluationPlan::getId).collect(Collectors.toList());
+            Map<Long, List<EvaluationTask>> tasksByPlan = Collections.emptyMap();
+            Map<Long, List<EvaluationResult>> resultsByPlan = Collections.emptyMap();
+            if (!planIds.isEmpty()) {
+                tasksByPlan = taskRepository.findByPlanIdIn(planIds).stream()
+                        .collect(Collectors.groupingBy(EvaluationTask::getPlanId));
+                resultsByPlan = resultRepository.findByPlanIdIn(planIds).stream()
+                        .collect(Collectors.groupingBy(EvaluationResult::getPlanId));
+            }
+
             Set<String> chipTestItems = new HashSet<>();
             for (EvaluationPlan plan : chipPlans) {
-                List<EvaluationTask> tasks = taskRepository.findByPlanId(plan.getId());
+                List<EvaluationTask> tasks = tasksByPlan.getOrDefault(plan.getId(), Collections.emptyList());
                 tasks.stream()
                         .filter(t -> t.getTestItem() != null)
                         .forEach(t -> chipTestItems.add(t.getTestItem()));
@@ -435,7 +470,8 @@ public class BaselineService {
                     .collect(Collectors.toList()));
 
             // #534: Per-operator round count and stdDev
-            List<Map<String, Object>> operatorDetails = buildOperatorDetails(chipPlans);
+            // #545: Pass pre-fetched data to avoid duplicate queries
+            List<Map<String, Object>> operatorDetails = buildOperatorDetails(chipPlans, tasksByPlan, resultsByPlan);
             coverage.put("operators", operatorDetails);
         }
 
@@ -456,13 +492,17 @@ public class BaselineService {
 
     /**
      * #534: Build per-operator details with roundCount and stdDev
+     * #545: Accepts pre-fetched data maps to avoid N+1 queries.
      */
-    List<Map<String, Object>> buildOperatorDetails(List<EvaluationPlan> plans) {
+    List<Map<String, Object>> buildOperatorDetails(
+            List<EvaluationPlan> plans,
+            Map<Long, List<EvaluationTask>> tasksByPlan,
+            Map<Long, List<EvaluationResult>> resultsByPlan) {
         Map<String, List<Double>> latencyByOperator = new LinkedHashMap<>();
 
         for (EvaluationPlan plan : plans) {
-            List<EvaluationTask> tasks = taskRepository.findByPlanId(plan.getId());
-            List<EvaluationResult> results = resultRepository.findByPlanId(plan.getId());
+            List<EvaluationTask> tasks = tasksByPlan.getOrDefault(plan.getId(), Collections.emptyList());
+            List<EvaluationResult> results = resultsByPlan.getOrDefault(plan.getId(), Collections.emptyList());
 
             Map<Long, String> taskItemMap = tasks.stream()
                     .filter(t -> t.getTestItem() != null)
@@ -513,6 +553,23 @@ public class BaselineService {
 
         details.sort(Comparator.comparing(d -> (String) d.get("operator")));
         return details;
+    }
+
+    /**
+     * #534: Build per-operator details (legacy signature for backward compat).
+     * Fetches data from DB — only used if called directly (not from getBaselineCoverage).
+     */
+    List<Map<String, Object>> buildOperatorDetails(List<EvaluationPlan> plans) {
+        List<Long> planIds = plans.stream().map(EvaluationPlan::getId).collect(Collectors.toList());
+        Map<Long, List<EvaluationTask>> tasksByPlan = Collections.emptyMap();
+        Map<Long, List<EvaluationResult>> resultsByPlan = Collections.emptyMap();
+        if (!planIds.isEmpty()) {
+            tasksByPlan = taskRepository.findByPlanIdIn(planIds).stream()
+                    .collect(Collectors.groupingBy(EvaluationTask::getPlanId));
+            resultsByPlan = resultRepository.findByPlanIdIn(planIds).stream()
+                    .collect(Collectors.groupingBy(EvaluationResult::getPlanId));
+        }
+        return buildOperatorDetails(plans, tasksByPlan, resultsByPlan);
     }
 
     /**
