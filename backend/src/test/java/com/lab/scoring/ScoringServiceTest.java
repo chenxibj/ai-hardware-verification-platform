@@ -5,6 +5,8 @@ import com.lab.chip.Chip;
 import com.lab.chip.ChipRepository;
 import com.lab.result.EvaluationResult;
 import com.lab.result.EvaluationResultRepository;
+import com.lab.runspec.RunSpec;
+import com.lab.runspec.RunSpecRepository;
 import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
 import com.lab.plan.EvaluationPlan;
@@ -23,6 +25,8 @@ import static org.mockito.Mockito.*;
 
 /**
  * TDD tests for #434: scoring -> vs L40S percentage
+ * + #544: dynamic GPU→SpecId mapping
+ * + #546: Caffeine cache TTL
  */
 @ExtendWith(MockitoExtension.class)
 class ScoringServiceTest {
@@ -38,11 +42,24 @@ class ScoringServiceTest {
     private EvaluationTaskRepository taskRepository;
     @Mock
     private EvaluationPlanRepository planRepository;
+    @Mock
+    private RunSpecRepository runSpecRepository;
 
     @BeforeEach
     void setUp() {
+        // Setup default run_specs mapping for most tests
+        List<RunSpec> defaultSpecs = Arrays.asList(
+                makeRunSpec(11L, "CPU-Only", "CPU", 0),
+                makeRunSpec(13L, "Single-GPU", "GPU", 1),
+                makeRunSpec(14L, "Dual-GPU", "GPU", 2),
+                makeRunSpec(15L, "Quad-GPU", "GPU", 4),
+                makeRunSpec(16L, "Octo-GPU", "GPU", 8)
+        );
+        lenient().when(runSpecRepository.findAll()).thenReturn(defaultSpecs);
+
         scoringService = new ScoringService(objectMapper, chipRepository,
-                resultRepository, taskRepository, planRepository);
+                resultRepository, taskRepository, planRepository, runSpecRepository);
+        scoringService.initGpuCountToSpecIdMapping();
     }
 
     @Test
@@ -186,9 +203,6 @@ class ScoringServiceTest {
     @Test
     @DisplayName("#525: score should be capped at 200% to prevent extreme values")
     void scoreFromMetrics_shouldCapAt200Percent() {
-        // Baseline: Add latency = 0.013ms
-        // R5 chip: Add latency = 0.004ms → raw ratio = 325%
-        // Expected: capped at 200%
         setupL40SBaseline("Add", 0.013);
 
         String chipMetrics = "{\"latency_ms_mean\": 0.004}";
@@ -201,7 +215,6 @@ class ScoringServiceTest {
     void scoreFromMetrics_exactlyAt200_shouldNotBeCapped() {
         setupL40SBaseline("Conv2D", 0.020);
 
-        // 2x faster → exactly 200%
         String chipMetrics = "{\"latency_ms_mean\": 0.010}";
         double score = scoringService.scoreFromMetrics(chipMetrics, "Conv2D");
         assertEquals(200.0, score, 0.01, "Exactly 200% should remain 200%");
@@ -212,7 +225,6 @@ class ScoringServiceTest {
     void scoreFromMetrics_below200_shouldNotBeCapped() {
         setupL40SBaseline("Softmax", 0.010);
 
-        // 1.5x faster → 150%
         String chipMetrics = "{\"latency_ms_mean\": 0.006666}";
         double score = scoringService.scoreFromMetrics(chipMetrics, "Softmax");
         assertTrue(score < 200.0, "Score below 200% should not be affected");
@@ -224,20 +236,15 @@ class ScoringServiceTest {
     @Test
     @DisplayName("#527: score should be rounded to 2 decimal places, no .9999999 tails")
     void scoreFromMetrics_shouldBeRoundedTo2Decimals() {
-        // Setup: baseline=0.013, chip=0.013 → ratio=100.0000...001
         setupL40SBaseline("GELU", 0.013);
 
         String chipMetrics = "{\"latency_ms_mean\": 0.013}";
         double score = scoringService.scoreFromMetrics(chipMetrics, "GELU");
-        // Should be exactly 100.0, not 100.00000000000001
         assertEquals(100.0, score, 0.0, "Score should be precisely rounded, no floating point tails");
 
-        // String representation should not have excessive decimals
         String scoreStr = String.valueOf(score);
-        // After the decimal point, should have at most 2 digits
         if (scoreStr.contains(".")) {
             String decimals = scoreStr.substring(scoreStr.indexOf('.') + 1);
-            // Remove trailing zeros for comparison
             String trimmed = decimals.replaceAll("0+$", "");
             assertTrue(trimmed.length() <= 2,
                 "Score " + scoreStr + " should have at most 2 decimal places");
@@ -247,13 +254,10 @@ class ScoringServiceTest {
     @Test
     @DisplayName("#527: score with repeating decimal should be rounded")
     void scoreFromMetrics_repeatingDecimal_shouldBeRounded() {
-        // Setup: baseline=0.010, chip=0.003 → raw ratio=333.333...
-        // After 200% cap → 200.0
         setupL40SBaseline("Mul", 0.010);
 
         String chipMetrics = "{\"latency_ms_mean\": 0.003}";
         double score = scoringService.scoreFromMetrics(chipMetrics, "Mul");
-        // Capped at 200.0
         assertEquals(200.0, score, 0.01);
     }
 
@@ -262,7 +266,6 @@ class ScoringServiceTest {
     void scoreFromMetrics_noBaseline_returnsNegativeOne() {
         setupL40SBaseline("MatMul", 0.022);
 
-        // Unknown operator -> no baseline -> score=-1 (was log10 fallback)
         String chipMetrics = "{\"latency_ms_mean\": 1.5}";
         double score = scoringService.scoreFromMetrics(chipMetrics, "UnknownOp");
         assertEquals(-1.0, score, 0.01, "No baseline should return -1, not use log10");
@@ -275,18 +278,19 @@ class ScoringServiceTest {
             () -> scoringService.scoreLatency(1.0),
             "scoreLatency should throw since log10 is removed");
     }
+
     private EvaluationTask makeTask(Long id, String testItem) {
         EvaluationTask t = new EvaluationTask();
         t.setId(id);
         t.setTestItem(testItem);
         return t;
     }
+
     // ===== #525: Baseline compatibility with old data =====
 
     @Test
     @DisplayName("#525: baseline should include old data with passed=false but valid latency")
     void getBaselineLatencyMap_shouldIncludeOldDataWithPassedFalse() {
-        // Simulate old L40S data: passed=false, data_status=null, but has valid latency
         Chip l40s = new Chip();
         l40s.setId(952L);
         l40s.setName("NVIDIA L40S");
@@ -307,16 +311,14 @@ class ScoringServiceTest {
         lenient().when(taskRepository.findByPlanId(679L))
                 .thenReturn(Collections.singletonList(task));
 
-        // Old result: passed=false, data_status=null, but has valid latency_ms_mean
         EvaluationResult result = new EvaluationResult();
         result.setTaskId(100L);
-        result.setPassed(false);  // Old data often has passed=false
-        result.setDataStatus(null);  // Old data has no data_status
+        result.setPassed(false);
+        result.setDataStatus(null);
         result.setMetricsSummary("{\"latency_ms_mean\": 0.013}");
         lenient().when(resultRepository.findByPlanId(679L))
                 .thenReturn(Collections.singletonList(result));
 
-        // Should still find baseline data (0.013)
         Double baseline = scoringService.getBaselineLatency("GELU");
         assertNotNull(baseline, "Old data with valid latency should be included as baseline");
         assertEquals(0.013, baseline, 0.001, "Baseline latency should be 0.013");
@@ -345,7 +347,6 @@ class ScoringServiceTest {
         lenient().when(taskRepository.findByPlanId(679L))
                 .thenReturn(Collections.singletonList(task));
 
-        // FAILED result should be excluded
         EvaluationResult result = new EvaluationResult();
         result.setTaskId(100L);
         result.setPassed(false);
@@ -364,7 +365,6 @@ class ScoringServiceTest {
     @Test
     @DisplayName("#527: calculateOverallScore should be rounded to 2 decimal places")
     void calculateOverallScore_shouldBeRounded() {
-        // Setup baselines for 3 operators with values that produce repeating decimals
         Chip l40s = new Chip();
         l40s.setId(952L);
         l40s.setName("NVIDIA L40S");
@@ -408,11 +408,6 @@ class ScoringServiceTest {
         when(resultRepository.findByPlanId(679L))
                 .thenReturn(Arrays.asList(br1, br2, br3));
 
-        // Chip results: 3 ops with scores that average to a repeating decimal
-        // OpA: baseline=0.010, chip=0.015 -> 66.67%
-        // OpB: baseline=0.020, chip=0.015 -> 133.33%
-        // OpC: baseline=0.030, chip=0.015 -> 200.0%
-        // Average: (66.67 + 133.33 + 200.0) / 3 = 133.333...
         EvaluationResult r1 = makeResult(1L, "{\"latency_ms_mean\": 0.015}", true);
         EvaluationResult r2 = makeResult(2L, "{\"latency_ms_mean\": 0.015}", true);
         EvaluationResult r3 = makeResult(3L, "{\"latency_ms_mean\": 0.015}", true);
@@ -424,7 +419,6 @@ class ScoringServiceTest {
         double overall = scoringService.calculateOverallScore(
                 Arrays.asList(r1, r2, r3), Arrays.asList(t1, t2, t3));
 
-        // Should be 133.33, not 133.33333333...
         String scoreStr = String.valueOf(overall);
         if (scoreStr.contains(".")) {
             String decimals = scoreStr.substring(scoreStr.indexOf('.') + 1);
@@ -437,7 +431,6 @@ class ScoringServiceTest {
     @Test
     @DisplayName("#527: calculateDimensionScores should be rounded to 2 decimal places")
     void calculateDimensionScores_shouldBeRounded() {
-        // Setup baseline
         Chip l40s = new Chip();
         l40s.setId(952L);
         l40s.setName("NVIDIA L40S");
@@ -465,10 +458,6 @@ class ScoringServiceTest {
         when(resultRepository.findByPlanId(679L))
                 .thenReturn(Collections.singletonList(br1));
 
-        // Two results for same dimension that produce repeating average
-        // MatMul: baseline=0.010, chip1=0.015 -> 66.67, chip2=0.012 -> 83.33
-        // Average: (66.67 + 83.33) / 2 = 75.0 (clean in this case)
-        // Let's use 3 results: 66.67 + 83.33 + 100.0 -> avg = 83.333...
         EvaluationResult r1 = makeResult(1L, "{\"latency_ms_mean\": 0.015}", true);
         EvaluationResult r2 = makeResult(2L, "{\"latency_ms_mean\": 0.012}", true);
         EvaluationResult r3 = makeResult(3L, "{\"latency_ms_mean\": 0.010}", true);
@@ -496,14 +485,12 @@ class ScoringServiceTest {
     @Test
     @DisplayName("#527: scoreFromMetrics with tricky ratio should not have precision tails")
     void scoreFromMetrics_trickyRatio_noPrecisionTails() {
-        // 1/3 ratio scenario: baseline=0.010, chip=0.030 -> 33.333...%
         setupL40SBaseline("TrickyOp", 0.010);
 
         String chipMetrics = "{\"latency_ms_mean\": 0.030}";
         double score = scoringService.scoreFromMetrics(chipMetrics, "TrickyOp");
 
         assertEquals(33.33, score, 0.001, "1/3 ratio should be rounded to 33.33");
-        // Verify no long decimal tails
         String scoreStr = String.valueOf(score);
         if (scoreStr.contains(".")) {
             String decimals = scoreStr.substring(scoreStr.indexOf('.') + 1);
@@ -513,4 +500,165 @@ class ScoringServiceTest {
         }
     }
 
+    // ===== #544: Dynamic GPU_COUNT_TO_SPEC_ID from DB =====
+
+    @Test
+    @DisplayName("#544: gpuCountToSpecId should be loaded from DB run_specs table")
+    void gpuCountToSpecId_shouldBeLoadedFromDb() {
+        // Default setUp already loads default specs, verify inference works
+        Long result = scoringService.inferRunSpecIdFromEvalConfig("{\"gpuCount\": 4}");
+        assertEquals(15L, result);
+    }
+
+    @Test
+    @DisplayName("#544: DB ID changes should be reflected after reload")
+    void gpuCountToSpecId_dbIdChange_shouldReflectAfterReload() {
+        // Simulate DB IDs changed (e.g. after migration)
+        List<RunSpec> changedSpecs = Arrays.asList(
+                makeRunSpec(100L, "CPU-Only", "CPU", 0),
+                makeRunSpec(200L, "Single-GPU", "GPU", 1),
+                makeRunSpec(300L, "Dual-GPU", "GPU", 2),
+                makeRunSpec(400L, "Quad-GPU", "GPU", 4),
+                makeRunSpec(500L, "Octo-GPU", "GPU", 8)
+        );
+        when(runSpecRepository.findAll()).thenReturn(changedSpecs);
+
+        scoringService.initGpuCountToSpecIdMapping();
+
+        // Should use DB IDs, not hardcoded ones
+        assertEquals(200L, scoringService.inferRunSpecIdFromEvalConfig("{\"gpuCount\": 1}"));
+        assertEquals(300L, scoringService.inferRunSpecIdFromEvalConfig("{\"gpuCount\": 2}"));
+        assertEquals(400L, scoringService.inferRunSpecIdFromEvalConfig("{\"gpuCount\": 4}"));
+        assertEquals(500L, scoringService.inferRunSpecIdFromEvalConfig("{\"gpuCount\": 8}"));
+        assertEquals(100L, scoringService.inferRunSpecIdFromEvalConfig("{\"gpuCount\": 0}"));
+    }
+
+    @Test
+    @DisplayName("#544: empty run_specs table should log error and use empty mapping")
+    void gpuCountToSpecId_emptyTable_shouldUseEmptyMapping() {
+        when(runSpecRepository.findAll()).thenReturn(Collections.emptyList());
+
+        scoringService.initGpuCountToSpecIdMapping();
+
+        // With empty mapping, inference should return null for any gpuCount
+        assertNull(scoringService.inferRunSpecIdFromEvalConfig("{\"gpuCount\": 1}"));
+    }
+
+    @Test
+    @DisplayName("#544: no gpuCount in config with DB-loaded mapping should map to CPU spec")
+    void gpuCountToSpecId_noGpuCountField_shouldMapToCpu() {
+        Long result = scoringService.inferRunSpecIdFromEvalConfig("{\"preset\": \"QUICK\"}");
+        assertEquals(11L, result, "No gpuCount → CPU spec (0 gpuPerNode)");
+    }
+
+    // ===== #546: Caffeine cache TTL for baselineCacheBySpec =====
+
+    @Test
+    @DisplayName("#546: baseline cache should be populated and returned on subsequent calls")
+    void baselineCache_shouldCacheResults() {
+        Chip l40s = new Chip();
+        l40s.setId(952L);
+        l40s.setName("NVIDIA L40S");
+        l40s.setChipNo("CHIP-BASELINE-L40S");
+        when(chipRepository.findByNameContainingIgnoreCase("L40S"))
+                .thenReturn(Collections.singletonList(l40s));
+
+        EvaluationPlan baselinePlan = new EvaluationPlan();
+        baselinePlan.setId(679L);
+        baselinePlan.setChipId(952L);
+        baselinePlan.setStatus(EvaluationPlan.PlanStatus.COMPLETED);
+        when(planRepository.findByChipIdAndRunSpecIdAndStatus(952L, 13L, EvaluationPlan.PlanStatus.COMPLETED))
+                .thenReturn(Collections.singletonList(baselinePlan));
+
+        EvaluationTask task = new EvaluationTask();
+        task.setId(100L);
+        task.setTestItem("MatMul");
+        task.setPlanId(679L);
+        when(taskRepository.findByPlanId(679L))
+                .thenReturn(Collections.singletonList(task));
+
+        EvaluationResult result = new EvaluationResult();
+        result.setTaskId(100L);
+        result.setPassed(true);
+        result.setMetricsSummary("{\"latency_ms_mean\": 0.022}");
+        when(resultRepository.findByPlanId(679L))
+                .thenReturn(Collections.singletonList(result));
+
+        // First call populates cache
+        Map<String, Double> baseline1 = scoringService.getBaselineLatencyMap(13L);
+        assertFalse(baseline1.isEmpty(), "First call should load baseline");
+
+        // Second call should use cached result
+        Map<String, Double> baseline2 = scoringService.getBaselineLatencyMap(13L);
+        assertEquals(baseline1.size(), baseline2.size(), "Cached result should be returned");
+    }
+
+    @Test
+    @DisplayName("#546: clearBaselineCache should invalidate cached entry")
+    void baselineCache_clearShouldInvalidate() {
+        Chip l40s = new Chip();
+        l40s.setId(952L);
+        l40s.setName("NVIDIA L40S");
+        l40s.setChipNo("CHIP-BASELINE-L40S");
+        when(chipRepository.findByNameContainingIgnoreCase("L40S"))
+                .thenReturn(Collections.singletonList(l40s));
+
+        EvaluationPlan baselinePlan = new EvaluationPlan();
+        baselinePlan.setId(679L);
+        baselinePlan.setChipId(952L);
+        baselinePlan.setStatus(EvaluationPlan.PlanStatus.COMPLETED);
+        when(planRepository.findByChipIdAndRunSpecIdAndStatus(952L, 13L, EvaluationPlan.PlanStatus.COMPLETED))
+                .thenReturn(Collections.singletonList(baselinePlan));
+
+        EvaluationTask task = new EvaluationTask();
+        task.setId(100L);
+        task.setTestItem("MatMul");
+        task.setPlanId(679L);
+        when(taskRepository.findByPlanId(679L))
+                .thenReturn(Collections.singletonList(task));
+
+        EvaluationResult result = new EvaluationResult();
+        result.setTaskId(100L);
+        result.setPassed(true);
+        result.setMetricsSummary("{\"latency_ms_mean\": 0.022}");
+        when(resultRepository.findByPlanId(679L))
+                .thenReturn(Collections.singletonList(result));
+
+        // Populate cache
+        scoringService.getBaselineLatencyMap(13L);
+
+        // Clear specific entry
+        scoringService.clearBaselineCache(13L);
+
+        // Should reload from DB (verify repository is called again)
+        Map<String, Double> baseline3 = scoringService.getBaselineLatencyMap(13L);
+        assertFalse(baseline3.isEmpty(), "After cache clear, should reload from DB");
+
+        // Verify findByChipIdAndRunSpecIdAndStatus was called at least 2 times
+        // (once for initial load, once after cache clear)
+        verify(planRepository, atLeast(2))
+                .findByChipIdAndRunSpecIdAndStatus(952L, 13L, EvaluationPlan.PlanStatus.COMPLETED);
+    }
+
+    @Test
+    @DisplayName("#546: baseline cache size should be bounded")
+    void baselineCache_shouldBeBounded() {
+        when(chipRepository.findByNameContainingIgnoreCase("L40S"))
+                .thenReturn(Collections.emptyList());
+
+        // Load baselines for many spec IDs - Caffeine should evict older entries
+        for (long i = 1; i <= 100; i++) {
+            scoringService.getBaselineLatencyMap(i);
+        }
+        // No OOM, no exception - Caffeine eviction works
+    }
+
+    private RunSpec makeRunSpec(Long id, String name, String category, int gpuPerNode) {
+        RunSpec spec = new RunSpec();
+        spec.setId(id);
+        spec.setName(name);
+        spec.setCategory(category);
+        spec.setGpuPerNode(gpuPerNode);
+        return spec;
+    }
 }

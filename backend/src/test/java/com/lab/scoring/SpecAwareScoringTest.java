@@ -7,6 +7,8 @@ import com.lab.plan.EvaluationPlan;
 import com.lab.plan.EvaluationPlanRepository;
 import com.lab.result.EvaluationResult;
 import com.lab.result.EvaluationResultRepository;
+import com.lab.runspec.RunSpec;
+import com.lab.runspec.RunSpecRepository;
 import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,6 +26,7 @@ import static org.mockito.Mockito.*;
 
 /**
  * #528: Tests for spec-aware baseline matching in ScoringService
+ * #544: Updated to use dynamic DB-loaded mapping
  */
 @ExtendWith(MockitoExtension.class)
 class SpecAwareScoringTest {
@@ -34,13 +37,34 @@ class SpecAwareScoringTest {
     @Mock private EvaluationResultRepository resultRepository;
     @Mock private EvaluationTaskRepository taskRepository;
     @Mock private EvaluationPlanRepository planRepository;
+    @Mock private RunSpecRepository runSpecRepository;
 
     private ScoringService scoringService;
 
     @BeforeEach
     void setUp() {
+        // #544: Setup default run_specs mapping from DB
+        List<RunSpec> defaultSpecs = Arrays.asList(
+                makeRunSpec(11L, "CPU-Only", "CPU", 0),
+                makeRunSpec(13L, "Single-GPU", "GPU", 1),
+                makeRunSpec(14L, "Dual-GPU", "GPU", 2),
+                makeRunSpec(15L, "Quad-GPU", "GPU", 4),
+                makeRunSpec(16L, "Octo-GPU", "GPU", 8)
+        );
+        lenient().when(runSpecRepository.findAll()).thenReturn(defaultSpecs);
+
         scoringService = new ScoringService(objectMapper, chipRepository,
-                resultRepository, taskRepository, planRepository);
+                resultRepository, taskRepository, planRepository, runSpecRepository);
+        scoringService.initGpuCountToSpecIdMapping();
+    }
+
+    private RunSpec makeRunSpec(Long id, String name, String category, int gpuPerNode) {
+        RunSpec spec = new RunSpec();
+        spec.setId(id);
+        spec.setName(name);
+        spec.setCategory(category);
+        spec.setGpuPerNode(gpuPerNode);
+        return spec;
     }
 
     private Chip makeL40S() {
@@ -57,7 +81,6 @@ class SpecAwareScoringTest {
         Chip l40s = makeL40S();
         when(chipRepository.findByNameContainingIgnoreCase("L40S")).thenReturn(List.of(l40s));
 
-        // Plan with runSpecId=13 (single GPU)
         EvaluationPlan plan1 = new EvaluationPlan();
         plan1.setId(100L);
         plan1.setChipId(952L);
@@ -116,7 +139,6 @@ class SpecAwareScoringTest {
         Chip l40s = makeL40S();
         when(chipRepository.findByNameContainingIgnoreCase("L40S")).thenReturn(List.of(l40s));
 
-        // Setup: L40S baseline for runSpec=13 has MatMul at 2.0ms
         EvaluationPlan baselinePlan = new EvaluationPlan();
         baselinePlan.setId(100L);
         baselinePlan.setChipId(952L);
@@ -135,7 +157,6 @@ class SpecAwareScoringTest {
         baselineResult.setMetricsSummary("{\"latency_ms_mean\": 2.0}");
         when(resultRepository.findByPlanId(100L)).thenReturn(List.of(baselineResult));
 
-        // Test chip has MatMul at 4.0ms → should score 50% of L40S
         String chipMetrics = "{\"latency_ms_mean\": 4.0}";
         double score = scoringService.scoreFromMetrics(chipMetrics, "MatMul", 13L);
 
@@ -154,8 +175,6 @@ class SpecAwareScoringTest {
 
         assertTrue(baseline.isEmpty());
     }
-
-    // Old test removed by #529 — log10 fallback eliminated
 
     @Test
     @DisplayName("#528: getBaselineSource returns source info for available baseline")
@@ -201,7 +220,6 @@ class SpecAwareScoringTest {
     @Test
     @DisplayName("#528: clearBaselineCache per-spec only clears that spec")
     void clearBaselineCache_perSpec() {
-        // Populate caches for two specs
         Chip l40s = makeL40S();
         when(chipRepository.findByNameContainingIgnoreCase("L40S")).thenReturn(List.of(l40s));
         when(planRepository.findByChipIdAndRunSpecIdAndStatus(eq(952L), anyLong(), eq(EvaluationPlan.PlanStatus.COMPLETED)))
@@ -216,8 +234,6 @@ class SpecAwareScoringTest {
         // Re-request spec 13 should call repo again, spec 15 should be cached
         scoringService.getBaselineLatencyMap(13L);
 
-        // Verify: findByChipIdAndRunSpecIdAndStatus called 3 times for spec 13 (initial + re-request)
-        // and 1 time for spec 15
         verify(planRepository, times(2)).findByChipIdAndRunSpecIdAndStatus(952L, 13L, EvaluationPlan.PlanStatus.COMPLETED);
         verify(planRepository, times(1)).findByChipIdAndRunSpecIdAndStatus(952L, 15L, EvaluationPlan.PlanStatus.COMPLETED);
     }

@@ -5,6 +5,8 @@ import com.lab.chip.ChipRepository;
 import com.lab.plan.EvaluationPlan;
 import com.lab.plan.EvaluationPlanRepository;
 import com.lab.result.EvaluationResultRepository;
+import com.lab.runspec.RunSpec;
+import com.lab.runspec.RunSpecRepository;
 import com.lab.task.EvaluationTaskRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -13,10 +15,16 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * #530: Tests for run_spec_id inference from eval_config
+ * #544: Updated to use dynamic DB-loaded mapping
  */
 @ExtendWith(MockitoExtension.class)
 class RunSpecInferenceTest {
@@ -28,11 +36,32 @@ class RunSpecInferenceTest {
     @Mock private EvaluationResultRepository resultRepository;
     @Mock private EvaluationTaskRepository taskRepository;
     @Mock private EvaluationPlanRepository planRepository;
+    @Mock private RunSpecRepository runSpecRepository;
 
     @BeforeEach
     void setUp() {
+        // #544: Setup default run_specs mapping from DB
+        List<RunSpec> defaultSpecs = Arrays.asList(
+                makeRunSpec(11L, "CPU-Only", "CPU", 0),
+                makeRunSpec(13L, "Single-GPU", "GPU", 1),
+                makeRunSpec(14L, "Dual-GPU", "GPU", 2),
+                makeRunSpec(15L, "Quad-GPU", "GPU", 4),
+                makeRunSpec(16L, "Octo-GPU", "GPU", 8)
+        );
+        lenient().when(runSpecRepository.findAll()).thenReturn(defaultSpecs);
+
         scoringService = new ScoringService(objectMapper, chipRepository,
-                resultRepository, taskRepository, planRepository);
+                resultRepository, taskRepository, planRepository, runSpecRepository);
+        scoringService.initGpuCountToSpecIdMapping();
+    }
+
+    private RunSpec makeRunSpec(Long id, String name, String category, int gpuPerNode) {
+        RunSpec spec = new RunSpec();
+        spec.setId(id);
+        spec.setName(name);
+        spec.setCategory(category);
+        spec.setGpuPerNode(gpuPerNode);
+        return spec;
     }
 
     @Test

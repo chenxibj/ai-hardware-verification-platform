@@ -2,20 +2,25 @@ package com.lab.scoring;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.lab.chip.Chip;
 import com.lab.chip.ChipRepository;
 import com.lab.plan.EvaluationPlan;
 import com.lab.plan.EvaluationPlanRepository;
 import com.lab.result.EvaluationResult;
 import com.lab.result.EvaluationResultRepository;
+import com.lab.runspec.RunSpec;
+import com.lab.runspec.RunSpecRepository;
 import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
-import lombok.RequiredArgsConstructor;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import com.lab.dimension.DimensionRegistry;
@@ -24,10 +29,10 @@ import com.lab.dimension.DimensionRegistry;
  * 评分计算服务
  * Issue: #135, #139 (六维度增强), #434 (vs L40S 百分比), #528 (按规格匹配 baseline)
  * #529 (废弃 log10 fallback), #530 (run_spec_id=NULL 推断规格)
+ * #544 (动态加载 GPU→SpecId 映射), #546 (Caffeine cache TTL)
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ScoringService {
 
     private final ObjectMapper objectMapper;
@@ -35,9 +40,16 @@ public class ScoringService {
     private final EvaluationResultRepository resultRepository;
     private final EvaluationTaskRepository taskRepository;
     private final EvaluationPlanRepository planRepository;
+    private final RunSpecRepository runSpecRepository;
 
     /** #525: Maximum allowed score percentage to prevent extreme outliers */
     private static final double MAX_SCORE_PERCENT = 200.0;
+
+    /** #546: Caffeine cache TTL in minutes */
+    static final long BASELINE_CACHE_TTL_MINUTES = 10;
+
+    /** #546: Caffeine cache max entries */
+    static final long BASELINE_CACHE_MAX_SIZE = 50;
 
     /** #527: Round to 2 decimal places to avoid floating point precision tails */
     private static double roundTo2(double value) {
@@ -45,10 +57,17 @@ public class ScoringService {
     }
 
     /**
-     * #528: Per-runSpec baseline cache: runSpecId -> (testItem -> latency_ms_mean)
-     * null key = legacy "all specs mixed" cache (for backward compat)
+     * #544: Dynamic GPU count to runSpecId mapping, loaded from DB at startup.
+     * Replaces the old hardcoded Map.of(1, 13L, 2, 14L, 4, 15L, 8, 16L, 0, 11L)
      */
-    private final Map<Long, Map<String, Double>> baselineCacheBySpec = new ConcurrentHashMap<>();
+    private volatile Map<Integer, Long> gpuCountToSpecId = new ConcurrentHashMap<>();
+
+    /**
+     * #546: Per-runSpec baseline cache with TTL via Caffeine.
+     * Replaces ConcurrentHashMap to prevent unbounded growth.
+     * runSpecId -> (testItem -> latency_ms_mean)
+     */
+    private Cache<Long, Map<String, Double>> baselineCacheBySpec;
 
     /** Legacy cache for backward compat (all specs mixed) */
     private volatile Map<String, Double> baselineLatencyCache = null;
@@ -59,17 +78,63 @@ public class ScoringService {
      */
     private final Map<Long, Long> inferredSpecCache = new ConcurrentHashMap<>();
 
+    public ScoringService(ObjectMapper objectMapper,
+                          ChipRepository chipRepository,
+                          EvaluationResultRepository resultRepository,
+                          EvaluationTaskRepository taskRepository,
+                          EvaluationPlanRepository planRepository,
+                          RunSpecRepository runSpecRepository) {
+        this.objectMapper = objectMapper;
+        this.chipRepository = chipRepository;
+        this.resultRepository = resultRepository;
+        this.taskRepository = taskRepository;
+        this.planRepository = planRepository;
+        this.runSpecRepository = runSpecRepository;
+        // #546: Initialize Caffeine cache
+        this.baselineCacheBySpec = buildBaselineCache();
+    }
+
     /**
-     * #530: GPU count to runSpecId mapping.
-     * Based on run_specs table: 1→单卡(13), 2→双卡(14), 4→四卡(15), 8→八卡(16), 0/null→CPU(11)
+     * #546: Build Caffeine cache with TTL and max size.
      */
-    private static final Map<Integer, Long> GPU_COUNT_TO_SPEC_ID = Map.of(
-        0, 11L,   // CPU
-        1, 13L,   // 单卡GPU
-        2, 14L,   // 双卡GPU
-        4, 15L,   // 四卡GPU
-        8, 16L    // 八卡GPU
-    );
+    private Cache<Long, Map<String, Double>> buildBaselineCache() {
+        return Caffeine.newBuilder()
+                .expireAfterWrite(BASELINE_CACHE_TTL_MINUTES, TimeUnit.MINUTES)
+                .maximumSize(BASELINE_CACHE_MAX_SIZE)
+                .build();
+    }
+
+    /**
+     * #544: Load GPU count → runSpecId mapping from DB at startup.
+     * Maps gpuPerNode (from RunSpec entity) to the RunSpec's ID.
+     * For CPU specs (gpuPerNode=0), uses the first match.
+     */
+    @PostConstruct
+    public void initGpuCountToSpecIdMapping() {
+        try {
+            List<RunSpec> allSpecs = runSpecRepository.findAll();
+            if (allSpecs.isEmpty()) {
+                log.error("#544: run_specs table is empty! GPU count → spec ID mapping will be empty. " +
+                        "Scoring inference will not work.");
+                gpuCountToSpecId = new ConcurrentHashMap<>();
+                return;
+            }
+
+            Map<Integer, Long> newMapping = new ConcurrentHashMap<>();
+            for (RunSpec spec : allSpecs) {
+                int gpuCount = spec.getGpuPerNode() != null ? spec.getGpuPerNode() : 0;
+                // For each gpuPerNode value, take the first (lowest ID) match
+                // This handles cases where multiple specs might have same gpuPerNode
+                newMapping.putIfAbsent(gpuCount, spec.getId());
+            }
+            gpuCountToSpecId = newMapping;
+            log.info("#544: Loaded GPU count → spec ID mapping from DB: {}", gpuCountToSpecId);
+        } catch (Exception e) {
+            log.error("#544: Failed to load GPU count → spec ID mapping from DB: {}. " +
+                    "Scoring inference may not work correctly.", e.getMessage(), e);
+            gpuCountToSpecId = new ConcurrentHashMap<>();
+        }
+    }
 
     /**
      * Navigate nested JSON to find actual metrics data.
@@ -117,57 +182,65 @@ public class ScoringService {
 
     /**
      * #528: Load L40S baseline latency data filtered by runSpecId.
+     * #546: Now uses Caffeine cache with TTL instead of ConcurrentHashMap.
      * Only includes data from COMPLETED plans with matching run_spec_id.
      * Returns map: testItem -> average latency_ms_mean
      */
     public Map<String, Double> getBaselineLatencyMap(Long runSpecId) {
         if (runSpecId == null) {
-            // #530: When callers pass null, fall back to legacy all-spec baseline
-            // Callers should prefer resolveRunSpecId(plan) to attempt inference first
             return getBaselineLatencyMapLegacy();
         }
 
-        return baselineCacheBySpec.computeIfAbsent(runSpecId, specId -> {
-            Map<String, Double> baseline = new HashMap<>();
-            try {
-                List<Chip> l40sChips = chipRepository.findByNameContainingIgnoreCase("L40S");
-                if (l40sChips.isEmpty()) {
-                    log.warn("#528: No L40S baseline chip found");
-                    return baseline;
-                }
+        Map<String, Double> cached = baselineCacheBySpec.getIfPresent(runSpecId);
+        if (cached != null) {
+            return cached;
+        }
 
-                Set<Long> l40sChipIds = l40sChips.stream().map(Chip::getId).collect(Collectors.toSet());
+        Map<String, Double> baseline = loadBaselineForSpec(runSpecId);
+        baselineCacheBySpec.put(runSpecId, baseline);
+        return baseline;
+    }
 
-                // #528: Only get plans for L40S chips with MATCHING run_spec_id and COMPLETED status
-                List<Long> planIds = new ArrayList<>();
-                for (Long chipId : l40sChipIds) {
-                    planRepository.findByChipIdAndRunSpecIdAndStatus(chipId, specId, EvaluationPlan.PlanStatus.COMPLETED)
-                            .forEach(p -> planIds.add(p.getId()));
-                }
-
-                if (planIds.isEmpty()) {
-                    log.warn("#528: No COMPLETED L40S plans found for runSpecId={}", specId);
-                    return baseline;
-                }
-
-                // Build testItem -> latencies map from matching L40S plans only
-                Map<String, List<Double>> latencies = new HashMap<>();
-                for (Long planId : planIds) {
-                    collectPlanLatencies(planId, latencies);
-                }
-
-                // Average each test item's latencies
-                for (Map.Entry<String, List<Double>> entry : latencies.entrySet()) {
-                    double avg = entry.getValue().stream().mapToDouble(Double::doubleValue).average().orElse(0);
-                    if (avg > 0) baseline.put(entry.getKey(), avg);
-                }
-
-                log.info("#528: Loaded L40S baseline for runSpecId={}: {} test items", specId, baseline.size());
-            } catch (Exception e) {
-                log.error("#528: Failed to load L40S baseline for runSpecId={}: {}", specId, e.getMessage());
+    /**
+     * #546: Load baseline data for a specific runSpecId from DB.
+     */
+    private Map<String, Double> loadBaselineForSpec(Long specId) {
+        Map<String, Double> baseline = new HashMap<>();
+        try {
+            List<Chip> l40sChips = chipRepository.findByNameContainingIgnoreCase("L40S");
+            if (l40sChips.isEmpty()) {
+                log.warn("#528: No L40S baseline chip found");
+                return baseline;
             }
-            return baseline;
-        });
+
+            Set<Long> l40sChipIds = l40sChips.stream().map(Chip::getId).collect(Collectors.toSet());
+
+            List<Long> planIds = new ArrayList<>();
+            for (Long chipId : l40sChipIds) {
+                planRepository.findByChipIdAndRunSpecIdAndStatus(chipId, specId, EvaluationPlan.PlanStatus.COMPLETED)
+                        .forEach(p -> planIds.add(p.getId()));
+            }
+
+            if (planIds.isEmpty()) {
+                log.warn("#528: No COMPLETED L40S plans found for runSpecId={}", specId);
+                return baseline;
+            }
+
+            Map<String, List<Double>> latencies = new HashMap<>();
+            for (Long planId : planIds) {
+                collectPlanLatencies(planId, latencies);
+            }
+
+            for (Map.Entry<String, List<Double>> entry : latencies.entrySet()) {
+                double avg = entry.getValue().stream().mapToDouble(Double::doubleValue).average().orElse(0);
+                if (avg > 0) baseline.put(entry.getKey(), avg);
+            }
+
+            log.info("#528: Loaded L40S baseline for runSpecId={}: {} test items", specId, baseline.size());
+        } catch (Exception e) {
+            log.error("#528: Failed to load L40S baseline for runSpecId={}: {}", specId, e.getMessage());
+        }
+        return baseline;
     }
 
     /**
@@ -278,8 +351,9 @@ public class ScoringService {
     }
 
     /**
-     * #530: Infer runSpecId from eval_config JSON string.
-     * Looks for gpuCount field: 1→单卡(13), 2→双卡(14), 4→四卡(15), 8→八卡(16), 0/null→CPU(11)
+     * #530/#544: Infer runSpecId from eval_config JSON string.
+     * Uses dynamically loaded gpuCountToSpecId mapping from DB.
+     * Looks for gpuCount field and maps to corresponding runSpecId.
      */
     Long inferRunSpecIdFromEvalConfig(String evalConfig) {
         if (evalConfig == null || evalConfig.isEmpty()) return null;
@@ -288,10 +362,10 @@ public class ScoringService {
             JsonNode gpuCountNode = config.get("gpuCount");
             if (gpuCountNode == null || gpuCountNode.isNull()) {
                 // No gpuCount field → assume CPU
-                return GPU_COUNT_TO_SPEC_ID.get(0);
+                return gpuCountToSpecId.get(0);
             }
             int gpuCount = gpuCountNode.asInt(0);
-            Long specId = GPU_COUNT_TO_SPEC_ID.get(gpuCount);
+            Long specId = gpuCountToSpecId.get(gpuCount);
             if (specId != null) {
                 return specId;
             }
@@ -309,7 +383,7 @@ public class ScoringService {
      */
     public void clearBaselineCache() {
         baselineLatencyCache = null;
-        baselineCacheBySpec.clear();
+        baselineCacheBySpec.invalidateAll();
         inferredSpecCache.clear();
     }
 
@@ -320,7 +394,7 @@ public class ScoringService {
         if (runSpecId == null) {
             clearBaselineCache();
         } else {
-            baselineCacheBySpec.remove(runSpecId);
+            baselineCacheBySpec.invalidate(runSpecId);
         }
     }
 
