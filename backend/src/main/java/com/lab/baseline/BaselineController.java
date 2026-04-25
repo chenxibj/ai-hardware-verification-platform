@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -79,6 +80,7 @@ public class BaselineController {
     /**
      * #533: POST /api/reports/{id}/regenerate — Manually trigger report regeneration
      */
+    @PreAuthorize("hasAnyRole('super_admin', 'tenant_admin', 'engineer')")
     @PostMapping("/reports/{id}/regenerate")
     public ResponseEntity<ApiResponse<Map<String, Object>>> regenerateReport(@PathVariable Long id) {
         try {

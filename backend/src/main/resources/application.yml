@@ -100,7 +100,7 @@ ahvp:
     complete-endpoint:
       return-gone: false  # Set to true to return 410 Gone for POST /tasks/{id}/complete
 
-# #531/#534: Baseline configuration
+  # #531/#534: Baseline configuration
   baseline:
     stale-warning-days: 90
     unstable-stddev-threshold: 0.3

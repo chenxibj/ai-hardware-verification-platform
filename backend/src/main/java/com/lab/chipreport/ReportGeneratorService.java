@@ -15,7 +15,8 @@ import com.lab.task.FailureType;
 import com.lab.task.EvaluationTaskRepository;
 import com.lab.node.ComputeNode;
 import com.lab.node.ComputeNodeRepository;
-import com.lab.runspec.RunSpec;import com.lab.runspec.RunSpecRepository;
+import com.lab.runspec.RunSpec;
+import com.lab.runspec.RunSpecRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -54,7 +55,7 @@ public class ReportGeneratorService {
     private final ObjectMapper objectMapper;
     private final ComputeNodeRepository nodeRepository;
     private final ScoringService scoringService;
-private final RunSpecRepository runSpecRepository;
+    private final RunSpecRepository runSpecRepository;
     private final ApplicationContext applicationContext;
 
     /* #459: DIM_NAMES removed — use DimensionRegistry.getLabelByKey() */

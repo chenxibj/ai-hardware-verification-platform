@@ -1122,7 +1122,7 @@ export default function ChipProfile() {
         </div>
       ),
     },
-    ,{
+    {
       key: "baseline",
       label: <span><SafetyCertificateOutlined /> Baseline</span>,
       children: (

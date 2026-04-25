@@ -63,7 +63,7 @@ public class SecurityConfig {
                 .requestMatchers("/dashboard/**").permitAll()
                 .requestMatchers("/metrics/**").permitAll()  // #493 dispatch metrics
                 .requestMatchers("/dimensions", "/dimensions/**").permitAll()  // #459
-.requestMatchers("/baselines/**").permitAll()  // #528 baseline coverage
+                .requestMatchers("/baselines/**").authenticated()  // #541 baseline needs auth
                 .requestMatchers("/community/**").permitAll()
                 .requestMatchers("/nodes/*/heartbeat", "/nodes/*/poll-tasks").permitAll()
                 .requestMatchers("/nodes/register").permitAll()
@@ -98,6 +98,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/tasks/batch/**").hasAnyRole("super_admin", "tenant_admin", "engineer")
                 .requestMatchers(HttpMethod.DELETE, "/tasks/**").hasAnyRole("super_admin", "tenant_admin", "engineer")
                 // 其余需认证
+                // #541: Report regeneration requires ADMIN or ENGINEER role
+                .requestMatchers(HttpMethod.POST, "/reports/*/regenerate").hasAnyRole("super_admin", "tenant_admin", "engineer")
                 .anyRequest().authenticated()
             )
             .addFilterBefore(this.agentTokenFilter, UsernamePasswordAuthenticationFilter.class)

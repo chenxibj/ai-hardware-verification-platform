@@ -94,7 +94,9 @@ public class ChipReport {
 
     @Column(name = "coverage", columnDefinition = "TEXT")
     private String coverage;
-@JdbcTypeCode(SqlTypes.JSON)    @Column(name = "baseline_source", columnDefinition = "jsonb")    private String baselineSource;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "baseline_source", columnDefinition = "jsonb")
+    private String baselineSource;
 
     @Transient
     private String chipName;
