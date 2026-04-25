@@ -130,7 +130,7 @@ class ReportNoUniquenessTest {
      */
     private ReportGeneratorService createServiceWithMinimalDeps() {
         return new ReportGeneratorService(
-            null, null, null, null, null, null,
-            new ObjectMapper(), null, null, null, null, null);
+            null, null, null, null, null,
+            new ObjectMapper(), null, null, null, null, null, null);
     }
 }

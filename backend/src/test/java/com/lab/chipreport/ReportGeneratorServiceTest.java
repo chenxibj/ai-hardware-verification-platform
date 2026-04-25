@@ -1,6 +1,6 @@
 package com.lab.chipreport;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -11,17 +11,15 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * TDD tests for #440: Fix contradictory summary when all dimension scores are equal
- * #543: Updated - analysis methods now on ReportDataAssembler (public, no reflection)
+ * #543: Updated - analysis methods now on ReportInsightBuilder (public, no reflection)
  */
 class ReportGeneratorServiceTest {
 
-    private ObjectMapper objectMapper;
-    private ReportDataAssembler assembler;
+    private ReportInsightBuilder insightBuilder;
 
     @BeforeEach
     void setUp() {
-        objectMapper = new ObjectMapper();
-        assembler = new ReportDataAssembler(objectMapper, null, null, null);
+        insightBuilder = new ReportInsightBuilder();
     }
 
     // -- buildBottleneckAnalysis tests --
@@ -41,7 +39,7 @@ class ReportGeneratorServiceTest {
 
         List<Map<String, Object>> operatorRanking = Collections.emptyList();
 
-        List<Map<String, Object>> analysis = assembler.buildBottleneckAnalysis(dimScores, operatorRanking);
+        List<Map<String, Object>> analysis = insightBuilder.buildBottleneckAnalysis(dimScores, operatorRanking);
 
         long weakDimCount = analysis.stream()
                 .filter(a -> "weak_dimension".equals(a.get("type")))
@@ -81,7 +79,7 @@ class ReportGeneratorServiceTest {
         dimScores.put("scalability", 75.0);
         dimScores.put("ecosystem", 75.0);
 
-        List<Map<String, Object>> analysis = assembler.buildBottleneckAnalysis(dimScores, Collections.emptyList());
+        List<Map<String, Object>> analysis = insightBuilder.buildBottleneckAnalysis(dimScores, Collections.emptyList());
 
         long weakDimCount = analysis.stream()
                 .filter(a -> "weak_dimension".equals(a.get("type")))
@@ -102,7 +100,7 @@ class ReportGeneratorServiceTest {
         dimScores.put("scalability", 75.0);
         dimScores.put("ecosystem", 70.0);
 
-        List<Map<String, Object>> analysis = assembler.buildBottleneckAnalysis(dimScores, Collections.emptyList());
+        List<Map<String, Object>> analysis = insightBuilder.buildBottleneckAnalysis(dimScores, Collections.emptyList());
 
         long weakDimCount = analysis.stream()
                 .filter(a -> "weak_dimension".equals(a.get("type")))
@@ -125,7 +123,7 @@ class ReportGeneratorServiceTest {
         dimScores.put("scalability", 0.0);
         dimScores.put("ecosystem", 0.0);
 
-        List<Map<String, Object>> recs = assembler.buildScenarioRecommendations(dimScores, 0.0);
+        List<Map<String, Object>> recs = insightBuilder.buildScenarioRecommendations(dimScores, 0.0);
 
         long recommendedCount = recs.stream()
                 .filter(r -> "recommended".equals(r.get("type")))
@@ -152,7 +150,7 @@ class ReportGeneratorServiceTest {
         dimScores.put("scalability", 50.0);
         dimScores.put("ecosystem", 50.0);
 
-        List<Map<String, Object>> recs = assembler.buildScenarioRecommendations(dimScores, 50.0);
+        List<Map<String, Object>> recs = insightBuilder.buildScenarioRecommendations(dimScores, 50.0);
 
         long recommendedCount = recs.stream()
                 .filter(r -> "recommended".equals(r.get("type")))
@@ -176,7 +174,7 @@ class ReportGeneratorServiceTest {
         op1.put("dataStatus", "VALID");
         operatorRanking.add(op1);
 
-        Map<String, Object> summary = assembler.buildCategorySummary(operatorRanking, "training", 75.0);
+        Map<String, Object> summary = insightBuilder.buildCategorySummary(operatorRanking, "training", 75.0);
 
         String best = (String) summary.get("bestOperator");
         String worst = (String) summary.get("worstOperator");
@@ -206,7 +204,7 @@ class ReportGeneratorServiceTest {
         op2.put("dataStatus", "VALID");
         operatorRanking.add(op2);
 
-        Map<String, Object> summary = assembler.buildCategorySummary(operatorRanking, "training", 0.0);
+        Map<String, Object> summary = insightBuilder.buildCategorySummary(operatorRanking, "training", 0.0);
 
         String best = (String) summary.get("bestOperator");
         String worst = (String) summary.get("worstOperator");
@@ -239,7 +237,7 @@ class ReportGeneratorServiceTest {
         op2.put("dataStatus", "VALID");
         operatorRanking.add(op2);
 
-        Map<String, Object> summary = assembler.buildCategorySummary(operatorRanking, "inference", 67.5);
+        Map<String, Object> summary = insightBuilder.buildCategorySummary(operatorRanking, "inference", 67.5);
 
         assertEquals("Attention", summary.get("bestOperator"));
         assertEquals("MLP", summary.get("worstOperator"));
@@ -264,7 +262,7 @@ class ReportGeneratorServiceTest {
             operatorRanking.add(op);
         }
 
-        List<Map<String, Object>> analysis = assembler.buildBottleneckAnalysis(dimScores, operatorRanking);
+        List<Map<String, Object>> analysis = insightBuilder.buildBottleneckAnalysis(dimScores, operatorRanking);
 
         long worstOpCount = analysis.stream()
                 .filter(a -> "worst_operator".equals(a.get("type")))
@@ -288,7 +286,7 @@ class ReportGeneratorServiceTest {
         op.put("dataStatus", "VALID");
         operatorRanking.add(op);
 
-        List<Map<String, Object>> analysis = assembler.buildBottleneckAnalysis(dimScores, operatorRanking);
+        List<Map<String, Object>> analysis = insightBuilder.buildBottleneckAnalysis(dimScores, operatorRanking);
 
         List<Map<String, Object>> worstOps = analysis.stream()
                 .filter(a -> "worst_operator".equals(a.get("type")))
@@ -315,7 +313,7 @@ class ReportGeneratorServiceTest {
         op.put("dataStatus", "VALID");
         operatorRanking.add(op);
 
-        List<Map<String, Object>> analysis = assembler.buildBottleneckAnalysis(dimScores, operatorRanking);
+        List<Map<String, Object>> analysis = insightBuilder.buildBottleneckAnalysis(dimScores, operatorRanking);
 
         List<Map<String, Object>> worstOps = analysis.stream()
                 .filter(a -> "worst_operator".equals(a.get("type")))
@@ -342,7 +340,7 @@ class ReportGeneratorServiceTest {
         op.put("dataStatus", "VALID");
         operatorRanking.add(op);
 
-        List<Map<String, Object>> analysis = assembler.buildBottleneckAnalysis(dimScores, operatorRanking);
+        List<Map<String, Object>> analysis = insightBuilder.buildBottleneckAnalysis(dimScores, operatorRanking);
 
         List<Map<String, Object>> worstOps = analysis.stream()
                 .filter(a -> "worst_operator".equals(a.get("type")))
@@ -369,7 +367,7 @@ class ReportGeneratorServiceTest {
         op.put("dataStatus", "VALID");
         operatorRanking.add(op);
 
-        List<Map<String, Object>> analysis = assembler.buildBottleneckAnalysis(dimScores, operatorRanking);
+        List<Map<String, Object>> analysis = insightBuilder.buildBottleneckAnalysis(dimScores, operatorRanking);
 
         long worstOpCount = analysis.stream()
                 .filter(a -> "worst_operator".equals(a.get("type")))
@@ -402,7 +400,7 @@ class ReportGeneratorServiceTest {
         op3.put("throughput", 200.0); op3.put("dataStatus", "VALID");
         operatorRanking.add(op3);
 
-        List<Map<String, Object>> analysis = assembler.buildBottleneckAnalysis(dimScores, operatorRanking);
+        List<Map<String, Object>> analysis = insightBuilder.buildBottleneckAnalysis(dimScores, operatorRanking);
 
         List<Map<String, Object>> worstOps = analysis.stream()
                 .filter(a -> "worst_operator".equals(a.get("type")))
