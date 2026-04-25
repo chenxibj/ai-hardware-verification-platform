@@ -1,5 +1,6 @@
 package com.lab.chipreport;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -36,7 +37,7 @@ class ReportNoUniquenessTest {
     }
 
     @Test
-    @DisplayName("#518: plan_id is naturally unique — no collision possible")
+    @DisplayName("#518: plan_id is naturally unique - no collision possible")
     void planId_naturallyUnique() {
         String rpt1 = "RPT-20260419-" + 1L;
         String rpt2 = "RPT-20260419-" + 2L;
@@ -68,11 +69,9 @@ class ReportNoUniquenessTest {
     }
 
     @Test
-    @DisplayName("#518: generateReportNo uses planId — verify via reflection")
+    @DisplayName("#518: generateReportNo uses planId - verify via reflection")
     void generateReportNo_usesPlanId() throws Exception {
-        // Create service with null deps (generateReportNo doesn't use them)
-        ReportGeneratorService service = new ReportGeneratorService(
-            null, null, null, null, null, null, null, null, null, null, null);
+        ReportGeneratorService service = createServiceWithMinimalDeps();
 
         Method method = ReportGeneratorService.class.getDeclaredMethod("generateReportNo", Long.class);
         method.setAccessible(true);
@@ -88,10 +87,9 @@ class ReportNoUniquenessTest {
     }
 
     @Test
-    @DisplayName("#518: same planId on same day → same reportNo (deterministic)")
+    @DisplayName("#518: same planId on same day -> same reportNo (deterministic)")
     void generateReportNo_deterministic() throws Exception {
-        ReportGeneratorService service = new ReportGeneratorService(
-            null, null, null, null, null, null, null, null, null, null, null);
+        ReportGeneratorService service = createServiceWithMinimalDeps();
 
         Method method = ReportGeneratorService.class.getDeclaredMethod("generateReportNo", Long.class);
         method.setAccessible(true);
@@ -103,19 +101,16 @@ class ReportNoUniquenessTest {
     }
 
     @Test
-    @DisplayName("#518: idempotency check — generateReport skips if report exists")
+    @DisplayName("#518: idempotency check - generateReport skips if report exists")
     void generateReport_idempotencyCheck() {
-        // The idempotency check is: findFirstByPlanId(planId).isPresent() → return existing
-        // This tests the contract, not the DB
         Optional<ChipReport> existing = Optional.of(new ChipReport());
         assertTrue(existing.isPresent(), "When report exists, should skip generation");
     }
 
     @Test
-    @DisplayName("#518: different planIds → different reportNos on same day")
+    @DisplayName("#518: different planIds -> different reportNos on same day")
     void generateReportNo_differentPlansAreDifferent() throws Exception {
-        ReportGeneratorService service = new ReportGeneratorService(
-            null, null, null, null, null, null, null, null, null, null, null);
+        ReportGeneratorService service = createServiceWithMinimalDeps();
 
         Method method = ReportGeneratorService.class.getDeclaredMethod("generateReportNo", Long.class);
         method.setAccessible(true);
@@ -127,5 +122,15 @@ class ReportNoUniquenessTest {
         assertNotEquals(rpt1, rpt2);
         assertNotEquals(rpt2, rpt3);
         assertNotEquals(rpt1, rpt3);
+    }
+
+    /**
+     * #543: Constructor has 12 params (11 original + ReportDataAssembler)
+     * generateReportNo doesn't use any deps, so pass nulls
+     */
+    private ReportGeneratorService createServiceWithMinimalDeps() {
+        return new ReportGeneratorService(
+            null, null, null, null, null, null,
+            new ObjectMapper(), null, null, null, null, null);
     }
 }

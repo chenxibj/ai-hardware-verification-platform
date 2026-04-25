@@ -112,7 +112,7 @@ class ReviewSupplementTest {
     @DisplayName("#515: operatorRanking entries include baselineLatency and ratio fields in source")
     void operatorRanking_hasExplainabilityFields() throws Exception {
         String source = new String(java.nio.file.Files.readAllBytes(
-            java.nio.file.Paths.get("src/main/java/com/lab/chipreport/ReportGeneratorService.java")));
+            java.nio.file.Paths.get("src/main/java/com/lab/chipreport/ReportDataAssembler.java")));
 
         assertTrue(source.contains("\"baselineLatency\""),
             "operatorRanking should include baselineLatency field");
