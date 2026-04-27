@@ -11,6 +11,7 @@ import com.lab.runspec.RunSpecRepository;
 import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -42,6 +43,7 @@ public class ScoringService {
     /**
      * Primary constructor — used by Spring DI.
      */
+    @Autowired
     public ScoringService(ObjectMapper objectMapper,
                           BaselineDataService baselineDataService,
                           RunSpecResolver runSpecResolver) {
