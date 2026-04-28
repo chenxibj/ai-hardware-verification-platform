@@ -249,7 +249,7 @@
 - **心跳空窗 19 小时** — 巡检 cron 可能异常，必须排查。白天无人值守 = 系统无人看管
 - **空闲日标准动作：** ①review 产品 issue/反馈 ②系统健康检查 ③补测试 ④代码质量 review
 - **🔴 Lesson 写三遍不如做一遍（2026-04-21）** — 4/14 写了 lesson，4/20 复盘又写，4/21 第三遍。连续 3 天待处理清单（E2E 回归、Baseline 文档、code review）一字不动。**修复：给巡检增加"空闲日主动触发"逻辑 — 连续 2 天无 open issue 时自动 spawn sub-agent 做主动工作，而非只检查"有没有故障"。**
-- **04-24 四犯：连续 7 天空闲，第 6 天才 code review** — review 发现 P0 并修复，证明主动找活有价值。但 P1×8 仍未创建 issue。明日必须将 code review P1 问题转为 issue 并修复。
+- **04-24 五犯：连续 8 天空闲，HEARTBEAT.md 规则写了也没执行** — 问题已从"认知"升级为"执行"。写规则、写 lesson、写 TODO 全做了但产出为零。解法：设置 `idle-work-trigger` cron 强制 14:00 检查+spawn，用自动化替代自律。
 
 ### 巡检模式经验（2026-04-06 复盘提炼）
 
@@ -307,15 +307,18 @@
 - **dispatch 前必须检查资源余量** — 先检查 slot 余量再分配，不能先分发再补分配
 - **设计文档提纲先 review** — 27KB 文档写完才 review 会导致大量返工，应先 review 提纲/关键决策
 
-### 项目当前状态（2026-04-23 23:00 更新）
-- **Open Issue = 0** 🎉 — 连续第六天保持归零（4/18-4/23）
-- **系统健康：** 全 5 容器正常运行（frontend Up 4d, backend Up 27min(部署重启), postgres/redis/minio Up 12d）
-- **全量 E2E 回归绿色：** Backend 372/372（+1 新增测试）
-- **今日完成：** Baseline code review（15 个发现，P0×1 P1×8 P2×6）+ 修复 #540 P0 数据丢失风险
-- **报告管线重构完成** — MetricsNormalizer + ScoringService 统一入口
-- **Baseline 系统上线** — 规格匹配 + 覆盖率可视化 + 新鲜度告警 + 自动检测
-- **⚠️ 待处理：** Baseline 设计文档 review、设置 E2E 回归 weekly cron、HEARTBEAT.md 加空闲日主动工作规则
-- **测试账号**: admin@ahvp.com / Test1234, test@ahvp.com / Test1234 (super_admin)
+### 项目当前状态（2026-04-27 23:00 更新）
+- **Open Issue = 0** — 连续保持归零（连续 10 天无外部新 issue，04-18→04-27）
+- **上周关闭 13 个 issue**（#535-#547）— E2E 回归修复 + Code Review 积压 + 大文件重构
+- **🔴🔴 后端循环重启中** — RestartCount=8712，Hibernate DDL 创建 `idx_logs_level` 索引冲突。需紧急修复。
+- **后端测试：** 387/387 全绿（+15 测试，但后端重启影响 API 可用性）
+- **最新 commit：** 6585fb15 #543 Refactor ReportGeneratorService
+- **重构成果：** ScoringService 661→327行 + ReportGeneratorService 948→296行，抽出 5 个独立 Service
+- **⚠️ 待处理（按优先级）：**
+  - 🔴🔴 P0：修复后端循环重启（idx_logs_level 索引冲突）
+  - 🔴🔴 idle-work-trigger cron 仍未设置（已拖 13 天！）
+  - E2E 全量回归（距上次 4/22 已 5 天）
+  - active-tasks.json 归档（task-20260422-* 到期）
 
 ### 项目当前状态（旧 2026-04-17 23:00）
 - **Open Issue = 0** 🎉 — 连续多日保持归零
@@ -527,6 +530,12 @@
 - **create-before-delete 是数据安全基本模式（2026-04-23）** — #540 `setDefaultBaseline` 先删旧报告再生成新报告，生成失败 = 数据丢失。正确顺序：创建新的 → 验证成功 → 删除旧的。这是通用原则，适用于所有"替换"型操作。
 - **Code review 再次验证 >> Bug 驱动（2026-04-23）** — 主动 review Baseline 代码发现 P0 数据丢失风险，如果等线上暴露可能导致真实用户数据丢失。这已是第三次验证主动 review 的 ROI（4/18 调度模块 44 问题、4/23 Baseline 15 问题）。
 - **日报反思篇幅应与产出成正比（2026-04-23）** — 空转日写长篇反思是拖延的变种形式。有产出 → 写反思 → 有意义。无产出 → 写反思 → 自我安慰。
+- **🔴🔴 规则/Lesson/TODO 不等于执行（2026-04-24 终极教训）** — 从 4/14 到 4/24，11 天写了 6 遍"空闲日应主动找活"。HEARTBEAT.md 加了 Step 2.5，MEMORY.md 沉淀了，日报 TODO 列了。但白天巡检仍空转、TODO 仍不执行。**认知→规则→工具→自动化，每一层的传导都有损耗。纯靠"写下来"不够，必须用 cron/代码强制执行。** 对策：设置 idle-work-trigger cron 14:00 强制检查+spawn。
+- **安全类 issue 应独立提优先级（2026-04-25）** — #541 权限控制不足可能泄露全部 Baseline 数据，但一直在 P1 队列排队。安全问题不应与技术债务同优先级排序，应单独提级处理。
+- **巡检 RestartCount 盲区（2026-04-27）** — 全天 6 轮巡检都报"正常"，但后端 RestartCount=8712 循环重启。巡检只看"容器 UP"不够，必须检查 RestartCount 异常。**巡检清单增加：`docker inspect --format '{{.RestartCount}}'`，>10 即告警。**
+- **ddl-auto=update 第二次爆炸（2026-04-27）** — 4/5 记录过同类问题，22 天后又炸（idx_logs_level 索引已存在）。技术债不还终究出事，Flyway 迁移必须排期。
+- **🔴🔴 12 天写了不做的终极教训（2026-04-26）→ ✅ 04-28 23:18 终于设置** — idle-work-trigger cron 从 4/14 写到 4/28（14 天！），最终在日报写完后自我羞耻驱动设置。cron ID: `87955f2e`，每天 14:00 触发，isolated session，自动检查+spawn。证明：写 lesson 14 遍不如做 1 遍。
+- **积压→Issue→修复 流水线启动后效率极高（2026-04-25）** — 3 天积压 → 17 分钟创建 7 个 issue + 关闭 2 个。第三次验证"启动是瓶颈，执行不是"（4/22、4/24、4/25 连续 3 天同一结论）。问题已经不是"如何"而是"何时"启动。idle-work-trigger cron 拖 3 天是典型症状。
 
 ## K8s / ACK 集群
 
@@ -594,10 +603,25 @@
 - 这些问题不会被用户报告，只有回归测试能发现
 - **建议：每周一次全量 E2E 回归 cron，空闲期增加频率**
 
-### 启动是瓶颈，执行不是（2026-04-22）
+### 启动是瓶颈，执行不是（2026-04-22，04-25 再次验证）
 - 22:18 到 22:49，31 分钟走完「发现→定义 5 issue→修复→验证→全绿」全流程
+- 04-25：22:35 到 00:56，2.5 小时 6 个 agent 串行完成 7 个 issue（含大文件重构），零回归
 - 问题 100% 在"什么时候开始"而非"能不能做好"
 - **降低启动摩擦（自动 spawn）比提高执行速度更有价值**
+
+### Cron 巡检与主 session 竞态问题（2026-04-25）
+- 巡检 cron 多次将正在运行的 agent 误标为 timeout/failed（因为巡检时 agent 刚好在运行中，cron 无法区分"正在运行"和"已停止"）
+- 主 session 每次要手动纠正 active-tasks.json
+- **需要解决：** 巡检 cron 不应直接修改主 session 管理的 running 任务状态；或加时间戳对比（agent spawnedAt vs 巡检时间）
+
+### test-results/ 等临时文件必须 .gitignore（2026-04-25）
+- Agent 运行 E2E 测试产生截图（~400KB×5），混入 commit 导致 git push 卡死（GFW 下大文件传输极慢）
+- 已添加 .gitignore，但教训是：任何自动化流程产生的临时文件目录都要预防性 .gitignore
+
+### 大文件重构分步 spawn（2026-04-25）
+- 一个 agent 同时拆 ScoringService(661行)+ReportGeneratorService(948行) 超时
+- 拆成两个 agent 各做一个，分别 22min 和 21min 完成，更稳定
+- **规则：单个重构 agent 目标 ≤1 个大文件**
 
 ### 工作准则
 - **每 20 分钟主动汇报工作进展**（chenxi 强调的最重要准则）
