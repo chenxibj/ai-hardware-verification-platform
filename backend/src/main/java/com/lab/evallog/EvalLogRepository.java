@@ -11,13 +11,20 @@ import java.time.Instant;
 @Repository
 public interface EvalLogRepository extends JpaRepository<EvalLog, Long> {
 
-    @Query("SELECT l FROM EvalLog l WHERE " +
-           "(:taskId IS NULL OR l.taskId = :taskId) " +
-           "AND (:level IS NULL OR l.logLevel = :level) " +
-           "AND (:search IS NULL OR LOWER(l.message) LIKE LOWER(CONCAT('%', :search, '%'))) " +
-           "AND (:startTime IS NULL OR l.createdAt >= :startTime) " +
-           "AND (:endTime IS NULL OR l.createdAt <= :endTime) " +
-           "ORDER BY l.createdAt DESC")
+    @Query(value = "SELECT * FROM eval_logs l WHERE " +
+           "(CAST(:taskId AS BIGINT) IS NULL OR l.task_id = CAST(:taskId AS BIGINT)) " +
+           "AND (CAST(:level AS TEXT) IS NULL OR l.log_level = CAST(:level AS TEXT)) " +
+           "AND (CAST(:search AS TEXT) IS NULL OR LOWER(l.message) LIKE LOWER('%' || CAST(:search AS TEXT) || '%')) " +
+           "AND (CAST(:startTime AS TIMESTAMPTZ) IS NULL OR l.created_at >= CAST(:startTime AS TIMESTAMPTZ)) " +
+           "AND (CAST(:endTime AS TIMESTAMPTZ) IS NULL OR l.created_at <= CAST(:endTime AS TIMESTAMPTZ)) " +
+           "ORDER BY l.created_at DESC",
+           countQuery = "SELECT COUNT(*) FROM eval_logs l WHERE " +
+           "(CAST(:taskId AS BIGINT) IS NULL OR l.task_id = CAST(:taskId AS BIGINT)) " +
+           "AND (CAST(:level AS TEXT) IS NULL OR l.log_level = CAST(:level AS TEXT)) " +
+           "AND (CAST(:search AS TEXT) IS NULL OR LOWER(l.message) LIKE LOWER('%' || CAST(:search AS TEXT) || '%')) " +
+           "AND (CAST(:startTime AS TIMESTAMPTZ) IS NULL OR l.created_at >= CAST(:startTime AS TIMESTAMPTZ)) " +
+           "AND (CAST(:endTime AS TIMESTAMPTZ) IS NULL OR l.created_at <= CAST(:endTime AS TIMESTAMPTZ))",
+           nativeQuery = true)
     Page<EvalLog> findFiltered(
             @Param("taskId") Long taskId,
             @Param("level") String level,
