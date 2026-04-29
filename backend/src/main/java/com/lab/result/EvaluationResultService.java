@@ -76,6 +76,10 @@ public class EvaluationResultService {
                 log.info("Task {} chipId was null, resolved from plan: {}", taskId, chipId);
             }
         }
+        // #548: chipId may be null for ad-hoc tasks -- acceptable now
+        if (chipId == null) {
+            log.warn("#548: Task {} has no chipId (task.chipId=null, plan fallback=null). Saving with null chipId.", taskId);
+        }
 
         // 保存结果
         EvaluationResult result = new EvaluationResult();
@@ -131,6 +135,10 @@ public class EvaluationResultService {
         if (chipId == null && task.getPlanId() != null) {
             EvaluationPlan plan = planRepository.findById(task.getPlanId()).orElse(null);
             if (plan != null) chipId = plan.getChipId();
+        }
+        // #548: chipId may be null for ad-hoc tasks -- acceptable
+        if (chipId == null) {
+            log.warn("#548: Failed task {} has no chipId. Saving with null chipId.", taskId);
         }
 
         EvaluationResult result = new EvaluationResult();
