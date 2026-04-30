@@ -2,6 +2,7 @@
 -- PostgreSQL database dump
 --
 
+\restrict tQ2bKbJOXkHX1vOye56MGrBKMBbdYMfrqqBmO3qfE1e05mcUPbEarbhztDaaCSd
 
 -- Dumped from database version 15.17
 -- Dumped by pg_dump version 15.17
@@ -22,6 +23,13 @@ SET row_security = off;
 --
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
+
+
+--
+-- Name: EXTENSION "uuid-ossp"; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON EXTENSION "uuid-ossp" IS 'generate universally unique identifiers (UUIDs)';
 
 
 --
@@ -932,7 +940,7 @@ CREATE TABLE public.evaluation_tasks (
     status character varying(32) DEFAULT 'PENDING'::character varying NOT NULL,
     priority character varying(16) DEFAULT 'MEDIUM'::character varying NOT NULL,
     eval_config jsonb,
-    dataset_ids text,
+    dataset_ids bigint[],
     resource_spec jsonb,
     allocated_resources jsonb,
     resource_pool_id bigint,
@@ -999,6 +1007,24 @@ CREATE SEQUENCE public.evaluation_tasks_id_seq
 --
 
 ALTER SEQUENCE public.evaluation_tasks_id_seq OWNED BY public.evaluation_tasks.id;
+
+
+--
+-- Name: flyway_schema_history; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.flyway_schema_history (
+    installed_rank integer NOT NULL,
+    version character varying(50),
+    description character varying(200) NOT NULL,
+    type character varying(20) NOT NULL,
+    script character varying(1000) NOT NULL,
+    checksum integer,
+    installed_by character varying(100) NOT NULL,
+    installed_on timestamp without time zone DEFAULT now() NOT NULL,
+    execution_time integer NOT NULL,
+    success boolean NOT NULL
+);
 
 
 --
@@ -2089,6 +2115,14 @@ ALTER TABLE ONLY public.evaluation_tasks
 
 
 --
+-- Name: flyway_schema_history flyway_schema_history_pk; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.flyway_schema_history
+    ADD CONSTRAINT flyway_schema_history_pk PRIMARY KEY (installed_rank);
+
+
+--
 -- Name: gpu_slots gpu_slots_node_id_gpu_index_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2326,6 +2360,13 @@ ALTER TABLE ONLY public.workflows
 
 ALTER TABLE ONLY public.workflows
     ADD CONSTRAINT workflows_workflow_no_key UNIQUE (workflow_no);
+
+
+--
+-- Name: flyway_schema_history_s_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX flyway_schema_history_s_idx ON public.flyway_schema_history USING btree (success);
 
 
 --
@@ -2944,4 +2985,5 @@ ALTER TABLE ONLY public.user_tenants
 -- PostgreSQL database dump complete
 --
 
+\unrestrict tQ2bKbJOXkHX1vOye56MGrBKMBbdYMfrqqBmO3qfE1e05mcUPbEarbhztDaaCSd
 
