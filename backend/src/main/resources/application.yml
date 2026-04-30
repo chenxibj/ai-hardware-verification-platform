@@ -21,9 +21,15 @@ spring:
       leak-detection-threshold: 60000
       pool-name: ahvp-hikari-pool
   
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
+    locations: classpath:db/migration
+
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     show-sql: true
     properties:
       hibernate:
