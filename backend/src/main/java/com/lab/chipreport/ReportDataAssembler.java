@@ -185,4 +185,44 @@ public class ReportDataAssembler {
         if (val instanceof Number) return ((Number) val).doubleValue();
         try { return Double.parseDouble(val.toString()); } catch (Exception e) { return 0; }
     }
+
+    /**
+     * #549: Calculate overall score from operator ranking, properly handling
+     * null scores (no-baseline entries).
+     *
+     * Strategy:
+     * 1. If any VALID entries have non-null scores (baseline comparison available),
+     *    average only those scores (skip null-score entries).
+     * 2. If ALL VALID entries have null scores (no baseline data at all),
+     *    use a fallback: pass-rate × 60, capped at 60.
+     *    This signals "tests ran successfully but unverified against baseline".
+     * 3. If no VALID entries exist at all, return 0.
+     */
+    static double calculateOverallScoreFromRanking(List<Map<String, Object>> operatorRanking) {
+        // Step 1: Try to average only entries with actual baseline-compared scores
+        double[] validScores = operatorRanking.stream()
+                .filter(op -> "VALID".equals(op.get("dataStatus")))
+                .filter(op -> op.get("score") != null)
+                .mapToDouble(op -> toDouble(op.get("score")))
+                .toArray();
+
+        if (validScores.length > 0) {
+            return Arrays.stream(validScores).average().orElse(0);
+        }
+
+        // Step 2: Fallback — no baseline scores available
+        long validCount = operatorRanking.stream()
+                .filter(op -> "VALID".equals(op.get("dataStatus")))
+                .count();
+        long totalCount = operatorRanking.stream()
+                .filter(op -> !"NO_DATA".equals(op.get("dataStatus")) || "VALID".equals(op.get("dataStatus")))
+                .count();
+
+        if (validCount == 0 || totalCount == 0) return 0;
+
+        // Fallback score: execution success rate × 60, capped at 60
+        // 60 = "passed but unverified" ceiling
+        double passRate = (double) validCount / totalCount;
+        return Math.round(passRate * 60.0 * 10.0) / 10.0;
+    }
 }

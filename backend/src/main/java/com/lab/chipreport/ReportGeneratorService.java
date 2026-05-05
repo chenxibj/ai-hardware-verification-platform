@@ -87,11 +87,8 @@ public class ReportGeneratorService {
         // 2. 生成算子排行
         List<Map<String, Object>> operatorRanking = dataAssembler.buildOperatorRanking(planId, effectiveRunSpecId);
 
-        // 2.1 Recalculate overallScore based on VALID entries
-        double overallScore = operatorRanking.stream()
-                .filter(op -> "VALID".equals(op.get("dataStatus")))
-                .mapToDouble(op -> ReportDataAssembler.toDouble(op.get("score")))
-                .average().orElse(resultService.calculateOverallScore(dimScores));
+        // 2.1 #549: Recalculate overallScore — skip null-score (no-baseline) entries
+        double overallScore = ReportDataAssembler.calculateOverallScoreFromRanking(operatorRanking);
 
         // 2.2 Calculate coverage
         long validCount = operatorRanking.stream().filter(op -> "VALID".equals(op.get("dataStatus"))).count();
