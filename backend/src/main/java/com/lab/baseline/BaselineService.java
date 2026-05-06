@@ -369,7 +369,16 @@ public class BaselineService {
 
         // #540: Generate new report FIRST (create-before-delete pattern)
         // If this fails, the old report is preserved — no data loss.
-        ChipReport newReport = reportGeneratorService.generateReport(planId);
+        ChipReport newReport;
+        try {
+            newReport = reportGeneratorService.generateReport(planId);
+        } catch (Exception e) {
+            log.error("#540: Report regeneration failed for chip {} (planId={}). " +
+                    "Old report {} is preserved — no data loss. Error: {}",
+                    chipId, planId, latest.getReportNo(), e.getMessage(), e);
+            throw new RuntimeException("Report regeneration failed for plan " + planId +
+                    ": " + e.getMessage(), e);
+        }
 
         // Only delete old report after new one is successfully created
         reportRepository.delete(latest);
@@ -395,7 +404,16 @@ public class BaselineService {
         }
 
         // #540: Generate new report FIRST, then delete old one
-        ChipReport newReport = reportGeneratorService.generateReport(planId);
+        ChipReport newReport;
+        try {
+            newReport = reportGeneratorService.generateReport(planId);
+        } catch (Exception e) {
+            log.error("#540: Manual report regeneration failed (reportId={}, planId={}). " +
+                    "Old report {} is preserved — no data loss. Error: {}",
+                    reportId, planId, existing.getReportNo(), e.getMessage(), e);
+            throw new RuntimeException("Report regeneration failed for plan " + planId +
+                    ": " + e.getMessage(), e);
+        }
 
         reportRepository.delete(existing);
         reportRepository.flush();

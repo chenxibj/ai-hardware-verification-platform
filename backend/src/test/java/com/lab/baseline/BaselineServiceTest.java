@@ -541,6 +541,29 @@ class BaselineServiceTest {
         }
 
         @Test
+        @DisplayName("#540: regenerateReport failure preserves old report (data loss prevention)")
+        void regenerateReport_failure_preservesOldReport() {
+            ChipReport existing = new ChipReport();
+            existing.setId(500L);
+            existing.setPlanId(100L);
+            existing.setReportNo("RPT-001");
+            when(reportRepository.findById(500L)).thenReturn(Optional.of(existing));
+
+            // generateReport throws (simulating DB failure, OOM, etc.)
+            when(reportGeneratorService.generateReport(100L))
+                    .thenThrow(new RuntimeException("Simulated failure during report generation"));
+
+            // regenerateReport should propagate the exception
+            RuntimeException thrown = assertThrows(RuntimeException.class,
+                    () -> baselineService.regenerateReport(500L));
+            assertTrue(thrown.getMessage().contains("Report regeneration failed"));
+
+            // Old report must NOT have been deleted
+            verify(reportRepository, never()).delete(existing);
+            verify(reportRepository, never()).flush();
+        }
+
+        @Test
         @DisplayName("#540: generateReport failure should not delete old report (data loss prevention)")
         void test_setDefaultBaseline_reportRegenFailure_shouldNotDeleteOldReport() {
             Chip chip = createChip(1L, "DataLoss Chip");
