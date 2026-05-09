@@ -2,8 +2,8 @@
 const { test, expect } = require('@playwright/test');
 
 const BASE = 'http://localhost';
-const LOGIN_EMAIL = 'admin@ahvp.com';
-const LOGIN_PASSWORD = process.env.TEST_PASSWORD || 'Admin123456';
+const LOGIN_EMAIL = "test@ahvp.com";
+const LOGIN_PASSWORD = process.env.TEST_PASSWORD || "Test1234";
 
 async function login(page) {
   await page.goto(BASE + '/');
