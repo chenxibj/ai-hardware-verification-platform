@@ -39,6 +39,8 @@
 - **Key:** ~/.ssh/dev-ecs.pem（不存 workspace）
 - **配置:** 4C 14GB / 40GB / CentOS Stream 9
 - **命令:** `ssh -i ~/.ssh/dev-ecs.pem root@39.97.251.94`
+- **实例 ID:** i-2zee4yxsbkb9l5c2tiob
+- **⚠️ 到期时间:** 2026-05-01T16:00Z（北京 5/2 00:00）— **已到期停机，等 chenxi 续费**
 
 ## SSH - GPU 测试机（L40S x8）
 
