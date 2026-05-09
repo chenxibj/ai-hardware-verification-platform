@@ -173,6 +173,17 @@ public class EvaluationPlanService {
         EvaluationPlan saved = planRepository.save(plan);
         log.info("Started evaluation task: {}", saved.getPlanNo());
 
+        // #552: 同步更新芯片状态为 EVALUATING
+        if (saved.getChipId() != null) {
+            chipRepository.findById(saved.getChipId()).ifPresent(chip -> {
+                if (chip.getStatus() != com.lab.chip.Chip.ChipStatus.EVALUATING) {
+                    chip.setStatus(com.lab.chip.Chip.ChipStatus.EVALUATING);
+                    chipRepository.save(chip);
+                    log.info("#552: Chip {} status -> EVALUATING (plan {} started)", chip.getChipNo(), saved.getPlanNo());
+                }
+            });
+        }
+
         // #354: 异步分发任务 — dispatchPlanTasks 是 @Async，不阻塞当前请求
         try {
             taskDispatcher.dispatchPlanTasks(saved.getId());

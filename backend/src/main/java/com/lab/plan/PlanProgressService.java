@@ -1,5 +1,7 @@
 package com.lab.plan;
 
+import com.lab.chip.Chip;
+import com.lab.chip.ChipRepository;
 import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +29,7 @@ public class PlanProgressService {
     private final EvaluationPlanRepository planRepository;
     private final EvaluationTaskRepository taskRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final ChipRepository chipRepository;
 
     private static final Set<EvaluationTask.TaskStatus> TERMINAL_STATUSES = Set.of(
             EvaluationTask.TaskStatus.COMPLETED,
@@ -89,9 +92,36 @@ public class PlanProgressService {
             } catch (Exception e) {
                 log.warn("Failed to publish PlanCompletedEvent for plan {}: {}", planId, e.getMessage());
             }
+
+            // #552: 同步更新关联芯片状态
+            syncChipStatus(plan);
         }
 
         planRepository.save(plan);
         log.debug("#490: Plan {} progress: {}/{} ({}%)", plan.getPlanNo(), doneCount, total, plan.getProgress());
+    }
+
+    /**
+     * #552: 同步更新关联芯片的状态
+     * Plan RUNNING → Chip EVALUATING
+     * Plan COMPLETED → Chip EVALUATED
+     */
+    private void syncChipStatus(EvaluationPlan plan) {
+        if (plan.getChipId() == null) return;
+        chipRepository.findById(plan.getChipId()).ifPresent(chip -> {
+            Chip.ChipStatus newStatus = null;
+            if (plan.getStatus() == EvaluationPlan.PlanStatus.RUNNING) {
+                newStatus = Chip.ChipStatus.EVALUATING;
+            } else if (plan.getStatus() == EvaluationPlan.PlanStatus.COMPLETED) {
+                newStatus = Chip.ChipStatus.EVALUATED;
+            }
+            if (newStatus != null && chip.getStatus() != newStatus) {
+                Chip.ChipStatus oldStatus = chip.getStatus();
+                chip.setStatus(newStatus);
+                chipRepository.save(chip);
+                log.info("#552: Chip {} status updated: {} -> {} (plan {})",
+                        chip.getChipNo(), oldStatus, newStatus, plan.getPlanNo());
+            }
+        });
     }
 }

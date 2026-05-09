@@ -2,6 +2,8 @@ package com.lab.plan;
 
 import com.lab.task.EvaluationTask;
 import com.lab.task.EvaluationTaskRepository;
+import com.lab.chip.Chip;
+import com.lab.chip.ChipRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,6 +28,7 @@ class PlanProgressServiceTest {
     @Mock private EvaluationPlanRepository planRepository;
     @Mock private EvaluationTaskRepository taskRepository;
     @Mock private ApplicationEventPublisher eventPublisher;
+    @Mock private ChipRepository chipRepository;
 
     @InjectMocks
     private PlanProgressService planProgressService;
@@ -39,6 +42,7 @@ class PlanProgressServiceTest {
         plan.setPlanNo("PLAN-001");
         plan.setStatus(EvaluationPlan.PlanStatus.RUNNING);
         plan.setTotalTasks(3);
+        plan.setChipId(10L);
     }
 
     @Test
@@ -197,4 +201,38 @@ class PlanProgressServiceTest {
         task.setStatus(status);
         return task;
     }
+
+    @Test
+    void allCompleted_chipStatusUpdatedToEvaluated() {
+        Chip chip = new Chip();
+        chip.setId(10L);
+        chip.setChipNo("CHIP-001");
+        chip.setStatus(Chip.ChipStatus.EVALUATING);
+        when(chipRepository.findById(10L)).thenReturn(Optional.of(chip));
+        when(planRepository.findById(1L)).thenReturn(Optional.of(plan));
+        when(taskRepository.findByPlanId(1L)).thenReturn(List.of(
+                taskWithStatus(EvaluationTask.TaskStatus.COMPLETED),
+                taskWithStatus(EvaluationTask.TaskStatus.COMPLETED),
+                taskWithStatus(EvaluationTask.TaskStatus.COMPLETED)
+        ));
+
+        planProgressService.updateProgress(1L);
+
+        assertEquals(Chip.ChipStatus.EVALUATED, chip.getStatus());
+        verify(chipRepository).save(chip);
+    }
+
+    @Test
+    void partiallyDone_chipStatusNotChanged() {
+        when(planRepository.findById(1L)).thenReturn(Optional.of(plan));
+        when(taskRepository.findByPlanId(1L)).thenReturn(List.of(
+                taskWithStatus(EvaluationTask.TaskStatus.COMPLETED),
+                taskWithStatus(EvaluationTask.TaskStatus.RUNNING)
+        ));
+
+        planProgressService.updateProgress(1L);
+
+        verify(chipRepository, never()).findById(any());
+    }
+
 }
