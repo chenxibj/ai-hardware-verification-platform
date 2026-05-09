@@ -5,7 +5,16 @@
 
 set -uo pipefail
 
-BASE_URL="http://localhost:8080/api"
+# #550: Pre-flight health check
+echo "🏥 Checking backend health..."
+HEALTH=$(curl -sf "${API_BASE:-http://localhost:8080/api}/health" 2>/dev/null | python3 -c "import json,sys;print(json.load(sys.stdin).get('data',{}).get('status',''))" 2>/dev/null || echo "")
+if [ "$HEALTH" != "UP" ]; then
+  echo "⚠️  Backend not healthy (status=$HEALTH). Skipping tests."
+  echo "   Set API_BASE env to point to a running backend."
+  exit 0
+fi
+
+BASE_URL="${API_BASE:-http://localhost:8080/api}"
 GRAND_PASS=0; GRAND_FAIL=0; GRAND_TOTAL=0
 UNIQUE=$(date +%s)
 

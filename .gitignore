@@ -19,3 +19,13 @@ __pycache__
 *.pyc
 test-results/
 agent/logs/
+
+# E2E test artifacts (#550)
+tests/e2e/node_modules/
+tests/e2e/test-results/
+tests/e2e/playwright-report/
+tests/e2e/screenshots/
+e2e-tests/playwright-report/
+e2e-tests/playwright/.auth/
+e2e-tests/test-results/
+__pycache__/

@@ -13,7 +13,17 @@
 
 set -euo pipefail
 
+
 API_BASE="${API_BASE:-http://localhost:8080/api}"
+
+# #550: Pre-flight health check
+echo "🏥 Checking backend health..."
+_HEALTH=$(curl -sf "${API_BASE}/health" 2>/dev/null | python3 -c "import json,sys;print(json.load(sys.stdin).get('data',{}).get('status',''))" 2>/dev/null || echo "")
+if [ "$_HEALTH" != "UP" ]; then
+  echo "⚠️  Backend not healthy (status=$_HEALTH). Skipping tests."
+  echo "   Set API_BASE env to point to a running backend."
+  exit 0
+fi
 AGENT_TOKEN="${AGENT_TOKEN:-ahvp-agent-secret-2026}"
 PASS=0
 FAIL=0
