@@ -115,6 +115,7 @@
 - **Agent timeout ≠ 任务未完成：** 先 `git log` + `docker ps` 检查实际产出，不盲目重跑
 - **push 失败 fallback：** task prompt 应预设 `git format-patch` 保存 patch，不在 push 上无限重试
 - **test-results/ 等临时文件必须 .gitignore** — 截图混入 commit 导致 push 卡死
+- **🔴 涉及 DB schema / Flyway / Docker 基础设施的变更，sub-agent 完成后必须主 session 手动验证（5/11）** — agent 不理解 Flyway checksum、Docker volume 等联动关系，容易留下半成品导致连环故障。此类任务考虑主 session 直接执行而非 delegate
 
 ### 🔴🔴 Sub-agent 并行修 bug = 质量灾难（核心教训）
 - **现象：** 4 个 sub-agent 并行修 20 个 bug，全部报告"已验证"，复测发现多个未修复
@@ -186,6 +187,9 @@
 - **JpaSpecification > JPQL** — 动态查询场景用 JpaSpecification 更安全
 - **ddl-auto=update 两次爆炸（04-05、04-27）** — 技术债不还终究出事
 - **NOT NULL 约束设计要考虑全业务路径** — 枚举所有写入路径判断是否真的 NOT NULL
+- **🔴 已发布的 Flyway 迁移文件绝不能修改（5/11 血泪）** — 修改 V1__baseline.sql + Docker rebuild = checksum mismatch → backend restart loop → 手动修复 40 分钟。铁律：Sub-agent task prompt 必须明确禁止修改 `db/migration/V*` 文件。新变更一律用新 V 编号
+- **init.sql 也要有 CI 验证** — 建表语句语法错误（缺逗号、CHECK 引号）藏了数月，因为从未走过从零建库路径。建议加 `psql -f init.sql` 自动化检查
+- **开发环境 Flyway 应关闭 checksum 校验** — `SPRING_FLYWAY_VALIDATE_ON_MIGRATE=false` 避免 rebuild 触发雪崩
 
 ### 架构与设计经验
 - **架构级问题要架构级解决** — pushState 补丁治标不治本，React Router 重构彻底解决
@@ -227,10 +231,17 @@
 - **PRD Gap Analysis 是停机期最有价值的工作（5/8）** — 不依赖开发机，直接对照 PRD 和代码输出每个 User Story 完成度。产出的 gap report 直接指导恢复后优先级和设计文档方向
 - **停机日应设 daily target（5/8）** — 即使不能部署，code review/PRD分析/设计文档/issue规划等工作不依赖开发机，每天至少 3 个产出项
 - **🔴 Recovery Plan ROI 极高（5/9 验证）** — 8 天停机准备 + 2.5 小时恢复全部积压。预写 checklist = 恢复后零决策延迟。铁律：任何长阻塞（>2天）第一时间写 recovery plan
+- **周末空闲无产出 = 规则失效的信号（5/10）** — 0 open issue + 28% PRD gap + 0 篇设计文档 = 典型的"没人催就不干"。解法不是写更多规则，是让 idle-work-trigger 真正 work
+- **扫描→修复闭环 <4h 是正确节奏（5/11）** — 代码质量扫描发现 AGENT_TOKEN 硬编码 P0，同天下午修复部署。主动扫描的价值在于即时行动，不是写报告存档
+- **Flyway 是反复出现的部署风险（第3次，5/11）** — init.sql 质量 + checksum 管理需要更严格的 pre-commit 检查。三次教训：04-05 ddl-auto 迁移、04-27 schema 漂移、05-11 语法错误
+- **空闲日 5 项产出验证了 Step 2.5 机制（5/11）** — E2E 回归 + 设计文档 + 质量扫描 + 部署 + 安全修复，全自主零人工。HEARTBEAT.md 的空闲触发规则终于稳定运转
 - **E2E 测试维护 = 主动 bug hunting（5/9）** — 更新过时断言的过程中发现 #552 真实 bug。定期维护 E2E 不是 housekeeping 而是 bug 发现机制
 - **停机期准备 + 恢复后冲刺 = 最佳模式（5/9）** — 不能改代码的日子做分析/规划/review，恢复第一天密集执行。pattern 已验证
 - **E2E 失败先分类再修复（5/5）** — 33 个失败先按根因分类（真实 bug vs 基础设施问题），避免盲目修复。发现真实 bug (#549) 并优先修复，其余 31 个归为技术债 (#550)
 - **🔴 Sub-agent 失败后必须立即重试（5/6 再次验证）** — 5/4 写过、5/6 又犯。认知→执行的 gap 是真实存在的。对策：spawn 失败后设 15 分钟自动重试逻辑，不依赖人工判断
+- **🔴 飞书投递失败 = 汇报体系静默（5/10）** — 连续 50+ 次 patrol delivered=false 无人察觉。必须有 fallback：投递失败 N 次 → 主 session 交互时主动提醒 + 补发关键通知
+- **Cron error 不能写在规则里就完事（5/10 再次验证）** — idle-work-trigger 连续 3 天 timeout，正是"Cron error 24h 内必须修复"铁律的反面教材。和"空闲日应主动找活"一样，规则写了≠执行了。自动化监控 > 自律
+- **idle-work-trigger 架构问题（5/10）** — 单个 cron 又判断又执行，超时是必然。应拆成：轻量判断（选任务）→ spawn sub-agent（执行）。cron 本身 <30s 完成
 - **Task prompt 必须预判环境限制（5/6）** — 明知开发机停机却没在 prompt 写"禁止 SSH"，导致 agent 可能卡在连接上。所有 spawn 前先列出当前环境约束并写入 task
 - **Task prompt 优化 ROI 极高（5/7 验证）** — 同一个 P0-2 修复，5/6 超时失败，5/7 精准 prompt 8 分钟完成。5 分钟优化 prompt > 30 分钟盲目重试
 - **长停机应升级沟通策略（5/7）** — 单渠道（DM）催费连续无回应 7 天 = 该换策略。应尝试群 @mention、多渠道并发、或标记为需用户决策的阻塞项
@@ -283,22 +294,22 @@
 9. **控制台验收 > API 验收** — curl 200 ≠ 功能正常，必须走完整 UI 路径
 10. **Bug 修复要溯因不要打补丁** — 问"为什么会有这个 bug"
 
-### 项目当前状态（2026-05-09 更新）
-- **✅ 开发机已恢复** — 5/9 chenxi 续费，9 天停机结束
-- **后端版本:** c795e658 (2026-05-09)，健康检查全绿
+### 项目当前状态（2026-05-11 更新）
+- **✅ 开发机正常运行**
+- **后端版本:** e8678302 (2026-05-11)，健康检查全绿
 - **E2E 测试:** 68/68 全绿 (100%)
-- **Open Issue = 0** 🎉（#550 已关闭，#552 已关闭）
+- **Open Issue = 0** 🎉
 - **PRD v3.2 Gap Analysis 已完成** — 第一期核心 ~82%，总体 ~72%，详见 memory/prd-gap-analysis-20260508.md
-- **已完成积压部署：**
-  - ✅ P0-2 BaselineService 事务保护 (0a37c3d8)
-  - ✅ #549 评分引擎 fallback (6ad047b)
-  - ✅ eval-logs 500 修复 (78b6806)
-  - ✅ #552 芯片状态联动 (66c57d5e)
+- **新设计文档:** docs/design-eval-params.md (US-1.4 六层参数配置，待 review)
+- **代码健康度:** 🟡 中等偏下（详见 memory/task-progress-code-quality-0511.md）
+  - 前端测试覆盖率 2.5% 是最大短板
+  - AGENT_TOKEN 安全漏洞已修复 (e8678302)
+  - EvaluationTaskController 936 行待拆分
 - **⚠️ 待处理（按优先级）：**
-  - P1: 全量功能验收（登录 → 评测 → 报告全链路）
-  - P2: 基于 PRD Gap Analysis 写设计文档（US-1.9 自主编排、US-1.4 六层配置、社区模块）
+  - P1: 基于代码扫描结果拆 issue（Controller 拆分、前端测试基础设施、静默 catch 审计）
+  - P2: US-1.4 评测参数配置实现（等设计文档确认，~13 工作日）
+  - P2: US-1.9 自主编排设计文档
   - P2: #550 long-term: shell E2E 迁移到 Playwright
-  - P2: 设置云资源到期预警 cron
 
 ## K8s / ACK 集群
 
