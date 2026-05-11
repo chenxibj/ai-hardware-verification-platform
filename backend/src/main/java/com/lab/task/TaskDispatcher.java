@@ -62,7 +62,7 @@ public class TaskDispatcher {
     @Autowired
     private TaskDispatcher self;
 
-    @Value("${agent.token:ahvp-agent-secret-2026}")
+    @Value("${agent.token:}")
     private String agentToken;
 
     private final RestTemplate restTemplate;

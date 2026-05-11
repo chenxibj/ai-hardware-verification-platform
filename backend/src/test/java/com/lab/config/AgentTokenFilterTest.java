@@ -29,7 +29,7 @@ class AgentTokenFilterTest {
     @Mock
     private FilterChain filterChain;
 
-    private static final String VALID_TOKEN = "ahvp-agent-secret-2026";
+    private static final String VALID_TOKEN = "test-agent-token-for-unit-tests";
 
     @BeforeEach
     void setUp() throws Exception {

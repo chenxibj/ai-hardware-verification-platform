@@ -97,7 +97,7 @@ management:
 
 # Agent 通信 Token
 agent:
-  token: ${AGENT_TOKEN:ahvp-agent-secret-2026}
+  token: ${AGENT_TOKEN:}
 
 # 版本信息 (#460)
 app:

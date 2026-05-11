@@ -1,5 +1,6 @@
 package com.lab.config;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -29,6 +30,18 @@ public class AgentTokenFilter extends OncePerRequestFilter {
 
     @Value("${agent.token:}")
     private String agentToken;
+
+
+    @PostConstruct
+    void validateAgentToken() {
+        if (!StringUtils.hasText(agentToken)) {
+            log.warn("============================================================");
+            log.warn("  WARNING: AGENT_TOKEN is not configured!");
+            log.warn("  Agent API endpoints will reject all requests.");
+            log.warn("  Set the AGENT_TOKEN environment variable to enable agent communication.");
+            log.warn("============================================================");
+        }
+    }
 
     /**
      * Patterns matching agent-only endpoints.
