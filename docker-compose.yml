@@ -76,6 +76,8 @@ services:
     container_name: ahvp-backend
     environment:
       SPRING_PROFILES_ACTIVE: dev
+      SPRING_FLYWAY_VALIDATE_ON_MIGRATE: "false"
+      SPRING_FLYWAY_CLEAN_DISABLED: "true"
       # Version info (runtime override for CI and deploys)
       GIT_COMMIT: ${GIT_COMMIT:-unknown}
       APP_VERSION: ${APP_VERSION:-unknown}
@@ -96,6 +98,7 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       JWT_SECRET: ${JWT_SECRET}
+      AGENT_TOKEN: ${AGENT_TOKEN}
     volumes:
       - /data/assets:/data/assets
       - ./eval-scripts:/app/eval-scripts:ro
