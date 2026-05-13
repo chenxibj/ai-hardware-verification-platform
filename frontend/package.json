@@ -24,7 +24,8 @@
     "build": "bash -c 'export REACT_APP_BUILD_HASH=$(git rev-parse --short=12 HEAD)_$(date +%s) && bash gen-version.sh && react-scripts build'",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "postinstall": "bash scripts/patch-terser.sh"
+    "postinstall": "bash scripts/patch-terser.sh",
+    "test:coverage": "react-scripts test --coverage --watchAll=false"
   },
   "eslintConfig": {
     "extends": [
@@ -47,5 +48,29 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1"
+  },
+  "jest": {
+    "collectCoverageFrom": [
+      "src/**/*.{js,jsx}",
+      "!src/index.js",
+      "!src/reportWebVitals.js",
+      "!src/setupTests.js",
+      "!src/test-utils.js",
+      "!src/**/*.test.{js,jsx}",
+      "!src/**/__tests__/**"
+    ],
+    "coverageThresholds": {
+      "global": {
+        "statements": 15,
+        "branches": 10,
+        "functions": 10,
+        "lines": 15
+      }
+    }
   }
 }
