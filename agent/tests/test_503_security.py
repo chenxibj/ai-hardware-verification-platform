@@ -4,7 +4,7 @@ import json
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-VALID_TOKEN = 'ahvp-agent-secret-2026'
+VALID_TOKEN = os.environ.get('AGENT_TOKEN', 'test-token-for-ci')
 
 
 class TestTokenAuth:

@@ -24,7 +24,7 @@ if [ "$_HEALTH" != "UP" ]; then
   echo "   Set API_BASE env to point to a running backend."
   exit 0
 fi
-AGENT_TOKEN="${AGENT_TOKEN:-ahvp-agent-secret-2026}"
+AGENT_TOKEN="${AGENT_TOKEN:-changeme-on-deploy}"
 PASS=0
 FAIL=0
 SKIP=0

@@ -30,7 +30,7 @@ export default function NodeRegisterTab() {
         "cat > config.yaml << CONF_EOF",
         "platform:",
         "  url: http://39.97.251.94:8080/api",
-        "  token: ahvp-agent-secret-2026",
+        "  token: ${AGENT_TOKEN}  # Set via environment variable",
         "node:",
         `  name: "${values.nodeName}"`,
         `  description: "手动纳管节点 ${values.nodeIp}"`,

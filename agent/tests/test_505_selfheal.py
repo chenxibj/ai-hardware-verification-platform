@@ -26,7 +26,7 @@ class TestRegistrationGuard:
             with app.test_client() as client:
                 resp = client.post('/execute',
                     json={"taskId": 1, "evalType": "OPERATOR"},
-                    headers={'X-Agent-Token': 'ahvp-agent-secret-2026'})
+                    headers={'X-Agent-Token': os.environ.get('AGENT_TOKEN', 'test-token-for-ci')})
                 assert resp.status_code == 503, f"Expected 503, got {resp.status_code}"
                 data = json.loads(resp.data)
                 assert data["retryable"] is True
@@ -48,7 +48,7 @@ class TestRegistrationGuard:
             with app.test_client() as client:
                 resp = client.post('/execute',
                     json={"taskId": 1, "evalType": "OPERATOR"},
-                    headers={'X-Agent-Token': 'ahvp-agent-secret-2026'})
+                    headers={'X-Agent-Token': os.environ.get('AGENT_TOKEN', 'test-token-for-ci')})
                 assert resp.status_code == 503
         finally:
             main_mod.node_info = original_node_info
@@ -68,7 +68,7 @@ class TestRegistrationGuard:
             with app.test_client() as client:
                 resp = client.post('/execute',
                     json={"taskId": 1, "evalType": "OPERATOR"},
-                    headers={'X-Agent-Token': 'ahvp-agent-secret-2026'})
+                    headers={'X-Agent-Token': os.environ.get('AGENT_TOKEN', 'test-token-for-ci')})
                 assert resp.status_code != 503, f"Registered node should not get 503, got {resp.status_code}"
         finally:
             main_mod.node_info = original_node_info

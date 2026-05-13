@@ -32,7 +32,10 @@ spec:
         - name: PLATFORM_URL
           value: http://39.97.251.94/api
         - name: AGENT_TOKEN
-          value: ahvp-agent-secret-2026
+          valueFrom:
+            secretKeyRef:
+              name: ahvp-secrets
+              key: agent-token
         - name: NODE_NAME
           valueFrom:
             fieldRef:

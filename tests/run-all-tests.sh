@@ -29,7 +29,7 @@ TOKEN=$(curl -sf "$BASE_URL/auth/login" -X POST \
 if [ -z "$TOKEN" ]; then echo "FATAL: Login failed"; exit 1; fi
 echo "🔑 Logged in OK"
 AUTH="Authorization: Bearer $TOKEN"
-AGENT_TOKEN="X-Agent-Token: ahvp-agent-secret-2026"
+AGENT_TOKEN="X-Agent-Token: ${AGENT_TOKEN:-changeme-on-deploy}"
 
 # Get first available runSpecId for plan creation
 RUN_SPEC_ID=$(curl -sf "$BASE_URL/run-specs" -H "$AUTH" | python3 -c "import sys,json; d=json.load(sys.stdin).get('data',[]); print(d[0]['id'] if d else '11')" 2>/dev/null || echo "11")

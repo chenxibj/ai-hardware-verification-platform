@@ -10,13 +10,14 @@ Tests run against live API + DB to verify:
 6. No-GPU node registration works fine (gpuCount=0, no slots)
 """
 import json
+import os
 import subprocess
 import sys
 import time
 import requests
 
 BASE_URL = "http://localhost:8080/api"
-AGENT_TOKEN = "ahvp-agent-secret-2026"
+AGENT_TOKEN = os.environ.get("AGENT_TOKEN", "test-token-for-ci")
 HEADERS = {
     "Content-Type": "application/json",
     "X-Agent-Token": AGENT_TOKEN,

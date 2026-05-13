@@ -298,7 +298,7 @@ def register_k8s_nodes():
     body = request.get_json(silent=True) or {}
     cluster_name = body.get("clusterName", "ack-cluster")
     platform_url = body.get("platformUrl", "http://localhost:8080/api")
-    platform_token = body.get("platformToken", "ahvp-agent-secret-2026")
+    platform_token = body.get("platformToken", os.environ.get("AGENT_TOKEN", "changeme-on-deploy"))
 
     try:
         core_v1, version_api, _ = _load_k8s_clients()
@@ -387,7 +387,7 @@ import time
 import requests as http_requests
 
 PLATFORM_URL = os.environ.get("AHVP_PLATFORM_URL", "http://39.97.251.94/api")
-AGENT_TOKEN = os.environ.get("AHVP_AGENT_TOKEN", "ahvp-agent-secret-2026")
+AGENT_TOKEN = os.environ.get("AGENT_TOKEN", "changeme-on-deploy")
 K8S_NODE_ID = None  # 注册后填入
 
 def _register_k8s_node():

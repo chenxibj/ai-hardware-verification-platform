@@ -10,6 +10,6 @@ node:
   tags: cpu,dev,centos
 platform:
   public_url: http://39.97.251.94/api
-  token: ahvp-agent-secret-2026
+  token: ${AGENT_TOKEN:changeme-on-deploy}
   url: http://localhost:8080/api
 project_root: ..
