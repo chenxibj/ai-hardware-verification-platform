@@ -116,6 +116,9 @@
 - **push 失败 fallback：** task prompt 应预设 `git format-patch` 保存 patch，不在 push 上无限重试
 - **test-results/ 等临时文件必须 .gitignore** — 截图混入 commit 导致 push 卡死
 - **🔴 涉及 DB schema / Flyway / Docker 基础设施的变更，sub-agent 完成后必须主 session 手动验证（5/11）** — agent 不理解 Flyway checksum、Docker volume 等联动关系，容易留下半成品导致连环故障。此类任务考虑主 session 直接执行而非 delegate
+- **设计文档任务不适合直接 spawn（5/13）** — agent 花大量时间探索代码库，连续 2 次超时。正确做法：主 session 预收集代码结构信息 → 放入 prompt 或直接自己写。写作任务 ≠ 代码任务，agent 不擅长"先理解后写长文"
+- **Sub-agent push 结果不可信（5/13 再验证）** — agent 报告"已 push"但 GitHub 未收到。巡检时必须 `gh api` 对比 GitHub HEAD。这是第 N 次了，应该写入巡检流程的标准步骤
+- **Agent "意外"产出可能有价值（5/13）** — 编排设计 agent 超时但：①顺手完成 Controller 重构（936→4 文件）②发现已有 Workflows.js 18 种节点 + DB 表骨架。这些信息指导了更好的设计文档。不要因为 agent 没完成指定任务就全盘否定其产出
 - **🔴 Agent push 验证必须用 GitHub API（5/13）** — agent 自报"已 push"但实际未到 GitHub（开发机网络不稳定）。完成后必须 `gh api repos/.../commits?per_page=1` 确认 commit SHA 一致
 - **设计文档类 task 需"信息预收集"模式（5/13）** — 两次 15min timeout，agent 花全部时间探索代码。正确做法：主 session 预收集关键代码结构写入 prompt，agent 只负责写文档。或主 session 直接写
 - **Agent 超时 ≠ 零产出（5/13 再验证）** — 编排 agent 超时但意外完成了 Controller 拆分重构 + push 了设计文档。超时后必须 git log 检查实际产出
@@ -299,7 +302,7 @@
 9. **控制台验收 > API 验收** — curl 200 ≠ 功能正常，必须走完整 UI 路径
 10. **Bug 修复要溯因不要打补丁** — 问"为什么会有这个 bug"
 
-### 项目当前状态（2026-05-13 更新）
+### 项目当前状态（2026-05-13 23:00 更新）
 - **✅ 开发机正常运行**
 - **后端版本:** 0bb94fc3 (2026-05-13)，健康检查全绿
 - **E2E 测试:** 68/68 全绿 (100%)
@@ -314,8 +317,9 @@
   - ✅ EvaluationTaskController 已拆分（936→4 文件，commit b7f4ee81）
   - ✅ AGENT_TOKEN 全面清理（10 文件，commit 86cdb8e5）
   - ✅ Flyway 配置重复已修复
-  - 前端测试覆盖率 2.5% 仍是最大短板
+  - 前端测试覆盖率 2.5% 仍是最大短板（⚠️ 连续 2 天未推进）
 - **⚠️ 待处理（按优先级）：**
+  - 🔴 P0: 前端测试基础设施搭建（2.5%→20%+）— 连续 2 天拖延，5/14 必做
   - P1: 等 chenxi review 编排设计文档 → 拆 issue → 开发（~18 工作日）
   - P1: 基于代码扫描拆 issue（前端测试基础设施、静默 catch 审计）
   - P2: US-1.4 评测参数配置实现（等设计文档确认，~13 工作日）
