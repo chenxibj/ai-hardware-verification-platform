@@ -27,14 +27,12 @@ class TaskQueueFreshReasonTest {
 
     @Mock private EvaluationTaskService taskService;
     @Mock private EvaluationTaskRepository taskRepository;
-    @Mock private TaskLogRepository taskLogRepository;
     @Mock private ComputeNodeRepository computeNodeRepository;
-    @Mock private com.lab.result.EvaluationResultRepository evaluationResultRepository;
     @Mock private GpuSlotService gpuSlotService;
     @Mock private RunSpecRepository runSpecRepository;
 
     @InjectMocks
-    private EvaluationTaskController controller;
+    private TaskQueueController controller;
 
     @Test
     @DisplayName("#486: /tasks/queue returns fresh queueReason based on current GPU state")
