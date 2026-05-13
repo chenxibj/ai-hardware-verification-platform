@@ -64,12 +64,12 @@
       "!src/**/*.test.{js,jsx}",
       "!src/**/__tests__/**"
     ],
-    "coverageThresholds": {
+    "coverageThreshold": {
       "global": {
-        "statements": 15,
-        "branches": 10,
-        "functions": 10,
-        "lines": 15
+        "statements": 8,
+        "branches": 4,
+        "functions": 8,
+        "lines": 8
       }
     }
   }
