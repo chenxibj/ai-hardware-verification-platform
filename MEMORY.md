@@ -116,6 +116,9 @@
 - **push 失败 fallback：** task prompt 应预设 `git format-patch` 保存 patch，不在 push 上无限重试
 - **test-results/ 等临时文件必须 .gitignore** — 截图混入 commit 导致 push 卡死
 - **🔴 涉及 DB schema / Flyway / Docker 基础设施的变更，sub-agent 完成后必须主 session 手动验证（5/11）** — agent 不理解 Flyway checksum、Docker volume 等联动关系，容易留下半成品导致连环故障。此类任务考虑主 session 直接执行而非 delegate
+- **🔴 Agent push 验证必须用 GitHub API（5/13）** — agent 自报"已 push"但实际未到 GitHub（开发机网络不稳定）。完成后必须 `gh api repos/.../commits?per_page=1` 确认 commit SHA 一致
+- **设计文档类 task 需"信息预收集"模式（5/13）** — 两次 15min timeout，agent 花全部时间探索代码。正确做法：主 session 预收集关键代码结构写入 prompt，agent 只负责写文档。或主 session 直接写
+- **Agent 超时 ≠ 零产出（5/13 再验证）** — 编排 agent 超时但意外完成了 Controller 拆分重构 + push 了设计文档。超时后必须 git log 检查实际产出
 
 ### 🔴🔴 Sub-agent 并行修 bug = 质量灾难（核心教训）
 - **现象：** 4 个 sub-agent 并行修 20 个 bug，全部报告"已验证"，复测发现多个未修复
@@ -208,7 +211,7 @@
 - **Plan 级 GPU 预留 vs Task 级分配** — 方案选 gpu-4 就全预留，算子只用其中 1 张。产品层面的资源概念不能用技术思维简化
 
 ### 工作习惯与执行力（核心教训）
-- **🔴🔴 规则/Lesson/TODO 不等于执行** — 从 4/14 到 4/28，14 天写了"空闲日应主动找活"。最终靠 cron 自动化强制执行才解决。**认知→规则→工具→自动化，每层传导有损耗，纯靠"写下来"不够，必须用 cron/代码强制执行。**
+- **🔴🔴 规则/Lesson/TODO 不等于执行** — 从 4/14 到 4/28，14 天写了"空闲日应主动找活"。最终靠 cron 自动化强制执行才解决。**认知→规则→工具→自动化，每层传导有损耗，纯靠"写下来"不够，必须用 cron/代码强制执行。** 5/12 再次验证：cron 触发阈值设 ≥2 天，结果恰好卡在第 1 天就整天 0 产出。自动化也有盲区，主 session 心跳应兜底判断"今天该干什么"。
 - **✅ 自动化 > 自律的正面验证** — idle-work-trigger cron 设置后第 1 天就自动产出。14 天自我承诺不如 1 个 cron。
 - **启动是瓶颈，执行不是** — 31 分钟完成 5 个 fix，2.5 小时完成 7 个 issue。问题 100% 在"什么时候开始"。降低启动摩擦（自动 spawn）比提高执行速度更有价值。
 - **不要把事情放到明天（chenxi 直接反馈）** — 怀疑有问题就立刻查。案例：日报 cron 投递连续失败 14 次，每天写"明天排查"从没排查。
@@ -235,6 +238,8 @@
 - **扫描→修复闭环 <4h 是正确节奏（5/11）** — 代码质量扫描发现 AGENT_TOKEN 硬编码 P0，同天下午修复部署。主动扫描的价值在于即时行动，不是写报告存档
 - **Flyway 是反复出现的部署风险（第3次，5/11）** — init.sql 质量 + checksum 管理需要更严格的 pre-commit 检查。三次教训：04-05 ddl-auto 迁移、04-27 schema 漂移、05-11 语法错误
 - **空闲日 5 项产出验证了 Step 2.5 机制（5/11）** — E2E 回归 + 设计文档 + 质量扫描 + 部署 + 安全修复，全自主零人工。HEARTBEAT.md 的空闲触发规则终于稳定运转
+- **P0 代码质量问题不应等 review（5/12）** — Controller 重构、测试覆盖率等内部质量提升工作不依赖任何 external input，空闲日应直接推进，不以"在等 review"为借口停滞
+- **cron 触发阈值需要动态评估（5/12）** — idle ≥2 天才触发主动工作，但阈值恰好卡住时就整天空转。应在主 session 心跳中额外判断"有无可做的 P0/P1 工作"，不完全依赖 cron
 - **E2E 测试维护 = 主动 bug hunting（5/9）** — 更新过时断言的过程中发现 #552 真实 bug。定期维护 E2E 不是 housekeeping 而是 bug 发现机制
 - **停机期准备 + 恢复后冲刺 = 最佳模式（5/9）** — 不能改代码的日子做分析/规划/review，恢复第一天密集执行。pattern 已验证
 - **E2E 失败先分类再修复（5/5）** — 33 个失败先按根因分类（真实 bug vs 基础设施问题），避免盲目修复。发现真实 bug (#549) 并优先修复，其余 31 个归为技术债 (#550)
@@ -294,21 +299,26 @@
 9. **控制台验收 > API 验收** — curl 200 ≠ 功能正常，必须走完整 UI 路径
 10. **Bug 修复要溯因不要打补丁** — 问"为什么会有这个 bug"
 
-### 项目当前状态（2026-05-11 更新）
+### 项目当前状态（2026-05-13 更新）
 - **✅ 开发机正常运行**
-- **后端版本:** e8678302 (2026-05-11)，健康检查全绿
+- **后端版本:** 0bb94fc3 (2026-05-13)，健康检查全绿
 - **E2E 测试:** 68/68 全绿 (100%)
-- **Open Issue = 0** 🎉
-- **PRD v3.2 Gap Analysis 已完成** — 第一期核心 ~82%，总体 ~72%，详见 memory/prd-gap-analysis-20260508.md
-- **新设计文档:** docs/design-eval-params.md (US-1.4 六层参数配置，待 review)
-- **代码健康度:** 🟡 中等偏下（详见 memory/task-progress-code-quality-0511.md）
-  - 前端测试覆盖率 2.5% 是最大短板
-  - AGENT_TOKEN 安全漏洞已修复 (e8678302)
-  - EvaluationTaskController 936 行待拆分
+- **Open Issues = 0** 🎉
+- **PRD v3.2 Gap Analysis 已完成** — 第一期核心 ~82%，总体 ~72%
+- **设计文档进展：**
+  - ✅ 评测参数配置 US-1.4（docs/design-eval-params.md, 5/11）
+  - ✅ 评测自主编排 US-1.5（docs/design-eval-orchestration.md, 5/13）— 待 chenxi review
+  - 🔲 社区模块（未开始）
+- **发现前端已有 Workflows.js** — react-flow 画布 + 18 种节点 + 5 模板，DB 有 workflows 表骨架
+- **代码健康度:** 🟡→🟢 改善中
+  - ✅ EvaluationTaskController 已拆分（936→4 文件，commit b7f4ee81）
+  - ✅ AGENT_TOKEN 全面清理（10 文件，commit 86cdb8e5）
+  - ✅ Flyway 配置重复已修复
+  - 前端测试覆盖率 2.5% 仍是最大短板
 - **⚠️ 待处理（按优先级）：**
-  - P1: 基于代码扫描结果拆 issue（Controller 拆分、前端测试基础设施、静默 catch 审计）
+  - P1: 等 chenxi review 编排设计文档 → 拆 issue → 开发（~18 工作日）
+  - P1: 基于代码扫描拆 issue（前端测试基础设施、静默 catch 审计）
   - P2: US-1.4 评测参数配置实现（等设计文档确认，~13 工作日）
-  - P2: US-1.9 自主编排设计文档
   - P2: #550 long-term: shell E2E 迁移到 Playwright
 
 ## K8s / ACK 集群
