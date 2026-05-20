@@ -56,18 +56,19 @@ Element.prototype.scrollTo = Element.prototype.scrollTo || function() {};
 Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || function() {};
 
 // Suppress specific console warnings in tests
+// POLICY: Only suppress React/router framework noise.
+// NEVER suppress real errors (Uncaught, destructure, component crashes).
 const originalError = console.error;
 const originalWarn = console.warn;
 
 console.error = (...args) => {
   const msg = typeof args[0] === 'string' ? args[0] : '';
+  // Only suppress React internal warnings that are not actionable
   if (msg.includes('act(')) return;
   if (msg.includes('React Router Future Flag Warning')) return;
-  if (msg.includes('Warning: An update to')) return;
+  if (msg.includes('Warning: An update to') && msg.includes('not wrapped in act')) return;
   if (msg.includes('Warning: validateDOMNesting')) return;
-  if (msg.includes('Cannot destructure property')) return;
-  if (msg.includes('Error: Uncaught')) return;
-  if (msg.includes('The above error occurred in the')) return;
+  // Let all other errors through — they may indicate real bugs
   originalError.call(console, ...args);
 };
 
