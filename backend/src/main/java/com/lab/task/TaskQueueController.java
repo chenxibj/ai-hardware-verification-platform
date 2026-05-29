@@ -260,8 +260,9 @@ public class TaskQueueController {
                 }
             }
             if (!runSpecCodes.isEmpty()) {
-                for (String code : runSpecCodes) {
-                    runSpecRepository.findByCode(code).ifPresent(spec -> runSpecMap.put(spec.getId(), spec));
+                List<RunSpec> specs = runSpecRepository.findByCodeIn(runSpecCodes);
+                for (RunSpec spec : specs) {
+                    runSpecMap.put(spec.getId(), spec);
                 }
             }
         } catch (Exception e) {
