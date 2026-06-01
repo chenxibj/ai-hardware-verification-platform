@@ -77,10 +77,10 @@ public class TaskQueueController {
 
         // #481: Build evalType -> avg minutes map from recent completions
         Map<String, Double> avgMinutesByType = buildAvgMinutesByType();
-        // #486: Pre-fetch node GPU state for fresh queueReason computation
-        Map<Long, long[]> nodeGpuState = buildNodeGpuState();
-        // #556: Pre-load nodes and runSpecs to eliminate N+1 queries
-        Map<Long, ComputeNode> nodeMap = buildNodeMap();
+        // #558: Load all nodes once and share across buildNodeGpuState + buildNodeMap
+        List<ComputeNode> allNodes = computeNodeRepository.findAll();
+        Map<Long, long[]> nodeGpuState = buildNodeGpuState(allNodes);
+        Map<Long, ComputeNode> nodeMap = buildNodeMap(allNodes);
         Map<Long, RunSpec> runSpecMap = buildRunSpecMap(queuedTasks);
 
         List<Map<String, Object>> queueData = new ArrayList<>();
@@ -205,10 +205,12 @@ public class TaskQueueController {
         }
         return avgMinutesByType;
     }
-    private Map<Long, long[]> buildNodeGpuState() {
+    /**
+     * #558: Accepts pre-loaded node list to avoid duplicate findAll() calls.
+     */
+    private Map<Long, long[]> buildNodeGpuState(List<ComputeNode> allNodes) {
         Map<Long, long[]> nodeGpuState = new HashMap<>();
         try {
-            List<ComputeNode> allNodes = computeNodeRepository.findAll();
             for (ComputeNode node : allNodes) {
                 long free = gpuSlotService.countFreeSlots(node.getId());
                 long total = gpuSlotService.countTotalSlots(node.getId());
@@ -222,13 +224,17 @@ public class TaskQueueController {
         return nodeGpuState;
     }
 
+    /** @deprecated Use {@link #buildNodeGpuState(List)} instead */
+    private Map<Long, long[]> buildNodeGpuState() {
+        return buildNodeGpuState(computeNodeRepository.findAll());
+    }
+
     /**
-     * #556: Pre-load all ComputeNodes into a Map to avoid N+1 queries in computeFreshQueueReason
+     * #556/#558: Pre-load all ComputeNodes into a Map. Accepts pre-loaded list to share with buildNodeGpuState.
      */
-    private Map<Long, ComputeNode> buildNodeMap() {
+    private Map<Long, ComputeNode> buildNodeMap(List<ComputeNode> allNodes) {
         Map<Long, ComputeNode> nodeMap = new HashMap<>();
         try {
-            List<ComputeNode> allNodes = computeNodeRepository.findAll();
             for (ComputeNode node : allNodes) {
                 nodeMap.put(node.getId(), node);
             }
@@ -236,6 +242,11 @@ public class TaskQueueController {
             log.debug("Failed to pre-fetch nodes: {}", e.getMessage());
         }
         return nodeMap;
+    }
+
+    /** @deprecated Use {@link #buildNodeMap(List)} instead */
+    private Map<Long, ComputeNode> buildNodeMap() {
+        return buildNodeMap(computeNodeRepository.findAll());
     }
 
     /**

@@ -107,8 +107,8 @@ class TaskQueueNPlus1Test {
         verify(runSpecRepository, never()).findById(anyLong());
         verify(runSpecRepository, times(1)).findAllById(anyCollection());
 
-        // computeNodeRepository.findAll() called exactly twice (buildNodeGpuState + buildNodeMap)
-        verify(computeNodeRepository, times(2)).findAll();
+        // #558: computeNodeRepository.findAll() called exactly ONCE (shared across buildNodeGpuState + buildNodeMap)
+        verify(computeNodeRepository, times(1)).findAll();
 
         // GPU slot service called once per node (in buildNodeGpuState), not once per task
         verify(gpuSlotService, times(nodeCount)).countFreeSlots(anyLong());
